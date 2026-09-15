@@ -102,11 +102,6 @@ export interface DeployResult {
 }
 
 // ---------- 工作台运行时（M2-2） ----------
-export const WorkspaceApi = {
-  info: (deploymentId: number) =>
-    http.get<WorkspaceInfo>(`/app/${deploymentId}`).then((r) => r.data),
-};
-
 export interface TableInfo {
   name: string;
   biz_name: string;
@@ -165,6 +160,111 @@ export interface WorkspaceInfo {
   menus: WorkspaceMenu[];
   pages: WorkspacePage[];
 }
+
+// ---------- CRUD 元数据（M2-3/M2-4） ----------
+export interface FkRef {
+  ref_table: string;
+  ref_column: string;
+}
+
+export interface MetaColumn {
+  name: string;
+  biz_name: string;
+  type: string;
+  length: number | null;
+  nullable: boolean;
+  pk: boolean;
+  unique: boolean;
+  fk: FkRef | null;
+  is_ownership: boolean;
+}
+
+export interface TableMeta {
+  columns: MetaColumn[];
+}
+
+export interface RefOption {
+  value: number | string;
+  label: string;
+}
+
+export interface RefPage {
+  ref_table: string;
+  ref_column: string;
+  label_column: string | null;
+  options: RefOption[];
+  page: number;
+  page_size: number;
+  total: number;
+}
+
+export interface CrudRowFilters {
+  page?: number;
+  page_size?: number;
+  sort?: string;
+  order?: string;
+  search?: string;
+  [col: string]: string | number | undefined;
+}
+
+// ---------- 工作台运行时（M2-2） ----------
+export const WorkspaceApi = {
+  info: (deploymentId: number) =>
+    http.get<WorkspaceInfo>(`/app/${deploymentId}`).then((r) => r.data),
+};
+
+// ---------- 工作台业务 CRUD（M2-3/M2-4，挂 /app/{id}/api/） ----------
+export const CrudApi = {
+  meta: (deploymentId: number) =>
+    http.get<Record<string, TableMeta>>(`/app/${deploymentId}/api/meta`).then((r) => r.data),
+  rows: (deploymentId: number, table: string, params: CrudRowFilters) =>
+    http
+      .get<RowPage>(`/app/${deploymentId}/api/tables/${encodeURIComponent(table)}/rows`, { params })
+      .then((r) => r.data),
+  get: (deploymentId: number, table: string, pk: string | number) =>
+    http
+      .get<Record<string, unknown>>(
+        `/app/${deploymentId}/api/tables/${encodeURIComponent(table)}/rows/${pk}`,
+      )
+      .then((r) => r.data),
+  create: (deploymentId: number, table: string, values: Record<string, unknown>) =>
+    http
+      .post<{ id: string | number }>(
+        `/app/${deploymentId}/api/tables/${encodeURIComponent(table)}/rows`,
+        values,
+      )
+      .then((r) => r.data),
+  update: (
+    deploymentId: number,
+    table: string,
+    pk: string | number,
+    values: Record<string, unknown>,
+  ) =>
+    http
+      .put<{ updated: boolean }>(
+        `/app/${deploymentId}/api/tables/${encodeURIComponent(table)}/rows/${pk}`,
+        values,
+      )
+      .then((r) => r.data),
+  remove: (deploymentId: number, table: string, pk: string | number) =>
+    http
+      .delete<{ deleted: boolean }>(
+        `/app/${deploymentId}/api/tables/${encodeURIComponent(table)}/rows/${pk}`,
+      )
+      .then((r) => r.data),
+  refs: (
+    deploymentId: number,
+    table: string,
+    fkCol: string,
+    params: { search?: string; page?: number; page_size?: number },
+  ) =>
+    http
+      .get<RefPage>(
+        `/app/${deploymentId}/api/tables/${encodeURIComponent(table)}/refs/${encodeURIComponent(fkCol)}`,
+        { params },
+      )
+      .then((r) => r.data),
+};
 
 // ---------- 认证 ----------
 export interface CurrentUser {

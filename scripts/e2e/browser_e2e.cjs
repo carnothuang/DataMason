@@ -40,11 +40,11 @@ async function shot(page, name) {
     // 0. 登录（M2-1 起：未登录会跳 /login）
     await page.goto(BASE + "/", { waitUntil: "networkidle" });
     // 登录表单出现即视为需要登录；否则首页直接就绪
-    const needLogin = await page.getByRole("button", { name: "登录" }).count();
+    const needLogin = await page.getByRole("button", { name: /登\s*录/ }).count();
     if (needLogin > 0) {
       await page.getByPlaceholder("用户名").fill(E2E_USER);
       await page.getByPlaceholder("密码").fill(E2E_PASS);
-      await page.getByRole("button", { name: "登录" }).click();
+      await page.getByRole("button", { name: /登\s*录/ }).click();
       log("已登录", elapsed());
     } else {
       log("已存在会话，跳过登录");

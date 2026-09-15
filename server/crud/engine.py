@@ -12,7 +12,17 @@ from datetime import datetime, timezone
 from typing import Iterable
 
 from flask import Blueprint, abort, jsonify, request
-from sqlalchemy import MetaData, Table, asc, desc, func, select
+from sqlalchemy import (
+    MetaData,
+    Table,
+    UniqueConstraint,
+    asc,
+    desc,
+    func,
+    or_,
+    select,
+    text,
+)
 from sqlalchemy.engine import Engine
 
 # 归属列（DR-05）：系统保留，refs 下拉选择业务标签时跳过
@@ -83,10 +93,26 @@ def _pk_column(table: Table):
 
 
 def _coerce_value(column, raw):
-    """简单类型还原：bool/int/float/str。交由数据库做最终类型校验。"""
+    """简单类型还原：bool/int/float/str + 日期时间。交由数据库做最终类型校验。"""
     tname = str(column.type).upper()
     if raw is None:
         return None
+    if tname in ("DATETIME", "TIMESTAMP", "DATE"):
+        if isinstance(raw, datetime):
+            return raw
+        txt = str(raw).strip()
+        try:
+            return datetime.fromisoformat(txt)
+        except ValueError:
+            pass
+        from email.utils import parsedate_to_datetime
+
+        parsed = parsedate_to_datetime(txt)
+        if parsed is None:
+            raise ValueError(f"无法识别的日期时间: {raw!r}")
+        if parsed.tzinfo is not None:
+            parsed = parsed.astimezone(timezone.utc).replace(tzinfo=None)
+        return parsed
     if "INT" in tname and "BIGINT" not in tname:
         return int(raw)
     if "BOOL" in tname or tname.startswith("TINYINT(1)"):
@@ -109,9 +135,47 @@ def _filtered(table):
 
 # ---------------- handler 函数（registry 显式传入，蓝图层/工作台层复用） ----------------
 
+def _is_string_type(column) -> bool:
+    return str(column.type).upper().startswith(("VARCHAR", "CHAR", "TEXT", "STRING", "ENUM"))
+
+
+def _unique_columns(engine: Engine, table: Table) -> set[str]:
+    """收集单列唯一约束：UNIQUE 约束 + 单列唯一索引 + SQLite 列级 UNIQUE。
+
+    SQLAlchemy 不反射 SQLite 的列级 UNIQUE（自动索引 origin='u'），
+    需用 PRAGMA index_list 补齐；MySQL/PG 走约束/索引反射即可。
+    """
+    cols: set[str] = set()
+    for cons in table.constraints:
+        if isinstance(cons, UniqueConstraint):
+            cols.update(c.name for c in cons.columns)
+    for idx in table.indexes:
+        if getattr(idx, "unique", False) and len(list(idx.columns)) == 1:
+            cols.add(list(idx.columns)[0].name)
+    if engine.dialect.name == "sqlite":
+        with engine.connect() as conn:
+            rows = conn.execute(
+                text(f"PRAGMA index_list({_q_ident(table.name)})")
+            ).fetchall()
+            for row in rows:
+                if row[2] != 1 or (len(row) > 4 and row[3] == "pk"):
+                    continue  # 仅唯一索引；若 origin 可见则排除主键
+                parts = conn.execute(
+                    text(f'PRAGMA index_info("{row[1]}")')
+                ).fetchall()
+                if len(parts) == 1:
+                    cols.add(parts[0][2])
+    return cols
+
+
+def _q_ident(name: str) -> str:
+    return '"' + name.replace('"', '""') + '"'
+
+
 def get_meta(registry: CrudRegistry) -> dict:
     out = {}
     for key, table in registry.meta.tables.items():
+        uniq = _unique_columns(registry.engine, table)
         columns = []
         for c in table.columns:
             fk = None
@@ -121,20 +185,34 @@ def get_meta(registry: CrudRegistry) -> dict:
             columns.append({
                 "name": c.name,
                 "type": str(c.type),
+                "length": c.type.length if hasattr(c.type, "length") else None,
                 "nullable": c.nullable,
                 "pk": c.primary_key,
+                "unique": c.name in uniq,
                 "fk": fk,
             })
         out[table.name] = {"columns": columns}
     return out
 
 
-def list_rows(registry: CrudRegistry, name: str) -> dict:
+def list_rows(registry: CrudRegistry, name: str, with_search: bool = True) -> dict:
     table = registry.table(name)
     page = max(int(request.args.get("page", 1)), 1)
     page_size = min(max(int(request.args.get("page_size", 20)), 1), 200)
 
-    stmt = select(table).where(*_filtered(table))
+    conditions = _filtered(table)
+    search = (request.args.get("search") or "").strip()
+    if search and with_search:
+        text_cols = [
+            c for c in table.columns
+            if _is_string_type(c) and not c.primary_key and c.name not in _OWNERSHIP_COLS
+        ]
+        if text_cols:
+            conditions.append(
+                or_(*[c.ilike(f"%{search}%") for c in text_cols])
+            )
+
+    stmt = select(table).where(*conditions)
 
     sort = request.args.get("sort")
     if sort:
@@ -145,7 +223,7 @@ def list_rows(registry: CrudRegistry, name: str) -> dict:
 
     with registry.engine.connect() as conn:
         total = conn.execute(
-            select(func.count()).select_from(table).where(*_filtered(table))
+            select(func.count()).select_from(table).where(*conditions)
         ).scalar_one()
         rows = conn.execute(
             stmt.limit(page_size).offset((page - 1) * page_size)

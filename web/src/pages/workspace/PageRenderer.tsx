@@ -1,6 +1,6 @@
 import { Card, Empty, Typography } from "antd";
 import { WorkspacePage } from "../../api";
-import TableBrowser from "./TableBrowser";
+import CrudListPage from "./CrudListPage";
 
 const { Text } = Typography;
 
@@ -9,7 +9,7 @@ interface Props {
   page: WorkspacePage | null;
 }
 
-/** 按 page_spec 渲染内容区：crud_list → 数据浏览；其余类型 v0 占位（M3 起补全）。 */
+/** 按 page_spec 渲染内容区：crud_list → 元数据驱动 CRUD 列表（M2-4）；其余类型 v0 占位（M3 起补全）。 */
 export default function PageRenderer({ deploymentId, page }: Props) {
   if (!page) {
     return (
@@ -24,7 +24,7 @@ export default function PageRenderer({ deploymentId, page }: Props) {
 
   if (page.kind === "crud_list" && page.table) {
     return (
-      <TableBrowser
+      <CrudListPage
         deploymentId={deploymentId}
         table={page.table}
         tableBizName={page.table_biz_name || page.table}

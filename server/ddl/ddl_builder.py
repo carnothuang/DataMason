@@ -94,6 +94,8 @@ def _column_ddl(col: ColumnSpec, dialect: str) -> str:
             parts.append("AUTO_INCREMENT")
     if not col.nullable and not col.is_pk:
         parts.append("NOT NULL")
+    if col.unique and not col.is_pk:
+        parts.append("UNIQUE")
     if col.is_fk:
         ref_t = _q(col.ref_table, dialect)
         ref_c = _q(col.ref_column, dialect)

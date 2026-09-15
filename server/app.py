@@ -2,11 +2,28 @@
 from __future__ import annotations
 
 import os
+from datetime import date, datetime
 
 from flask import Flask, jsonify
+from flask.json.provider import DefaultJSONProvider
 
 from server.config import get_config
 from server.models import create_all_lazy
+
+
+class DatamasonJSONProvider(DefaultJSONProvider):
+    """业务行含 datetime：序列化为 'YYYY-MM-DD HH:MM:SS[.ffffff]'。
+
+    Flask 3 默认把 datetime 序列化成 RFC822（'Tue, 15 Sep 2026 ... GMT'），
+    既丑又无法回填表单；统一改成 isoformat(空格分隔)，前端可直接编辑提交。
+    """
+
+    def default(self, o: object) -> object:
+        if isinstance(o, datetime):
+            return o.isoformat(sep=" ")
+        if isinstance(o, date):
+            return o.isoformat()
+        return super().default(o)
 
 
 def create_app(config_object: object | None = None) -> Flask:
@@ -14,6 +31,7 @@ def create_app(config_object: object | None = None) -> Flask:
     app = Flask(__name__)
     cfg = get_config(config_object)
     app.config.update(**cfg.as_flask_config())
+    app.json = DatamasonJSONProvider(app)
 
     create_all_lazy(app)
 

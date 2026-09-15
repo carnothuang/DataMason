@@ -23,6 +23,7 @@ class ColumnSpec(BaseModel):
     default: str | int | float | bool | None = None
     is_pk: bool = False
     autoincrement: bool = False
+    unique: bool = False  # 单列唯一（M2-4 唯一校验依据）
     is_fk: bool = False
     ref_table: str | None = None
     ref_column: str | None = None

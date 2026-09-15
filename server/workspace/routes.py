@@ -115,9 +115,28 @@ def _deployment_api(deployment_id: int):
 def app_meta(deployment_id: int):
     registry, engine = _deployment_api(deployment_id)
     try:
-        return jsonify(crud_engine.get_meta(registry))
+        raw = crud_engine.get_meta(registry)
     finally:
         engine.dispose()
+    # 富化：业务名列/归属列标记/长度（来自 table_specs，前端渲染表单与隐藏归属列）
+    Session = current_app.extensions["datamason_session_factory"]
+    with Session() as s:
+        specs = {
+            t.name: {c["name"]: c for c in t.columns}
+            for t in s.query(TableSpec).filter_by(deployment_id=deployment_id).all()
+        }
+    for table_name, info in raw.items():
+        spec_cols = specs.get(table_name, {})
+        for c in info["columns"]:
+            sc = spec_cols.get(c["name"], {})
+            c["biz_name"] = sc.get("biz_name") or c["name"]
+            c["is_ownership"] = bool(sc.get("is_ownership"))
+            # 类型取约定语义类型（BOOLEAN 在 SQLite 反射为 INTEGER 会丢语义）
+            if sc.get("type"):
+                c["type"] = sc["type"]
+            if c["length"] is None:
+                c["length"] = sc.get("length")
+    return jsonify(raw)
 
 
 @bp.get("/<int:deployment_id>/api/tables/<name>/rows")

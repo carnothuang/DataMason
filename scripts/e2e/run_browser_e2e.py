@@ -3,7 +3,8 @@
 - 服务：sys.executable scripts/e2e/serve_for_e2e.py（继承当前环境变量里的 LLM/管理员凭证）
 - 浏览器：本机全局 Node 的 playwright（NODE_PATH 指向全局 node_modules），不向 venv 装包
 - 用法（PowerShell，先设 DATAMASON_LLM_* / DATAMASON_ADMIN_*）：
-    python scripts/e2e/run_browser_e2e.py
+    python scripts/e2e/run_browser_e2e.py            # M1-6 全链路
+    python scripts/e2e/run_browser_e2e.py browser_e2e_m24.cjs   # M2-4 CRUD UI
 """
 from __future__ import annotations
 
@@ -23,7 +24,10 @@ HEALTH = f"http://{HOST}:{PORT}/api/v1/health"
 # 本机全局 Node（含全局 playwright 与已下载的 chromium）
 GLOBAL_NODE = r"C:\nvm4w\nodejs\node.exe"
 GLOBAL_NODE_MODULES = r"C:\nvm4w\nodejs\node_modules"
-SPEC = str(ROOT / "scripts" / "e2e" / "browser_e2e.cjs")
+
+
+def spec_path(name: str) -> Path:
+    return ROOT / "scripts" / "e2e" / name if name else ROOT / "scripts" / "e2e" / "browser_e2e.cjs"
 
 
 def wait_health(proc, timeout: float = 40.0) -> bool:
@@ -41,6 +45,10 @@ def wait_health(proc, timeout: float = 40.0) -> bool:
 
 
 def main() -> int:
+    # 可选传入浏览器脚本名（默认 M1-6 browser_e2e.cjs，M2-4 用 browser_e2e_m24.cjs）
+    spec_arg = sys.argv[1] if len(sys.argv) > 1 else ""
+    SPEC = str(spec_path(spec_arg))
+
     server = subprocess.Popen(
         [sys.executable, str(ROOT / "scripts" / "e2e" / "serve_for_e2e.py")],
         cwd=str(ROOT), env=dict(os.environ),
