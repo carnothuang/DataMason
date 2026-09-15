@@ -50,6 +50,73 @@ export interface Deployment {
   created_at: string;
 }
 
+export interface ProposalTable {
+  name: string;
+  biz_name: string;
+  columns: { name: string; biz_name?: string; type: string; is_pk?: boolean; is_fk?: boolean; ref_table?: string | null }[];
+}
+
+export interface ProposalPage {
+  table: string;
+  title: string;
+  kind: "crud_list" | "public_form" | "dashboard";
+  access: "member" | "public";
+}
+
+export interface Proposal {
+  biz_notes: string;
+  attempts: number;
+  spec_json: Record<string, unknown>;
+  tables: ProposalTable[];
+  pages: ProposalPage[];
+}
+
+export interface DeployResult {
+  deployment_id: number;
+  biz_name: string;
+  status: string;
+  entry_path: string;
+  table_count: number;
+  seeded: boolean;
+}
+
+export interface TableInfo {
+  name: string;
+  biz_name: string;
+  columns: string[];
+}
+
+export interface RowPage {
+  data: Record<string, unknown>[];
+  page: number;
+  page_size: number;
+  total: number;
+  columns: string[];
+}
+
+// ---------- 部署 ----------
+export const DeployApi = {
+  list: () => http.get<Deployment[]>("/deployments").then((r) => r.data),
+  preview: (description: string) =>
+    http.post<Proposal>("/deployments/preview", { description }).then((r) => r.data),
+  confirm: (payload: {
+    spec_json: Record<string, unknown>;
+    biz_name: string;
+    description: string;
+    seed_data: boolean;
+  }) => http.post<DeployResult>("/deployments/confirm", payload).then((r) => r.data),
+  tables: (id: number) =>
+    http.get<TableInfo[]>(`/deployments/${id}/tables`).then((r) => r.data),
+  rows: (
+    id: number,
+    table: string,
+    params: { page?: number; page_size?: number; sort?: string; order?: string },
+  ) =>
+    http
+      .get<RowPage>(`/deployments/${id}/tables/${encodeURIComponent(table)}/rows`, { params })
+      .then((r) => r.data),
+};
+
 // ---------- 模型 ----------
 export const ModelsApi = {
   list: () => http.get<LlmModel[]>("/settings/models").then((r) => r.data),

@@ -1,0 +1,1 @@
+{"root":["./src/app.tsx","./src/api.ts","./src/main.tsx","./src/pages/deployments.tsx","./src/pages/settings.tsx","./src/pages/deploy/dataviewer.tsx","./src/pages/deploy/deploywizard.tsx","./src/pages/settings/connectionstab.tsx","./src/pages/settings/modelstab.tsx","./src/pages/settings/redistab.tsx"],"errors":true,"version":"5.9.3"}

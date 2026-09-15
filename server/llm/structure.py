@@ -75,11 +75,41 @@ def generate_schema(client: OpenAiCompatibleClient, description: str) -> tuple[S
             )
         parsed, _usage = client.chat_json(SYSTEM_PROMPT, prompt)
         try:
-            schema = SchemaSpec.model_validate(parsed)
+            normalized = _normalize_ownership_columns(parsed)
+            schema = SchemaSpec.model_validate(normalized)
             return schema, {"attempts": attempts}
         except ValidationError as exc:
             last_error = _flatten_validation_error(exc)
     raise LlmCallError(f"经过 {attempts} 次生成仍不合法：{last_error}")
+
+
+# 系统会注入的审计归属列（DR-05）。真实模型高频自行生成这些列，
+# 其中纯审计列在解析前静默剔除（由系统注入同名列接管）；
+# 仅当 created_by/updated_by 被当作指向业务表的外键（真实业务语义，如"经办人"）时保留，
+# 交给强校验拦截并要求 LLM 改名重试。
+_PURE_AUDIT_COLUMNS = {"created_at", "updated_at"}
+_ACTOR_COLUMNS = {"created_by", "updated_by"}
+
+
+def _normalize_ownership_columns(parsed: object) -> object:
+    if not isinstance(parsed, dict):
+        return parsed
+    for table in parsed.get("tables", []) or []:
+        cols = table.get("columns") or []
+        kept = []
+        for col in cols:
+            if not isinstance(col, dict):
+                kept.append(col)
+                continue
+            name = str(col.get("name", "")).lower()
+            is_fk = bool(col.get("is_fk"))
+            if name in _PURE_AUDIT_COLUMNS and not is_fk:
+                continue  # 静默剔除，系统注入
+            if name in _ACTOR_COLUMNS and not is_fk:
+                continue  # 非外键的 created_by 也是纯审计列，剔除
+            kept.append(col)
+        table["columns"] = kept
+    return parsed
 
 
 def _flatten_validation_error(exc: ValidationError) -> str:
