@@ -23,7 +23,7 @@ def _biz_engine(app, deployment: Deployment) -> Engine:
     return create_engine(uri, future=True)
 
 
-def _registry(app, deployment_id: int) -> tuple[Deployment, CrudRegistry, Engine]:
+def _registry(app, deployment_id: int, current_user_id: int | None = None) -> tuple[Deployment, CrudRegistry, Engine]:
     Session = app.extensions["datamason_session_factory"]
     with Session() as s:
         deployment = s.get(Deployment, deployment_id)
@@ -34,8 +34,9 @@ def _registry(app, deployment_id: int) -> tuple[Deployment, CrudRegistry, Engine
             .filter_by(deployment_id=deployment_id).all()
         ]
     engine = _biz_engine(app, deployment)
-    # 仅暴露该部署声明过的表（白名单）
-    registry = CrudRegistry(engine, tables=table_names)
+    # 仅暴露该部署声明过的表（白名单）；归属列写入身份由会话注入（M2-3）
+    registry = CrudRegistry(engine, tables=table_names,
+                            current_user_id=current_user_id or 1)
     return deployment, registry, engine
 
 

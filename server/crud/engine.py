@@ -2,8 +2,9 @@
 
 - SQLAlchemy Core 反射真实 schema → 动态 Table 对象（不为每张表写 model/代码）
 - PostgREST 风格 REST：/tables/{name}/rows，参数化查询，列白名单
-- M0-4：以 CrudRegistry 注册「engine + 表白名单」，可挂任意蓝图前缀；
-  M2 演进为按 /app/{deployment_id}/api 挂载并叠加权限/日志钩子。
+- M0-4：以 CrudRegistry 注册「engine + 表白名单」，挂 demo 蓝图前缀；
+  M2-3：handler 函数化，供工作台按 /app/{deployment_id}/api 复用，
+  并叠加会话用户归属列注入（current_user_id）+ refs 外键下拉。
 """
 from __future__ import annotations
 
@@ -14,6 +15,9 @@ from flask import Blueprint, abort, jsonify, request
 from sqlalchemy import MetaData, Table, asc, desc, func, select
 from sqlalchemy.engine import Engine
 
+# 归属列（DR-05）：系统保留，refs 下拉选择业务标签时跳过
+_OWNERSHIP_COLS = {"created_by", "created_at", "updated_by", "updated_at"}
+
 
 def _utcnow() -> datetime:
     return datetime.now(timezone.utc)
@@ -23,7 +27,7 @@ class CrudRegistry:
     """一个 registry 绑定一个物理库 engine 与允许暴露的表集合。
 
     current_user_id：归属列（created_by/updated_by，DR-05）的写入身份；
-    M0 demo 默认 1（系统/首管理员），M1 起由认证会话注入真实 users.id。
+    M2-3 起由认证会话注入真实 users.id（M0 默认 1 兼容旧链路）。
     """
 
     def __init__(
@@ -39,6 +43,26 @@ class CrudRegistry:
         self.meta.reflect(bind=engine, only=allowed if allowed else None)
         # only= 参数可能带 schema，表名取最后一段
         self.allowed_tables = {t.split(".")[-1] for t in self.meta.tables}
+        self._reflect_fk_targets()
+
+    def _reflect_fk_targets(self) -> None:
+        """补反射「被外键引用但不在白名单」的目标表，保证 refs 下拉可用。"""
+        seen = {k.split(".")[-1] for k in self.meta.tables}
+        frontier = [k for k in seen if k in self.meta.tables]
+        while frontier:
+            key = frontier.pop()
+            table = self.meta.tables[key]
+            for column in table.columns:
+                for fk in column.foreign_keys:
+                    target = fk.column.table.name
+                    if target in seen:
+                        continue
+                    try:
+                        self.meta.reflect(bind=self.engine, only=[target])
+                    except Exception:  # noqa: BLE001 目标表缺失/权限不足时跳过
+                        continue
+                    seen.add(target)
+                    frontier.append(target)
 
     def table(self, name: str) -> Table:
         full = None
@@ -83,124 +107,219 @@ def _filtered(table):
     return conditions
 
 
+# ---------------- handler 函数（registry 显式传入，蓝图层/工作台层复用） ----------------
+
+def get_meta(registry: CrudRegistry) -> dict:
+    out = {}
+    for key, table in registry.meta.tables.items():
+        columns = []
+        for c in table.columns:
+            fk = None
+            for f in c.foreign_keys:
+                fk = {"ref_table": f.column.table.name, "ref_column": f.column.name}
+                break
+            columns.append({
+                "name": c.name,
+                "type": str(c.type),
+                "nullable": c.nullable,
+                "pk": c.primary_key,
+                "fk": fk,
+            })
+        out[table.name] = {"columns": columns}
+    return out
+
+
+def list_rows(registry: CrudRegistry, name: str) -> dict:
+    table = registry.table(name)
+    page = max(int(request.args.get("page", 1)), 1)
+    page_size = min(max(int(request.args.get("page_size", 20)), 1), 200)
+
+    stmt = select(table).where(*_filtered(table))
+
+    sort = request.args.get("sort")
+    if sort:
+        if sort not in table.c:
+            abort(400, description=f"未知排序列: {sort}")
+        direction = desc if request.args.get("order", "asc") == "desc" else asc
+        stmt = stmt.order_by(direction(table.c[sort]))
+
+    with registry.engine.connect() as conn:
+        total = conn.execute(
+            select(func.count()).select_from(table).where(*_filtered(table))
+        ).scalar_one()
+        rows = conn.execute(
+            stmt.limit(page_size).offset((page - 1) * page_size)
+        ).mappings().all()
+
+    return {
+        "data": [dict(r) for r in rows],
+        "page": page,
+        "page_size": page_size,
+        "total": total,
+    }
+
+
+def get_row(registry: CrudRegistry, name: str, pk: str) -> dict:
+    table = registry.table(name)
+    pk_col = _pk_column(table)
+    with registry.engine.connect() as conn:
+        row = conn.execute(
+            select(table).where(pk_col == _coerce_value(pk_col, pk))
+        ).mappings().first()
+    if row is None:
+        abort(404)
+    return dict(row)
+
+
+def create_row(registry: CrudRegistry, name: str) -> dict:
+    table = registry.table(name)
+    payload = request.get_json(force=True) or {}
+    values = {}
+    # 列白名单：不在反射 schema 里的键一律忽略
+    for key, value in payload.items():
+        if key in table.c and not table.c[key].primary_key:
+            values[key] = _coerce_value(table.c[key], value)
+    # 归属列自动注入（DR-05）：业务表强制四列，前端不传也补齐
+    now = _utcnow()
+    if "created_by" in table.c:
+        values.setdefault("created_by", registry.current_user_id)
+    if "created_at" in table.c:
+        values.setdefault("created_at", now)
+    if "updated_by" in table.c:
+        values.setdefault("updated_by", registry.current_user_id)
+    if "updated_at" in table.c:
+        values.setdefault("updated_at", now)
+    with registry.engine.begin() as conn:
+        result = conn.execute(table.insert().values(**values))
+        pk = result.inserted_primary_key[0]
+    return {"id": pk}
+
+
+def update_row(registry: CrudRegistry, name: str, pk: str) -> dict:
+    table = registry.table(name)
+    pk_col = _pk_column(table)
+    payload = request.get_json(force=True) or {}
+    values = {}
+    for key, value in payload.items():
+        if key in table.c and not table.c[key].primary_key:
+            values[key] = _coerce_value(table.c[key], value)
+    if "updated_by" in table.c:
+        values["updated_by"] = registry.current_user_id
+    if "updated_at" in table.c:
+        values["updated_at"] = _utcnow()
+    if not values:
+        abort(400, description="没有可更新的列")
+    with registry.engine.begin() as conn:
+        conn.execute(
+            table.update().where(pk_col == _coerce_value(pk_col, pk)).values(**values)
+        )
+    return {"updated": True}
+
+
+def delete_row(registry: CrudRegistry, name: str, pk: str) -> dict:
+    table = registry.table(name)
+    pk_col = _pk_column(table)
+    with registry.engine.begin() as conn:
+        conn.execute(
+            table.delete().where(pk_col == _coerce_value(pk_col, pk))
+        )
+    return {"deleted": True}
+
+
+def _label_column(table: Table):
+    """外键下拉的业务标签列：优先字符串型非主键/非归属列，再退到首列/主键。"""
+    pk_name = None
+    pks = list(table.primary_key.columns)
+    if len(pks) == 1:
+        pk_name = pks[0].name
+    for col in table.columns:
+        if col.name == pk_name or col.name in _OWNERSHIP_COLS:
+            continue
+        tname = str(col.type).upper()
+        if tname.startswith(("VARCHAR", "CHAR", "TEXT", "STRING", "ENUM", "UUID")):
+            return col.name
+    for col in table.columns:
+        if col.name != pk_name and col.name not in _OWNERSHIP_COLS:
+            return col.name
+    return pk_name
+
+
+def list_refs(registry: CrudRegistry, name: str, fk_col: str) -> dict:
+    """外键下拉数据：返回被引用表 {value=pk, label=业务标签} 选项，支持 search/分页。"""
+    table = registry.table(name)
+    if fk_col not in table.c:
+        abort(400, description=f"未知外键列: {fk_col}")
+    fks = list(table.c[fk_col].foreign_keys)
+    if not fks:
+        abort(400, description=f"{fk_col} 不是外键列")
+    target = fks[0].column.table
+    pk_col = _pk_column(target)
+    label_col = _label_column(target)
+
+    search = (request.args.get("search") or "").strip()
+    page = max(int(request.args.get("page", 1)), 1)
+    page_size = min(max(int(request.args.get("page_size", 50)), 1), 200)
+
+    stmt = select(target)
+    total_stmt = select(func.count()).select_from(target)
+    if search and label_col and label_col != pk_col.name:
+        col = target.c[label_col]
+        cond = col.ilike(f"%{search}%")
+        stmt = stmt.where(cond)
+        total_stmt = total_stmt.where(cond)
+
+    with registry.engine.connect() as conn:
+        total = conn.execute(total_stmt).scalar_one()
+        rows = conn.execute(
+            stmt.order_by(pk_col).limit(page_size).offset((page - 1) * page_size)
+        ).mappings().all()
+
+    return {
+        "ref_table": target.name,
+        "ref_column": pk_col.name,
+        "label_column": label_col,
+        "options": [
+            {"value": r[pk_col.name],
+             "label": r[label_col] if label_col else r[pk_col.name]}
+            for r in rows
+        ],
+        "page": page,
+        "page_size": page_size,
+        "total": total,
+    }
+
+
+# ---------------- 蓝图层（M0-4 demo / 离线测试复用） ----------------
+
 def create_crud_blueprint(registry: CrudRegistry, url_prefix: str) -> Blueprint:
     bp = Blueprint(f"crud_{abs(id(registry))}", __name__, url_prefix=url_prefix)
 
     @bp.get("/meta")
     def meta():
-        return jsonify(
-            {
-                name.split(".")[-1]: {
-                    "columns": [
-                        {
-                            "name": c.name,
-                            "type": str(c.type),
-                            "nullable": c.nullable,
-                            "pk": c.primary_key,
-                        }
-                        for c in registry.table(name.split(".")[-1]).columns
-                    ]
-                }
-                for name in registry.meta.tables
-            }
-        )
+        return jsonify(get_meta(registry))
 
     @bp.get("/tables/<name>/rows")
-    def list_rows(name: str):
-        table = registry.table(name)
-        page = max(int(request.args.get("page", 1)), 1)
-        page_size = min(max(int(request.args.get("page_size", 20)), 1), 200)
-
-        stmt = select(table).where(*_filtered(table))
-
-        sort = request.args.get("sort")
-        if sort:
-            if sort not in table.c:
-                abort(400, description=f"未知排序列: {sort}")
-            direction = desc if request.args.get("order", "asc") == "desc" else asc
-            stmt = stmt.order_by(direction(table.c[sort]))
-
-        with registry.engine.connect() as conn:
-            total = conn.execute(
-                select(func.count()).select_from(table).where(*_filtered(table))
-            ).scalar_one()
-            rows = conn.execute(
-                stmt.limit(page_size).offset((page - 1) * page_size)
-            ).mappings().all()
-
-        return jsonify(
-            {
-                "data": [dict(r) for r in rows],
-                "page": page,
-                "page_size": page_size,
-                "total": total,
-            }
-        )
+    def list_rows_route(name: str):
+        return jsonify(list_rows(registry, name))
 
     @bp.get("/tables/<name>/rows/<pk>")
-    def get_row(name: str, pk: str):
-        table = registry.table(name)
-        pk_col = _pk_column(table)
-        with registry.engine.connect() as conn:
-            row = conn.execute(
-                select(table).where(pk_col == _coerce_value(pk_col, pk))
-            ).mappings().first()
-        if row is None:
-            abort(404)
-        return jsonify(dict(row))
+    def get_row_route(name: str, pk: str):
+        return jsonify(get_row(registry, name, pk))
 
     @bp.post("/tables/<name>/rows")
-    def create_row(name: str):
-        table = registry.table(name)
-        payload = request.get_json(force=True) or {}
-        values = {}
-        for key, value in payload.items():
-            if key in table.c and not table.c[key].primary_key:
-                values[key] = _coerce_value(table.c[key], value)
-        # 归属列自动注入（DR-05）：业务表强制四列，前端不传也补齐
-        now = _utcnow()
-        if "created_by" in table.c:
-            values.setdefault("created_by", registry.current_user_id)
-        if "created_at" in table.c:
-            values.setdefault("created_at", now)
-        if "updated_by" in table.c:
-            values.setdefault("updated_by", registry.current_user_id)
-        if "updated_at" in table.c:
-            values.setdefault("updated_at", now)
-        with registry.engine.begin() as conn:
-            result = conn.execute(table.insert().values(**values))
-            pk = result.inserted_primary_key[0]
-        return jsonify({"id": pk}), 201
+    def create_row_route(name: str):
+        return jsonify(create_row(registry, name)), 201
 
     @bp.put("/tables/<name>/rows/<pk>")
-    def update_row(name: str, pk: str):
-        table = registry.table(name)
-        pk_col = _pk_column(table)
-        payload = request.get_json(force=True) or {}
-        values = {}
-        for key, value in payload.items():
-            if key in table.c and not table.c[key].primary_key:
-                values[key] = _coerce_value(table.c[key], value)
-        if "updated_by" in table.c:
-            values["updated_by"] = registry.current_user_id
-        if "updated_at" in table.c:
-            values["updated_at"] = _utcnow()
-        if not values:
-            abort(400, description="没有可更新的列")
-        with registry.engine.begin() as conn:
-            conn.execute(
-                table.update().where(pk_col == _coerce_value(pk_col, pk)).values(**values)
-            )
-        return jsonify({"updated": True})
+    def update_row_route(name: str, pk: str):
+        return jsonify(update_row(registry, name, pk))
 
     @bp.delete("/tables/<name>/rows/<pk>")
-    def delete_row(name: str, pk: str):
-        table = registry.table(name)
-        pk_col = _pk_column(table)
-        with registry.engine.begin() as conn:
-            conn.execute(
-                table.delete().where(pk_col == _coerce_value(pk_col, pk))
-            )
-        return jsonify({"deleted": True})
+    def delete_row_route(name: str, pk: str):
+        return jsonify(delete_row(registry, name, pk))
+
+    @bp.get("/tables/<name>/refs/<fk_col>")
+    def refs_route(name: str, fk_col: str):
+        return jsonify(list_refs(registry, name, fk_col))
 
     return bp
