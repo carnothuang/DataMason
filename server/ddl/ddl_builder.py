@@ -1,0 +1,159 @@
+"""ddl_builder：table_spec → 方言化 DDL 的确定性映射（设计细化 §十一·四）。
+
+- 三方言：SQLite / MySQL / PostgreSQL
+- 归属列注入（DR-05）：创建模式每张业务表强制补
+  created_by/created_at/updated_by/updated_at；不与 users 建物理外键
+  （users 在元数据库，业务表在独立物理库，跨库无外键；身份靠全局 users.id 对齐）。
+- LLM 不产 DDL，只产 table_spec；本模块无任何随机性。
+"""
+from __future__ import annotations
+
+from server.ddl.table_spec import ColumnSpec, SchemaSpec, TableSpecModel
+
+OWNERSHIP_COLUMNS = ("created_by", "created_at", "updated_by", "updated_at")
+
+SUPPORTED = ("sqlite", "mysql", "postgresql")
+
+
+class DdlBuildError(Exception):
+    pass
+
+
+def inject_ownership_columns(table: TableSpecModel) -> TableSpecModel:
+    """确定性补四归属列（DR-05）；LLM 已给出的列不重复补。返回新对象。"""
+    existing = {c.name for c in table.columns}
+    extra = []
+    if "created_by" not in existing:
+        extra.append(
+            ColumnSpec(name="created_by", biz_name="创建人", type="BIGINT",
+                       nullable=False, is_ownership=True)
+        )
+    if "created_at" not in existing:
+        extra.append(
+            ColumnSpec(name="created_at", biz_name="创建时间", type="DATETIME",
+                       nullable=False, is_ownership=True)
+        )
+    if "updated_by" not in existing:
+        extra.append(
+            ColumnSpec(name="updated_by", biz_name="更新人", type="BIGINT",
+                       nullable=True, is_ownership=True)
+        )
+    if "updated_at" not in existing:
+        extra.append(
+            ColumnSpec(name="updated_at", biz_name="更新时间", type="DATETIME",
+                       nullable=True, is_ownership=True)
+        )
+    if not extra:
+        return table
+    return table.model_copy(update={"columns": [*table.columns, *extra]})
+
+
+def _q(name: str, dialect: str) -> str:
+    if not name.replace("_", "").isalnum() or not name[0].isalpha() and name[0] != "_":
+        raise DdlBuildError(f"非法标识符: {name}")
+    # 标识符已过白名单：SQLite 不加引号（与常见 DDL 习惯一致），MySQL 反引号，PG 双引号
+    if dialect == "mysql":
+        return f"`{name}`"
+    if dialect == "postgresql":
+        return f'"{name}"'
+    return name
+
+
+def _map_type(col: ColumnSpec, dialect: str) -> str:
+    t = col.type
+    length = col.length or 255
+    if t == "INTEGER":
+        return "INTEGER"
+    if t == "BIGINT":
+        return "BIGINT"
+    if t == "VARCHAR":
+        return f"VARCHAR({length})"
+    if t == "TEXT":
+        return "TEXT" if dialect != "mysql" else "TEXT"
+    if t == "BOOLEAN":
+        return {"sqlite": "INTEGER", "mysql": "TINYINT(1)", "postgresql": "BOOLEAN"}[dialect]
+    if t == "DATETIME":
+        return "TIMESTAMP" if dialect == "postgresql" else "DATETIME"
+    if t == "DECIMAL":
+        return "DECIMAL(18,2)"
+    raise DdlBuildError(f"未知列类型: {t}")
+
+
+def _column_ddl(col: ColumnSpec, dialect: str) -> str:
+    parts = [_q(col.name, dialect)]
+    if dialect == "postgresql" and col.is_pk and col.autoincrement and col.type in ("INTEGER", "BIGINT"):
+        parts.append("BIGINT GENERATED ALWAYS AS IDENTITY" if col.type == "BIGINT"
+                     else "INTEGER GENERATED ALWAYS AS IDENTITY")
+    else:
+        parts.append(_map_type(col, dialect))
+    if col.is_pk:
+        parts.append("PRIMARY KEY")
+        if col.autoincrement and dialect == "sqlite":
+            parts.append("AUTOINCREMENT")
+        elif col.autoincrement and dialect == "mysql":
+            parts.append("AUTO_INCREMENT")
+    if not col.nullable and not col.is_pk:
+        parts.append("NOT NULL")
+    if col.is_fk:
+        ref_t = _q(col.ref_table, dialect)
+        ref_c = _q(col.ref_column, dialect)
+        parts.append(f"REFERENCES {ref_t}({ref_c})")
+    return " ".join(parts)
+
+
+def build_table_ddl(table: TableSpecModel, dialect: str, with_ownership: bool = True) -> str:
+    if dialect not in SUPPORTED:
+        raise DdlBuildError(f"unsupported dialect: {dialect}")
+    target = inject_ownership_columns(table) if with_ownership else table
+    cols = ",\n  ".join(_column_ddl(c, dialect) for c in target.columns)
+    return f"CREATE TABLE {_q(target.name, dialect)} (\n  {cols}\n)"
+
+
+def build_indexes_ddl(table: TableSpecModel, dialect: str) -> list[str]:
+    stmts = []
+    for i, idx_cols in enumerate(table.indexes, start=1):
+        cols = ", ".join(_q(c, dialect) for c in idx_cols)
+        stmts.append(
+            f"CREATE INDEX {_q(f'idx_{table.name}_{i}', dialect)} "
+            f"ON {_q(table.name, dialect)} ({cols})"
+        )
+    return stmts
+
+
+def build_schema_ddl(spec: SchemaSpec, dialect: str, with_ownership: bool = True) -> list[str]:
+    """整库 DDL（按外键依赖：被引用表排前）。返回有序语句列表。"""
+    if dialect not in SUPPORTED:
+        raise DdlBuildError(f"unsupported dialect: {dialect}")
+
+    ordered = _topo_sort(spec)
+    statements: list[str] = []
+    for table in ordered:
+        target = inject_ownership_columns(table) if with_ownership else table
+        statements.append(build_table_ddl(target, dialect, with_ownership=False))
+        statements.extend(build_indexes_ddl(target, dialect))
+    return statements
+
+
+def _topo_sort(spec: SchemaSpec) -> list[TableSpecModel]:
+    """被引用的表排在引用者之前；检测外键环。返回表对象有序列表。"""
+    tmap = spec.table_map
+    visited: dict[str, int] = {}  # 0=visiting 1=done
+    result: list[TableSpecModel] = []
+
+    def visit(name: str, stack: list[str]):
+        state = visited.get(name)
+        if state == 1:
+            return
+        if state == 0:
+            cycle = " -> ".join(stack + [name])
+            raise DdlBuildError(f"检测到外键环: {cycle}")
+        visited[name] = 0
+        for c in tmap[name].columns:
+            if c.is_fk and c.ref_table != name:
+                visit(c.ref_table, stack + [name])
+        visited[name] = 1
+        result.append(tmap[name])
+
+    for t in spec.tables:
+        visit(t.name, [])
+    return result
