@@ -311,6 +311,7 @@ def test_redis(app) -> dict:
         client = redis_lib.Redis(
             host=cfg["host"], port=int(cfg["port"]), db=int(cfg["db"]),
             password=cfg["password"] or None, socket_connect_timeout=5,
+            protocol=2,  # 锁定 RESP2，兼容 Redis <6（不支持 HELLO/RESP3，如 Windows 版 5.x）
         )
         pong = client.ping()
         info = client.info("server")
@@ -329,6 +330,7 @@ def make_redis_client(app):
     return redis_lib.Redis(
         host=cfg["host"], port=int(cfg["port"]), db=int(cfg["db"]),
         password=cfg["password"] or None, socket_connect_timeout=3,
+        protocol=2,  # 锁定 RESP2，兼容 Redis <6
     )
 
 

@@ -22,11 +22,20 @@ def call(method: str, path: str, data=None):
         BASE + path, data=body, method=method,
         headers={"Content-Type": "application/json"},
     )
+    def _parse(raw: bytes):
+        text = raw.decode(errors="replace").strip()
+        if not text:
+            return {"_empty": True}
+        try:
+            return json.loads(text)
+        except json.JSONDecodeError:
+            return {"_non_json": text[:500]}
+
     try:
         with urllib.request.urlopen(req, timeout=90) as resp:
-            return resp.status, json.loads(resp.read().decode())
+            return resp.status, _parse(resp.read())
     except urllib.error.HTTPError as exc:
-        return exc.code, json.loads(exc.read().decode())
+        return exc.code, _parse(exc.read())
 
 
 def main() -> int:
