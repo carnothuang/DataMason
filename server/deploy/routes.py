@@ -2,7 +2,9 @@
 from __future__ import annotations
 
 from flask import Blueprint, current_app, jsonify, request
+from werkzeug.exceptions import HTTPException
 
+from server.crud import runtime
 from server.deploy import service
 from server.deploy.service import DeployError
 
@@ -51,3 +53,36 @@ def confirm():
         return jsonify({"error": str(exc)}), 400
     except Exception as exc:  # noqa: BLE001
         return jsonify({"error": f"{type(exc).__name__}: {exc}"}), 502
+
+
+# ---------------- M1-3 按部署只读浏览 ----------------
+
+_RESERVED = {"page", "page_size", "sort", "order"}
+
+
+@bp.get("/deployments/<int:deployment_id>/tables")
+def deployment_tables(deployment_id: int):
+    try:
+        return jsonify(runtime.list_tables(current_app, deployment_id))
+    except KeyError as exc:
+        return jsonify({"error": str(exc)}), 404
+
+
+@bp.get("/deployments/<int:deployment_id>/tables/<table_name>/rows")
+def deployment_rows(deployment_id: int, table_name: str):
+    page = max(int(request.args.get("page", 1)), 1)
+    page_size = min(max(int(request.args.get("page_size", 20)), 1), 200)
+    sort = request.args.get("sort")
+    order = request.args.get("order", "asc")
+    filters = {k: v for k, v in request.args.items() if k not in _RESERVED}
+    try:
+        return jsonify(runtime.list_rows(
+            current_app, deployment_id, table_name,
+            page, page_size, sort, order, filters,
+        ))
+    except KeyError as exc:
+        return jsonify({"error": str(exc)}), 404
+    except HTTPException:
+        raise
+    except Exception as exc:  # noqa: BLE001
+        return jsonify({"error": f"{type(exc).__name__}: {exc}"}), 400

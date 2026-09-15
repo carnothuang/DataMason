@@ -182,3 +182,52 @@ def test_confirm_without_user_rejected(app, client, patch_llm):
         })
         assert resp.status_code == 400
         assert "向导" in resp.get_json()["error"]
+
+
+def _deploy_one(client) -> int:
+    preview = client.post("/api/v1/deployments/preview",
+                          json={"description": "留言板"}).get_json()
+    result = client.post("/api/v1/deployments/confirm", json={
+        "spec_json": preview["spec_json"],
+        "biz_name": "留言板",
+        "seed_data": True,
+    }).get_json()
+    return result["deployment_id"]
+
+
+def test_runtime_browse_tables_and_rows(app, client, admin, patch_llm):
+    did = _deploy_one(client)
+
+    tables = client.get(f"/api/v1/deployments/{did}/tables").get_json()
+    names = [t["name"] for t in tables]
+    assert names == ["messages"]
+    assert "created_by" in tables[0]["columns"]
+
+    resp = client.get(
+        f"/api/v1/deployments/{did}/tables/messages/rows?page=1&page_size=5"
+    ).get_json()
+    assert resp["total"] == 10
+    assert len(resp["data"]) == 5
+    assert resp["data"][0]["visitor"]
+
+    # 过滤 + 排序
+    filtered = client.get(
+        f"/api/v1/deployments/{did}/tables/messages/rows?created_by={admin}"
+    ).get_json()
+    assert filtered["total"] == 10
+
+    desc_rows = client.get(
+        f"/api/v1/deployments/{did}/tables/messages/rows?sort=id&order=desc"
+    ).get_json()["data"]
+    ids = [r["id"] for r in desc_rows]
+    assert ids == sorted(ids, reverse=True)
+
+
+def test_runtime_browse_unknown_table(app, client, admin, patch_llm):
+    did = _deploy_one(client)
+    resp = client.get(f"/api/v1/deployments/{did}/tables/ghost/rows")
+    assert resp.status_code == 404  # 表不在该部署白名单
+
+
+def test_runtime_browse_unknown_deployment(app, client):
+    assert client.get("/api/v1/deployments/999/tables").status_code == 404
