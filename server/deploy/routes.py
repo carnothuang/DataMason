@@ -7,6 +7,7 @@ from werkzeug.exceptions import HTTPException
 from server.crud import runtime
 from server.deploy import service
 from server.deploy.service import DeployError
+from server.deploy import editor
 
 bp = Blueprint("deploy", __name__)
 
@@ -86,3 +87,34 @@ def deployment_rows(deployment_id: int, table_name: str):
         raise
     except Exception as exc:  # noqa: BLE001
         return jsonify({"error": f"{type(exc).__name__}: {exc}"}), 400
+
+
+# ---------------- M1-4 表编辑器 v0（单表字段增删/改名/改类型） ----------------
+
+@bp.get("/deployments/<int:deployment_id>/blueprint")
+def deployment_blueprint(deployment_id: int):
+    """返回部署内每张表的富化列蓝图（编辑器渲染用）。"""
+    try:
+        return jsonify(editor.get_blueprint(current_app, deployment_id))
+    except KeyError as exc:
+        return jsonify({"error": str(exc)}), 404
+    except editor.EditorError as exc:
+        return jsonify({"error": str(exc)}), 400
+
+
+@bp.post("/deployments/<int:deployment_id>/tables/<table_name>/columns")
+def alter_columns(deployment_id: int, table_name: str):
+    """对单表应用一组字段操作：add/drop/rename/change_type。"""
+    data = _body()
+    ops = data.get("ops")
+    if not isinstance(ops, list) or not ops:
+        return jsonify({"error": "缺少 ops 操作列表"}), 400
+    try:
+        result = editor.alter_table(current_app, deployment_id, table_name, ops)
+        return jsonify(result), 200
+    except KeyError as exc:
+        return jsonify({"error": str(exc)}), 404
+    except editor.EditorError as exc:
+        return jsonify({"error": str(exc)}), 400
+    except Exception as exc:  # noqa: BLE001
+        return jsonify({"error": f"{type(exc).__name__}: {exc}"}), 502

@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
-import { App, Empty, Segmented, Space, Table, Tag, Typography } from "antd";
+import { App, Button, Empty, Segmented, Space, Table, Tag, Typography } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import { DeployApi, RowPage, TableInfo } from "../../api";
+import FieldEditor from "./FieldEditor";
 
 const { Text } = Typography;
 
@@ -21,6 +22,8 @@ export default function DataViewer({ deploymentId, bizName, onBack }: Props) {
   const [sort, setSort] = useState<{ field?: string; order?: "asc" | "desc" }>({});
   const [rows, setRows] = useState<RowPage | null>(null);
   const [loading, setLoading] = useState(false);
+  const [editing, setEditing] = useState(false);
+  const [reloadKey, setReloadKey] = useState(0);
 
   useEffect(() => {
     DeployApi.tables(deploymentId)
@@ -29,7 +32,7 @@ export default function DataViewer({ deploymentId, bizName, onBack }: Props) {
         if (list.length) setActive(list[0].name);
       })
       .catch((e) => message.error(e.message));
-  }, [deploymentId]);
+  }, [deploymentId, reloadKey]);
 
   useEffect(() => {
     if (!active) return;
@@ -43,7 +46,7 @@ export default function DataViewer({ deploymentId, bizName, onBack }: Props) {
       .then(setRows)
       .catch((e) => message.error(e.message))
       .finally(() => setLoading(false));
-  }, [deploymentId, active, page, sort.field, sort.order]);
+  }, [deploymentId, active, page, sort.field, sort.order, reloadKey]);
 
   const columns: ColumnsType<Record<string, unknown>> = rows
     ? rows.columns
@@ -88,6 +91,14 @@ export default function DataViewer({ deploymentId, bizName, onBack }: Props) {
                 value: t.name,
               }))}
             />
+            <Button
+              size="small"
+              onClick={() => setEditing(true)}
+              disabled={!active}
+              style={{ marginLeft: 8 }}
+            >
+              编辑字段
+            </Button>
           </Space>
           <Table
             rowKey={(r) => JSON.stringify(r.id ?? Math.random())}
@@ -106,12 +117,26 @@ export default function DataViewer({ deploymentId, bizName, onBack }: Props) {
             onChange={(_p, _f, sorter) => {
               const s = Array.isArray(sorter) ? sorter[0] : sorter;
               if (s && s.field && s.order) {
-                setSort({ field: String(s.field), order: s.order === "desc" ? "desc" : "asc" });
+                setSort({ field: String(s.field), order: s.order === "descend" ? "desc" : "asc" });
               } else {
                 setSort({});
               }
             }}
           />
+          {active && (
+            <FieldEditor
+              deploymentId={deploymentId}
+              tableName={active}
+              bizName={tables.find((t) => t.name === active)?.biz_name || active}
+              open={editing}
+              onClose={() => setEditing(false)}
+              onChanged={() => {
+                setSort({});
+                setPage(1);
+                setReloadKey((k) => k + 1);
+              }}
+            />
+          )}
         </>
       )}
     </div>

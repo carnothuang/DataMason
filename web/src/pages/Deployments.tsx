@@ -86,7 +86,7 @@ export default function Deployments() {
             <Empty
               image={Empty.PRESENTED_IMAGE_SIMPLE}
               description={
-                <Space direction="column" size={2}>
+                <Space direction="vertical" size={2}>
                   <Text type="secondary">还没有部署任何系统</Text>
                   <Text type="secondary" style={{ fontSize: 12 }}>
                     先在「设置 → 模型管理」配置并测试一个 LLM，然后点右上角「部署一套系统」

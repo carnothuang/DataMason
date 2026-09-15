@@ -94,6 +94,30 @@ export interface RowPage {
   columns: string[];
 }
 
+export interface FieldColumn {
+  name: string;
+  biz_name: string;
+  type: string;
+  length: number | null;
+  nullable: boolean;
+  is_pk: boolean;
+  is_fk: boolean;
+  ref_table: string | null;
+  is_ownership: boolean;
+}
+
+export interface TableBlueprint {
+  name: string;
+  biz_name: string;
+  columns: FieldColumn[];
+}
+
+export type ColumnOp =
+  | { action: "add"; name: string; biz_name?: string; type: string; length?: number | null }
+  | { action: "drop"; name: string }
+  | { action: "rename"; name: string; new_name: string }
+  | { action: "change_type"; name: string; type: string; length?: number | null };
+
 // ---------- 部署 ----------
 export const DeployApi = {
   list: () => http.get<Deployment[]>("/deployments").then((r) => r.data),
@@ -114,6 +138,15 @@ export const DeployApi = {
   ) =>
     http
       .get<RowPage>(`/deployments/${id}/tables/${encodeURIComponent(table)}/rows`, { params })
+      .then((r) => r.data),
+  blueprint: (id: number) =>
+    http.get<TableBlueprint[]>(`/deployments/${id}/blueprint`).then((r) => r.data),
+  alterColumns: (id: number, table: string, ops: ColumnOp[]) =>
+    http
+      .post<{ name: string; columns: FieldColumn[] }>(
+        `/deployments/${id}/tables/${encodeURIComponent(table)}/columns`,
+        { ops },
+      )
       .then((r) => r.data),
 };
 

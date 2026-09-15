@@ -72,7 +72,7 @@ export default function ConnectionsTab() {
   const submit = async () => {
     const values = await form.validateFields();
     try {
-      await ConnectionsApi.create(values);
+      await ConnectionsApi.create(values as unknown as Record<string, unknown>);
       message.success("连接已保存");
       setOpen(false);
       load();

@@ -89,6 +89,8 @@ export default function DeployWizard({ open, onClose, onDeployed }: Props) {
 
   const currentStep =
     phase === "input" || phase === "loading" ? 0 : phase === "proposal" || phase === "deploying" ? 1 : 2;
+  const generating = phase === "loading";
+  const deploying = phase === "deploying";
 
   return (
     <Modal
@@ -97,17 +99,17 @@ export default function DeployWizard({ open, onClose, onDeployed }: Props) {
       onCancel={close}
       width={720}
       footer={
-        phase === "input" ? (
+        phase === "input" || generating ? (
           <Space>
-            <Button onClick={close}>取消</Button>
-            <Button type="primary" onClick={generate} loading={phase === "loading"}>
+            <Button onClick={close} disabled={generating}>取消</Button>
+            <Button type="primary" onClick={generate} loading={generating}>
               生成提案
             </Button>
           </Space>
-        ) : phase === "proposal" ? (
+        ) : phase === "proposal" || deploying ? (
           <Space>
-            <Button onClick={() => setPhase("input")}>调整一下</Button>
-            <Button type="primary" onClick={deploy}>
+            <Button onClick={() => setPhase("input")} disabled={deploying}>调整一下</Button>
+            <Button type="primary" onClick={deploy} loading={deploying}>
               就这么部署
             </Button>
           </Space>

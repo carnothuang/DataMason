@@ -163,20 +163,43 @@ def confirm(app, spec_dict: dict, biz_name: str, seed_data: bool = True,
     # ④ 回读真实 schema（以数据库为准），写元数据
     insp = inspect(biz_engine)
     table_spec_ids: dict[str, int] = {}
+
+    def _rich_columns(table_model):
+        """富化列蓝图（编辑器 M1-4 直接可用）：含主键/外键/归属/业务名标记。
+
+        以注入归属列后的规格为准，并用真实反射校准 nullable/类型字符串。
+        """
+        full = inject_ownership_columns(table_model)
+        real_types: dict[str, str] = {}
+        if table_model.name in insp.get_table_names():
+            for rc in insp.get_columns(table_model.name):
+                real_types[rc["name"]] = str(rc["type"])
+        out = []
+        for c in full.columns:
+            out.append({
+                "name": c.name,
+                "biz_name": c.biz_name or "",
+                "type": c.type,
+                "length": c.length,
+                "nullable": c.nullable,
+                "is_pk": c.is_pk,
+                "autoincrement": c.autoincrement,
+                "is_fk": c.is_fk,
+                "ref_table": c.ref_table,
+                "ref_column": c.ref_column,
+                "is_ownership": c.is_ownership,
+                "db_type": real_types.get(c.name, ""),
+            })
+        return out
+
     with _session(app) as s:
         for t in schema.tables:
-            real_cols = []
-            if t.name in insp.get_table_names():
-                real_cols = [
-                    {"name": c["name"], "type": str(c["type"]),
-                     "nullable": bool(c.get("nullable", True))}
-                    for c in insp.get_columns(t.name)
-                ]
+            rich_cols = _rich_columns(t)
             ts = TableSpec(
                 deployment_id=deployment_id,
                 name=t.name,
                 biz_name=t.biz_name,
-                columns_json=json.dumps(real_cols, ensure_ascii=False),
+                columns_json=json.dumps(rich_cols, ensure_ascii=False),
                 ddl_sql="\n".join(stmt for stmt in statements if t.name in stmt),
                 status="applied",
             )
