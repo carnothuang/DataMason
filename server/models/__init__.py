@@ -204,9 +204,20 @@ class LlmModel(Base):
     name: Mapped[str] = mapped_column(String(128), nullable=False)
     base_url: Mapped[str] = mapped_column(String(256), default="")
     api_key_cipher: Mapped[str] = mapped_column(Text, default="")  # 加密存储
+    model_name: Mapped[str] = mapped_column(String(128), default="")  # 实际模型 ID
     temperature: Mapped[float] = mapped_column(default=0.0)
     is_default: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
+
+
+class AppSetting(Base):
+    """键值型应用设置（单值，value 存 JSON）。如 redis 配置。"""
+
+    __tablename__ = "app_settings"
+
+    key: Mapped[str] = mapped_column(String(64), primary_key=True)
+    value_json: Mapped[str] = mapped_column(Text, default="{}")
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=_now, onupdate=_now)
 
 
 def create_all_lazy(app) -> None:

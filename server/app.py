@@ -17,13 +17,19 @@ def create_app(config_object: object | None = None) -> Flask:
 
     create_all_lazy(app)
 
+    from server.security import Cipher
+
+    app.extensions["cipher"] = Cipher(app.config.get("DATA_ROOT", "./data"))
+
     @app.get("/api/v1/health")
     def health():
         return jsonify({"status": "ok", "version": app.config["APP_VERSION"]})
 
     from server.auth.routes import bp as auth_bp
+    from server.settings.routes import bp as settings_bp
 
     app.register_blueprint(auth_bp, url_prefix="/api/v1/auth")
+    app.register_blueprint(settings_bp, url_prefix="/api/v1/settings")
 
     # 元数据驱动 CRUD 蓝图在 M0-4 引入；M0-1 仅健康检查 + 首次启动向导
 

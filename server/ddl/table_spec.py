@@ -58,6 +58,14 @@ class TableSpecModel(BaseModel):
         col_names = [c.name for c in self.columns]
         if len(col_names) != len(set(col_names)):
             raise ValueError(f"表 {self.name} 存在重名列")
+        # 归属列为系统保留（DR-05，语义固定=users.id），禁止 LLM 占用做业务列/外键
+        for c in self.columns:
+            if c.name in ("created_by", "created_at", "updated_by", "updated_at") \
+                    and not c.is_ownership:
+                raise ValueError(
+                    f"表 {self.name} 的列 {c.name} 是系统保留归属列，"
+                    "请改名（如 submitter_id、replied_by），归属列由系统自动生成"
+                )
         return self
 
 

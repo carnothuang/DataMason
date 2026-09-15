@@ -131,6 +131,19 @@ def test_duplicate_table_rejected():
         SchemaSpec(tables=[t, t.model_copy()])
 
 
+def test_reserved_ownership_column_rejected():
+    """LLM 不得占用系统归属列名（DR-05）。"""
+    with pytest.raises(ValidationError, match="系统保留"):
+        TableSpecModel(
+            name="t",
+            columns=[
+                ColumnSpec(name="id", type="INTEGER", is_pk=True),
+                ColumnSpec(name="created_by", type="BIGINT", is_fk=True,
+                           ref_table="u", ref_column="id"),
+            ],
+        )
+
+
 # ---- 归属列注入（DR-05） ----
 
 def test_ownership_columns_injected():

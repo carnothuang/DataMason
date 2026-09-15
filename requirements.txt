@@ -9,5 +9,8 @@ cryptography>=42.0
 PyMySQL>=1.1
 psycopg2-binary>=2.9
 
+# 可选缓存（设置页开启后使用；未启用不影响主流程）
+redis>=5.0
+
 # 测试
 pytest>=8.0
