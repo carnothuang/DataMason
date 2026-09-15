@@ -1,0 +1,30 @@
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+*.egg-info/
+.venv/
+venv/
+
+# 运行时数据
+*.db
+*.sqlite
+*.sqlite3
+/data/
+
+# Node / web
+node_modules/
+web/dist/
+
+# 编辑器 / 系统
+.DS_Store
+.idea/
+.vscode/
+
+# WorkBuddy 本地数据（不进版本库）
+.workbuddy/
+.sync_temp_dir/
+
+# 临时
+*.log
+.tmp/
