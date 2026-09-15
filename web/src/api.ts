@@ -3,13 +3,34 @@ import axios from "axios";
 // 开发环境经 vite proxy 转发到 Flask；生产同源
 export const http = axios.create({ baseURL: "/api/v1", timeout: 30000 });
 
+// 401 全局拦截：会话失效 → 清缓存并跳登录页（仅浏览器侧；多次跳转去重）
+let redirectingTo = "";
 http.interceptors.response.use(
   (resp) => resp,
   (error) => {
+    const status = error?.response?.status;
+    if (status === 401 && typeof window !== "undefined") {
+      const target = "/login";
+      if (redirectingTo !== target) {
+        redirectingTo = target;
+        // 清掉本地缓存的当前用户，避免门卫误判
+        try {
+          sessionStorage.removeItem("datamason_me");
+        } catch {
+          /* ignore */
+        }
+        // 用 location 强制刷新状态，避免 React 树内 401 反复重试
+        if (window.location.pathname !== target) {
+          window.location.href = target;
+        }
+      }
+    }
     const msg =
-      error?.response?.data?.error ||
-      error?.message ||
-      "请求失败";
+      error?.code === "ECONNABORTED"
+        ? "后端响应超时：服务可能仍在处理或已无响应，请确认后端状态后重试"
+        : error?.response?.data?.error ||
+          error?.message ||
+          "请求失败";
     return Promise.reject(new Error(msg));
   },
 );
@@ -80,6 +101,12 @@ export interface DeployResult {
   seeded: boolean;
 }
 
+// ---------- 工作台运行时（M2-2） ----------
+export const WorkspaceApi = {
+  info: (deploymentId: number) =>
+    http.get<WorkspaceInfo>(`/app/${deploymentId}`).then((r) => r.data),
+};
+
 export interface TableInfo {
   name: string;
   biz_name: string;
@@ -112,17 +139,89 @@ export interface TableBlueprint {
   columns: FieldColumn[];
 }
 
+// ---------- 工作台运行时（M2-2） ----------
+export interface WorkspaceMenu {
+  id: number;
+  label: string;
+  kind: string;
+  ref_id: number | null;
+  children: WorkspaceMenu[];
+}
+
+export interface WorkspacePage {
+  id: number;
+  kind: string;
+  access: string;
+  title: string;
+  table: string | null;
+  table_biz_name: string | null;
+}
+
+export interface WorkspaceInfo {
+  deployment_id: number;
+  biz_name: string;
+  status: string;
+  entry_path: string;
+  menus: WorkspaceMenu[];
+  pages: WorkspacePage[];
+}
+
+// ---------- 认证 ----------
+export interface CurrentUser {
+  id: number;
+  username: string;
+  display_name: string;
+  is_platform_admin: boolean;
+}
+
+export interface AuthApi {
+  login: (payload: { username: string; password: string }) => Promise<CurrentUser>;
+  logout: () => Promise<void>;
+  me: () => Promise<CurrentUser>;
+  setupStatus: () => Promise<{
+    needs_setup: boolean;
+    llm_configured: boolean;
+    user_count: number;
+  }>;
+  bootstrap: () => Promise<{ created?: string[]; skipped?: boolean; [k: string]: unknown }>;
+  listUsers: () => Promise<CurrentUser[]>;
+  createUser: (payload: {
+    username: string;
+    password: string;
+    display_name?: string;
+    is_platform_admin?: boolean;
+  }) => Promise<CurrentUser>;
+  updateUser: (
+    id: number,
+    payload: { display_name?: string; password?: string; is_platform_admin?: boolean },
+  ) => Promise<CurrentUser>;
+}
+
 export type ColumnOp =
   | { action: "add"; name: string; biz_name?: string; type: string; length?: number | null }
   | { action: "drop"; name: string }
   | { action: "rename"; name: string; new_name: string }
   | { action: "change_type"; name: string; type: string; length?: number | null };
 
+// ---------- 工具 ----------
+// 列表接口统一校验：后端未正确运行 / 被网关返回 HTML 或错误对象时，
+// 抛出可读错误交给页面 catch 提示，避免渲染层 .find/.map 直接白屏。
+function ensureArray<T>(data: unknown, what: string): T[] {
+  if (!Array.isArray(data)) {
+    throw new Error(`${what}返回数据格式异常（应为数组），请确认后端服务已正确启动`);
+  }
+  return data;
+}
+
 // ---------- 部署 ----------
 export const DeployApi = {
-  list: () => http.get<Deployment[]>("/deployments").then((r) => r.data),
+  list: () =>
+    http.get<Deployment[]>("/deployments").then((r) => ensureArray<Deployment>(r.data, "部署清单")),
   preview: (description: string) =>
-    http.post<Proposal>("/deployments/preview", { description }).then((r) => r.data),
+    // LLM 生成结构实测 20s+，自检重试最多 3 次（每次服务端上限 60s），
+    // 前端 30s 默认超时会在正常耗时内误报 timeout，此处放宽到 240s。
+    http.post<Proposal>("/deployments/preview", { description }, { timeout: 240_000 })
+      .then((r) => r.data),
   confirm: (payload: {
     spec_json: Record<string, unknown>;
     biz_name: string;
@@ -130,7 +229,7 @@ export const DeployApi = {
     seed_data: boolean;
   }) => http.post<DeployResult>("/deployments/confirm", payload).then((r) => r.data),
   tables: (id: number) =>
-    http.get<TableInfo[]>(`/deployments/${id}/tables`).then((r) => r.data),
+    http.get<TableInfo[]>(`/deployments/${id}/tables`).then((r) => ensureArray<TableInfo>(r.data, "数据表")),
   rows: (
     id: number,
     table: string,
@@ -140,7 +239,7 @@ export const DeployApi = {
       .get<RowPage>(`/deployments/${id}/tables/${encodeURIComponent(table)}/rows`, { params })
       .then((r) => r.data),
   blueprint: (id: number) =>
-    http.get<TableBlueprint[]>(`/deployments/${id}/blueprint`).then((r) => r.data),
+    http.get<TableBlueprint[]>(`/deployments/${id}/blueprint`).then((r) => ensureArray<TableBlueprint>(r.data, "字段蓝图")),
   alterColumns: (id: number, table: string, ops: ColumnOp[]) =>
     http
       .post<{ name: string; columns: FieldColumn[] }>(
@@ -152,7 +251,8 @@ export const DeployApi = {
 
 // ---------- 模型 ----------
 export const ModelsApi = {
-  list: () => http.get<LlmModel[]>("/settings/models").then((r) => r.data),
+  list: () =>
+    http.get<LlmModel[]>("/settings/models").then((r) => ensureArray<LlmModel>(r.data, "模型列表")),
   create: (data: Partial<LlmModel> & { api_key: string }) =>
     http.post<LlmModel>("/settings/models", data).then((r) => r.data),
   update: (id: number, data: Partial<LlmModel>) =>
@@ -168,7 +268,8 @@ export const ModelsApi = {
 
 // ---------- 连接 ----------
 export const ConnectionsApi = {
-  list: () => http.get<Connection[]>("/settings/connections").then((r) => r.data),
+  list: () =>
+    http.get<Connection[]>("/settings/connections").then((r) => ensureArray<Connection>(r.data, "连接列表")),
   create: (data: Record<string, unknown>) =>
     http.post<Connection>("/settings/connections", data).then((r) => r.data),
   remove: (id: number) => http.delete(`/settings/connections/${id}`),
@@ -187,4 +288,29 @@ export const RedisApi = {
     http.post<{ ok: boolean; version?: string; error?: string }>(
       "/settings/redis/test",
     ).then((r) => r.data),
+};
+
+// ---------- 认证 ----------
+export const AuthApi: AuthApi = {
+  login: (payload) =>
+    http.post<CurrentUser>("/auth/login", payload).then((r) => r.data),
+  logout: () =>
+    http.post("/auth/logout").then(() => {
+      /* noop */
+    }),
+  me: () => http.get<CurrentUser>("/auth/me").then((r) => r.data),
+  setupStatus: () =>
+    http.get<{ needs_setup: boolean; llm_configured: boolean; user_count: number }>(
+      "/auth/setup-status",
+    ).then((r) => r.data),
+  bootstrap: () =>
+    http.post<{ created?: string[]; skipped?: boolean; [k: string]: unknown }>(
+      "/auth/bootstrap",
+    ).then((r) => r.data),
+  listUsers: () =>
+    http.get<CurrentUser[]>("/auth/users").then((r) => ensureArray<CurrentUser>(r.data, "用户列表")),
+  createUser: (payload) =>
+    http.post<CurrentUser>("/auth/users", payload).then((r) => r.data),
+  updateUser: (id, payload) =>
+    http.put<CurrentUser>(`/auth/users/${id}`, payload).then((r) => r.data),
 };

@@ -79,13 +79,17 @@ class FakeLlm:
 
 
 @pytest.fixture()
-def admin(app):
+def admin(app, client):
+    """建管理员并让共享 client 登录（M2-1 起业务接口需会话）。"""
     Session = app.extensions["datamason_session_factory"]
     with Session() as s:
         u = User(username="laomao", display_name="老猫",
                  password_hash=hash_password("pw"), is_platform_admin=True)
         s.add(u)
         s.commit()
+        resp = client.post("/api/v1/auth/login",
+                           json={"username": "laomao", "password": "pw"})
+        assert resp.status_code == 200
         return u.id
 
 

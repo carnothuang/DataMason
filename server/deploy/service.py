@@ -45,6 +45,21 @@ def _slugify(text_zh: str) -> str:
 
 
 def _owner_id(s) -> int:
+    """部署归属：M2-1 起取当前会话用户（登录由 app.py 鉴权拦截层保证）。
+
+    无请求上下文（如脚本直接调 service）时回退到首个平台管理员，兼容 M0 链路脚本。
+    """
+    try:
+        from flask import has_request_context, session
+
+        if has_request_context():
+            uid = session.get("user_id")
+            if uid:
+                user = s.get(User, uid)
+                if user is not None:
+                    return user.id
+    except ImportError:  # pragma: no cover
+        pass
     user = s.query(User).filter_by(is_platform_admin=True).order_by(User.id).first()
     if user is None:
         user = s.query(User).order_by(User.id).first()

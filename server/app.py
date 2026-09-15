@@ -28,16 +28,58 @@ def create_app(config_object: object | None = None) -> Flask:
     from server.auth.routes import bp as auth_bp
     from server.settings.routes import bp as settings_bp
     from server.deploy.routes import bp as deploy_bp
+    from server.workspace.routes import bp as workspace_bp
 
     app.register_blueprint(auth_bp, url_prefix="/api/v1/auth")
     app.register_blueprint(settings_bp, url_prefix="/api/v1/settings")
     app.register_blueprint(deploy_bp, url_prefix="/api/v1")
+    app.register_blueprint(workspace_bp, url_prefix="/api/v1/app")
 
+    _register_auth_guard(app)
     _register_spa(app)
 
     # 元数据驱动 CRUD 蓝图在 M0-4 引入；M0-1 仅健康检查 + 首次启动向导
 
     return app
+
+
+def _register_auth_guard(app: Flask) -> None:
+    """M2-1 统一鉴权：/api/* 需登录（白名单除外）；设置与账号管理需平台管理员。
+
+    - 会话：Flask signed cookie（login 时写 session["user_id"]）。
+    - 白名单：健康检查 + 首启向导 + 登录/登出/me（me 未登录返回 401 而非拦截）。
+    - SPA/静态资源（非 /api/）不拦截，由前端登录页引导。
+    """
+    from flask import jsonify, request, session
+
+    public_paths = {
+        "/api/v1/health",
+        "/api/v1/auth/login",
+        "/api/v1/auth/logout",
+        "/api/v1/auth/me",
+        "/api/v1/auth/setup-status",
+        "/api/v1/auth/bootstrap",
+    }
+    admin_prefixes = ("/api/v1/settings/", "/api/v1/auth/users")
+
+    @app.before_request
+    def _auth_guard():
+        path = request.path
+        if not path.startswith("/api/") or path in public_paths:
+            return None
+        uid = session.get("user_id")
+        if not uid:
+            return jsonify({"error": "未登录或会话已失效"}), 401
+
+        if path.startswith(admin_prefixes):
+            Session = app.extensions["datamason_session_factory"]
+            from server.models import User
+
+            with Session() as s:
+                user = s.get(User, uid)
+            if user is None or not user.is_platform_admin:
+                return jsonify({"error": "需要平台管理员权限"}), 403
+        return None
 
 
 def _register_spa(app: Flask) -> None:

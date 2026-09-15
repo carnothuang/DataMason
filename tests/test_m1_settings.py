@@ -20,6 +20,21 @@ def _s(app):
     return app.extensions["datamason_session_factory"]()
 
 
+@pytest.fixture(autouse=True)
+def _login_admin(app, client):
+    """M2-1 起设置接口需平台管理员登录；本文件全部用例共享登录态。"""
+    from server.auth.service import hash_password
+    from server.models import User
+
+    with _s(app) as s:
+        s.add(User(username="laomao", display_name="老猫",
+                   password_hash=hash_password("pw"), is_platform_admin=True))
+        s.commit()
+    resp = client.post("/api/v1/auth/login",
+                       json={"username": "laomao", "password": "pw"})
+    assert resp.status_code == 200
+
+
 # ---------- 多模型 ----------
 
 def test_model_crud_and_masking(app, client):

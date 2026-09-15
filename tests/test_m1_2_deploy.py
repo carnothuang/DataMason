@@ -53,13 +53,17 @@ class FakeLlm:
 
 
 @pytest.fixture()
-def admin(app):
+def admin(app, client):
+    """建管理员并让共享 client 登录（M2-1 起业务接口需会话）。"""
     Session = app.extensions["datamason_session_factory"]
     with Session() as s:
         u = User(username="laomao", display_name="老猫",
                  password_hash=hash_password("pw"), is_platform_admin=True)
         s.add(u)
         s.commit()
+        resp = client.post("/api/v1/auth/login",
+                           json={"username": "laomao", "password": "pw"})
+        assert resp.status_code == 200
         return u.id
 
 
@@ -170,18 +174,17 @@ def test_confirm_without_seed(app, client, admin, patch_llm):
     biz.dispose()
 
 
-def test_confirm_without_user_rejected(app, client, patch_llm):
+def test_unauthenticated_deploy_rejected(app, client, patch_llm):
+    """M2-1：未登录访问业务接口一律 401。"""
     preview = client.post("/api/v1/deployments/preview",
                           json={"description": "x"})
-    # 无任何用户 → preview 仍可（只依赖模型）；但 confirm 因无 owner 报错
-    # 先造模型场景：preview 会因默认 LLM fake 成功，confirm 无用户应 400
-    if preview.status_code == 200:
-        resp = client.post("/api/v1/deployments/confirm", json={
-            "spec_json": preview.get_json()["spec_json"],
-            "biz_name": "x",
-        })
-        assert resp.status_code == 400
-        assert "向导" in resp.get_json()["error"]
+    assert preview.status_code == 401
+    resp = client.post("/api/v1/deployments/confirm", json={
+        "spec_json": {}, "biz_name": "x",
+    })
+    assert resp.status_code == 401
+    assert client.get("/api/v1/deployments").status_code == 401
+    assert client.get("/api/v1/settings/models").status_code == 401
 
 
 def _deploy_one(client) -> int:
@@ -229,5 +232,5 @@ def test_runtime_browse_unknown_table(app, client, admin, patch_llm):
     assert resp.status_code == 404  # 表不在该部署白名单
 
 
-def test_runtime_browse_unknown_deployment(app, client):
+def test_runtime_browse_unknown_deployment(app, client, admin):
     assert client.get("/api/v1/deployments/999/tables").status_code == 404

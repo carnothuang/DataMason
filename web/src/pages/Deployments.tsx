@@ -9,7 +9,8 @@ import {
   Tag,
   Typography,
 } from "antd";
-import { PlusOutlined, ReloadOutlined, TableOutlined } from "@ant-design/icons";
+import { PlusOutlined, ReloadOutlined, TableOutlined, ThunderboltOutlined } from "@ant-design/icons";
+import { useNavigate } from "react-router-dom";
 import { DeployApi, Deployment } from "../api";
 import DeployWizard from "./deploy/DeployWizard";
 import DataViewer from "./deploy/DataViewer";
@@ -33,6 +34,7 @@ const STATUS_LABEL: Record<string, string> = {
 
 export default function Deployments() {
   const { message } = App.useApp();
+  const navigate = useNavigate();
   const [rows, setRows] = useState<Deployment[]>([]);
   const [loading, setLoading] = useState(false);
   const [wizardOpen, setWizardOpen] = useState(false);
@@ -129,6 +131,17 @@ export default function Deployments() {
                     </Paragraph>
                   </div>
                   <Space onClick={(e) => e.stopPropagation()}>
+                    {d.status === "running" && d.entry_path && (
+                      <Button
+                        type="primary"
+                        size="small"
+                        ghost
+                        icon={<ThunderboltOutlined />}
+                        onClick={() => navigate(d.entry_path)}
+                      >
+                        打开工作台
+                      </Button>
+                    )}
                     <Button
                       size="small"
                       icon={<TableOutlined />}

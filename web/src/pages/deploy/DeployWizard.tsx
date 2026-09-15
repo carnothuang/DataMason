@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   Alert,
   App,
@@ -15,8 +15,11 @@ import {
   Steps,
   Table,
   Tag,
+  Typography,
 } from "antd";
 import { DeployApi, DeployResult, Proposal } from "../../api";
+
+const { Text } = Typography;
 
 interface Props {
   open: boolean;
@@ -33,6 +36,19 @@ export default function DeployWizard({ open, onClose, onDeployed }: Props) {
   const [proposal, setProposal] = useState<Proposal | null>(null);
   const [result, setResult] = useState<DeployResult | null>(null);
   const [error, setError] = useState("");
+  // 后端长耗时（LLM 生成/落库）期间的已用时计时，让用户确认后端仍在工作
+  const [elapsed, setElapsed] = useState(0);
+  const working = phase === "loading" || phase === "deploying";
+
+  useEffect(() => {
+    if (!working) return;
+    const started = Date.now();
+    setElapsed(0);
+    const timer = window.setInterval(() => {
+      setElapsed(Math.floor((Date.now() - started) / 1000));
+    }, 1000);
+    return () => window.clearInterval(timer);
+  }, [working]);
 
   const reset = () => {
     form.resetFields();
@@ -113,10 +129,13 @@ export default function DeployWizard({ open, onClose, onDeployed }: Props) {
               就这么部署
             </Button>
           </Space>
-        ) : phase === "done" ? (
-          <Button type="primary" onClick={close}>
-            完成
-          </Button>
+        ) : phase === "done" && result ? (
+          <Space>
+            <Button onClick={close}>完成</Button>
+            <Button type="primary" onClick={() => window.location.assign(result.entry_path)}>
+              进入工作台
+            </Button>
+          </Space>
         ) : null
       }
     >
@@ -134,6 +153,15 @@ export default function DeployWizard({ open, onClose, onDeployed }: Props) {
           <Spin tip="正在设计表结构与界面…" size="large">
             <div style={{ height: 40 }} />
           </Spin>
+          <div style={{ marginTop: 4 }}>
+            <Text type="secondary">
+              后端正在调用 LLM 生成结构，已用时 {elapsed} 秒
+            </Text>
+            <br />
+            <Text type="secondary" style={{ fontSize: 12 }}>
+              简单需求约 30~90 秒，复杂需求可能更久，请勿关闭窗口；仅在后端明确失败时才会提示错误
+            </Text>
+          </div>
         </div>
       )}
 
@@ -142,6 +170,9 @@ export default function DeployWizard({ open, onClose, onDeployed }: Props) {
           <Spin tip="建库 → 建表 → 页面 → 演示数据 → 注册入口…" size="large">
             <div style={{ height: 40 }} />
           </Spin>
+          <div style={{ marginTop: 4 }}>
+            <Text type="secondary">后端正在落库，已用时 {elapsed} 秒</Text>
+          </div>
         </div>
       )}
 
@@ -235,6 +266,9 @@ export default function DeployWizard({ open, onClose, onDeployed }: Props) {
             <Tag key="entry" color="blue" style={{ fontFamily: "monospace", padding: "4px 10px" }}>
               {result.entry_path}
             </Tag>,
+            <Button key="go" type="primary" onClick={() => window.location.assign(result.entry_path)}>
+              进入工作台
+            </Button>,
           ]}
         />
       )}
