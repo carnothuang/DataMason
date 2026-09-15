@@ -330,3 +330,42 @@ def make_redis_client(app):
         host=cfg["host"], port=int(cfg["port"]), db=int(cfg["db"]),
         password=cfg["password"] or None, socket_connect_timeout=3,
     )
+
+
+# ---------------- 默认 LLM 客户端（部署管线使用） ----------------
+
+def get_default_llm_client(app):
+    """从 llm_models 取默认模型，构建网关客户端；无配置返回 None。"""
+    from server.llm.client import LlmConfig, OpenAiCompatibleClient
+
+    cipher = _cipher(app)
+    with _session(app) as s:
+        m = s.query(LlmModel).filter_by(is_default=True).first()
+        if m is None:
+            m = s.query(LlmModel).order_by(LlmModel.id).first()
+        if m is None:
+            return None
+        cfg = LlmConfig(
+            base_url=m.base_url,
+            api_key=cipher.decrypt(m.api_key_cipher),
+            model=m.model_name or m.name,
+            temperature=m.temperature,
+        )
+    return OpenAiCompatibleClient(cfg)
+
+
+def get_connection_engine_factory(app):
+    """返回一个按 connection_id 解析出 SQLAlchemy engine 的闭包。"""
+    from sqlalchemy import create_engine
+
+    cipher = _cipher(app)
+
+    def _engine_for(conn_id: int):
+        with _session(app) as s:
+            c = s.get(Connection, conn_id)
+            if c is None:
+                raise KeyError("数据连接不存在")
+            uri = cipher.decrypt(c.conn_uri)
+        return create_engine(uri, future=True)
+
+    return _engine_for

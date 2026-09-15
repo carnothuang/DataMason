@@ -1,0 +1,268 @@
+"""部署管线（设计细化 §十一·六）：一验证一部署。
+
+创建模式（M1）：
+  preview: 一句话 → LLM 产 table_spec → 确定性派生页面清单（不落库）
+  confirm: 自动建 SQLite 物理库 + 登记 connections（消化走查 B1）
+           → 执行 DDL（含归属列）→ 回读 → 写 table_specs/page_specs/menus
+           → 演示种子（DR-08，可关）→ 注册入口 → running
+身份：M1 认证未接入，owner_id 取首个平台管理员（向导创建）；接会话后替换。
+"""
+from __future__ import annotations
+
+import json
+import re
+from datetime import datetime, timezone
+from pathlib import Path
+
+from sqlalchemy import create_engine, inspect, text
+
+from server.dataaccess.manager import execute_ddl
+from server.ddl.ddl_builder import build_schema_ddl, inject_ownership_columns
+from server.llm.structure import generate_schema, generate_seed_rows
+from server.models import (
+    Connection,
+    CrudConfig,
+    Deployment,
+    DeploymentMenu,
+    PageSpec,
+    TableSpec,
+    User,
+)
+
+
+class DeployError(RuntimeError):
+    pass
+
+
+def _session(app):
+    return app.extensions["datamason_session_factory"]()
+
+
+def _slugify(text_zh: str) -> str:
+    """从业务名生成英文短路径；中文等非 ASCII 用 dm_ 前缀兜底。"""
+    ascii_part = re.sub(r"[^a-zA-Z0-9]+", "_", text_zh).strip("_").lower()
+    return ascii_part[:24] if ascii_part else ""
+
+
+def _owner_id(s) -> int:
+    user = s.query(User).filter_by(is_platform_admin=True).order_by(User.id).first()
+    if user is None:
+        user = s.query(User).order_by(User.id).first()
+    if user is None:
+        raise DeployError("尚未创建任何用户，请先完成首次启动向导")
+    return user.id
+
+
+# ---------------- 提案（预览，不落业务库） ----------------
+
+def preview(app, description: str) -> dict:
+    from server.settings.service import get_default_llm_client
+
+    client = get_default_llm_client(app)
+    if client is None:
+        raise DeployError("尚未配置默认 LLM 模型，请先到「设置 → 模型管理」添加并测试")
+
+    schema, meta = generate_schema(client, description)
+    pages = _derive_pages(schema)
+    return {
+        "biz_notes": schema.biz_notes,
+        "attempts": meta["attempts"],
+        # spec_json 由前端在「就这么部署」时原样回传，保证所见即所建
+        "spec_json": schema.model_dump(mode="json"),
+        "tables": [
+            {
+                "name": t.name,
+                "biz_name": t.biz_name or t.name,
+                "columns": [
+                    {"name": c.name, "biz_name": c.biz_name, "type": c.type,
+                     "is_pk": c.is_pk, "is_fk": c.is_fk,
+                     "ref_table": c.ref_table}
+                    for c in inject_ownership_columns(t).columns
+                ],
+            }
+            for t in schema.tables
+        ],
+        "pages": pages,
+    }
+
+
+def _derive_pages(schema) -> list[dict]:
+    """确定性派生页面清单（DR-07）：每张表一张 crud_list；
+    名字像留言/反馈/提交的表额外派生一张 public_form。"""
+    pages = []
+    public_keywords = ("留言", "反馈", "消息", "message", "guestbook", "feedback")
+    for t in schema.tables:
+        pages.append({
+            "table": t.name,
+            "title": f"{t.biz_name or t.name}管理",
+            "kind": "crud_list",
+            "access": "member",
+        })
+        hint = f"{t.name} {t.biz_name}".lower()
+        if any(k.lower() in hint for k in public_keywords):
+            pages.append({
+                "table": t.name,
+                "title": f"我要{t.biz_name or t.name}",
+                "kind": "public_form",
+                "access": "public",
+            })
+    return pages
+
+
+# ---------------- 确认部署（落库） ----------------
+
+def confirm(app, spec_dict: dict, biz_name: str, seed_data: bool = True,
+            purpose: str = "") -> dict:
+    """按提案预览时的 spec 确定性落库（不再调 LLM，保证所见即所建）。"""
+    from server.ddl.table_spec import SchemaSpec
+
+    schema = SchemaSpec.model_validate(spec_dict)
+
+    with _session(app) as s:
+        owner = _owner_id(s)
+
+        # ① 建独立 SQLite 物理库并登记 connections（B1：创建模式自动建连接）
+        slug = _slugify(biz_name) or "dm"
+        unique = f"{slug}_{int(datetime.now(timezone.utc).timestamp()) % 100000}"
+        rel_db = f"deployments/{unique}.db"
+        abs_db = Path(app.config["DATA_ROOT"]) / rel_db
+        abs_db.parent.mkdir(parents=True, exist_ok=True)
+        uri = f"sqlite:///{abs_db.as_posix()}"
+
+        conn = Connection(
+            name=f"[部署]{biz_name}",
+            dialect="sqlite",
+            conn_uri=app.extensions["cipher"].encrypt(uri),
+            status="ok",
+        )
+        s.add(conn)
+        s.flush()
+
+        # ② 部署元数据行（先 deploying）
+        deployment = Deployment(
+            biz_name=biz_name,
+            purpose=purpose or biz_name,
+            data_mode="create",
+            connection_id=conn.id,
+            db_name=rel_db,
+            status="deploying",
+            entry_path="",
+            owner_id=owner,
+            seed_data=seed_data,
+        )
+        s.add(deployment)
+        s.flush()
+        deployment_id = deployment.id
+        s.commit()  # 必须提交：后续新会话要按外键引用 connection/deployment
+
+    # ③ 物理建表（独立连接，避免元数据会话内跨库）
+    biz_engine = create_engine(uri, future=True)
+    statements = build_schema_ddl(schema, "sqlite")
+    execute_ddl(biz_engine, statements)
+
+    # ④ 回读真实 schema（以数据库为准），写元数据
+    insp = inspect(biz_engine)
+    table_spec_ids: dict[str, int] = {}
+    with _session(app) as s:
+        for t in schema.tables:
+            real_cols = []
+            if t.name in insp.get_table_names():
+                real_cols = [
+                    {"name": c["name"], "type": str(c["type"]),
+                     "nullable": bool(c.get("nullable", True))}
+                    for c in insp.get_columns(t.name)
+                ]
+            ts = TableSpec(
+                deployment_id=deployment_id,
+                name=t.name,
+                biz_name=t.biz_name,
+                columns_json=json.dumps(real_cols, ensure_ascii=False),
+                ddl_sql="\n".join(stmt for stmt in statements if t.name in stmt),
+                status="applied",
+            )
+            s.add(ts)
+            s.flush()
+            table_spec_ids[t.name] = ts.id
+
+        # ⑤ 页面清单 + 菜单（ref_id → page_specs.id，闭环 B2）
+        page_ids: dict[str, int] = {}
+        pages = _derive_pages(schema)
+        for p in pages:
+            ps = PageSpec(
+                deployment_id=deployment_id,
+                kind=p["kind"],
+                access=p["access"],
+                table_id=table_spec_ids[p["table"]],
+                title=p["title"],
+                layout_json="{}",
+            )
+            s.add(ps)
+            s.flush()
+            page_ids[f"{p['table']}:{p['kind']}"] = ps.id
+            # 每张 crud_list 自动挂一个菜单项
+            if p["kind"] == "crud_list":
+                s.add(DeploymentMenu(
+                    deployment_id=deployment_id,
+                    label=p["title"],
+                    kind="table",
+                    ref_id=ps.id,
+                ))
+            # CRUD 配置占位（M2 完整化）
+            s.add(CrudConfig(
+                deployment_id=deployment_id,
+                table_id=table_spec_ids[p["table"]],
+                api_config_json="{}",
+                ui_config_json="{}",
+            ))
+        s.commit()
+
+    # ⑥ 演示种子（DR-08）
+    if seed_data:
+        seeds = generate_seed_rows(schema, rows_per_table=10)
+        with biz_engine.begin() as conn_db:
+            for table_name, rows in seeds.items():
+                if not rows:
+                    continue
+                cols = list(rows[0].keys())
+                col_sql = ", ".join(cols)
+                ph = ", ".join(f":{c}" for c in cols)
+                for row in rows:
+                    conn_db.execute(
+                        text(f"INSERT INTO {table_name} ({col_sql}) VALUES ({ph})"),
+                        row,
+                    )
+    biz_engine.dispose()
+
+    # ⑦ 注册入口 → running
+    entry_path = f"/app/{deployment_id}"
+    with _session(app) as s:
+        d = s.get(Deployment, deployment_id)
+        d.status = "running"
+        d.entry_path = entry_path
+        s.commit()
+
+    return {
+        "deployment_id": deployment_id,
+        "biz_name": biz_name,
+        "status": "running",
+        "entry_path": entry_path,
+        "table_count": len(schema.tables),
+        "seeded": seed_data,
+    }
+
+
+def list_deployments(app) -> list[dict]:
+    with _session(app) as s:
+        rows = s.query(Deployment).order_by(Deployment.id.desc()).all()
+        return [
+            {
+                "id": d.id,
+                "biz_name": d.biz_name,
+                "purpose": d.purpose,
+                "status": d.status,
+                "entry_path": d.entry_path,
+                "seed_data": d.seed_data,
+                "created_at": d.created_at.isoformat() if d.created_at else None,
+            }
+            for d in rows
+        ]
