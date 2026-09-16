@@ -342,6 +342,44 @@ def _owner_actor_id(app, deployment_id: int) -> int:
         return d.owner_id if d is not None else 1
 
 
+# ---------------- M3-1 生命周期：停止 / 再启动 ----------------
+
+def set_lifecycle(app, deployment_id: int, target: str, actor_user_id: int) -> dict:
+    """M3-1 stop（running→stopped）/ start（stopped→running）。
+
+    权限：创建人独有（DR-14），由路由层 _require_creator 保证；
+    数据保留不删、不碰业务库，仅切状态；系统动作 stop/start 埋点（M3-1）。
+    """
+    from server.audit.service import log_system
+
+    Session = app.extensions["datamason_session_factory"]
+    with Session() as s:
+        d = s.get(Deployment, deployment_id)
+        if d is None:
+            raise DeployError("部署不存在")
+        if target == "stop":
+            if d.status != "running":
+                raise DeployError(f"仅运行中的部署可停止（当前：{d.status}）")
+        elif target == "start":
+            if d.status != "stopped":
+                raise DeployError(f"仅已停止的部署可再启动（当前：{d.status}）")
+        else:
+            raise DeployError("未知生命周期动作")
+        d.status = "stopped" if target == "stop" else "running"
+        s.commit()
+        status, biz_name, entry_path = d.status, d.biz_name, d.entry_path
+
+    log_system(
+        app, deployment_id, target,
+        actor_user_id=actor_user_id,
+        object_kind="deployment", object_pk=str(deployment_id),
+        object_label=f"{biz_name} {'已停止' if target == 'stop' else '已再启动'}",
+        changes={"status": status, "entry_path": entry_path},
+    )
+    return {"deployment_id": deployment_id, "biz_name": biz_name,
+            "status": status, "entry_path": entry_path}
+
+
 def list_deployments(app) -> list[dict]:
     with _session(app) as s:
         rows = (
@@ -351,12 +389,15 @@ def list_deployments(app) -> list[dict]:
         )
         # M2-5：控制台只列我参与的部署（创建人或成员）；无会话上下文（脚本）全列
         uid = _session_user_id()
+        member_rows: list[DeploymentMember] = []
         if uid is not None:
-            member_ids = {
-                r.deployment_id
-                for r in s.query(DeploymentMember).filter_by(user_id=uid).all()
-            }
+            member_rows = (
+                s.query(DeploymentMember).filter_by(user_id=uid).all()
+            )
+            member_ids = {r.deployment_id for r in member_rows}
             rows = [d for d in rows if d.owner_id == uid or d.id in member_ids]
+        # M3-1：按人标记角色（DR-14 停止/再启动=创建人独有，前端据此裁剪按钮）
+        role_map = {r.deployment_id: r.role for r in member_rows}
         return [
             {
                 "id": d.id,
@@ -366,6 +407,8 @@ def list_deployments(app) -> list[dict]:
                 "entry_path": d.entry_path,
                 "data_mode": d.data_mode,
                 "seed_data": d.seed_data,
+                "role": ("creator" if d.owner_id == uid else role_map.get(d.id))
+                if uid is not None else None,
                 "created_at": d.created_at.isoformat() if d.created_at else None,
             }
             for d in rows

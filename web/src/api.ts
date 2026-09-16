@@ -70,6 +70,7 @@ export interface Deployment {
   entry_path: string;
   data_mode: "create" | "link";
   seed_data: boolean;
+  role?: string;
   created_at: string;
 }
 
@@ -502,6 +503,11 @@ export const DeployApi = {
         { ops },
       )
       .then((r) => r.data),
+  /** M3-1：生命周期 停止/再启动（创建人独有） */
+  stop: (id: number) =>
+    http.post<DeployResult>(`/deployments/${id}/stop`).then((r) => r.data),
+  start: (id: number) =>
+    http.post<DeployResult>(`/deployments/${id}/start`).then((r) => r.data),
 };
 
 // ---------- 模型 ----------

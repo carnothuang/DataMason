@@ -1,14 +1,15 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { Button, Layout, Menu, Result, Spin, Typography } from "antd";
+import { App, Button, Layout, Menu, Result, Space, Spin, Typography } from "antd";
 import type { MenuProps } from "antd";
 import {
   ArrowLeftOutlined,
   CrownOutlined,
   FileSearchOutlined,
+  PlayCircleOutlined,
   TeamOutlined,
 } from "@ant-design/icons";
-import { WorkspaceApi, WorkspaceInfo, WorkspaceMenu, WorkspacePage } from "../../api";
+import { DeployApi, WorkspaceApi, WorkspaceInfo, WorkspaceMenu, WorkspacePage } from "../../api";
 import PageRenderer from "./PageRenderer";
 import MembersPage from "./MembersPage";
 import LogsPage from "./LogsPage";
@@ -30,6 +31,7 @@ export interface RecordFocus {
  *  M2-5：新增「成员与权限」系统页（创建人见可编辑，管理员见只读，操作员不见）。
  *  M2-6：新增「操作日志」系统页（创建人/管理员常驻）；日志→记录双向跳转。 */
 export default function Workspace({ deploymentId }: Props) {
+  const { message } = App.useApp();
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const [info, setInfo] = useState<WorkspaceInfo | null>(null);
@@ -37,8 +39,9 @@ export default function Workspace({ deploymentId }: Props) {
   const [activePage, setActivePage] = useState<number | null>(null);
   const [systemPage, setSystemPage] = useState<"members" | "logs" | null>(null);
   const [focus, setFocus] = useState<RecordFocus | null>(null);
+  const [restarting, setRestarting] = useState(false);
 
-  useEffect(() => {
+  const loadInfo = useCallback(() => {
     setInfo(null);
     setError("");
     setActivePage(null);
@@ -48,6 +51,10 @@ export default function Workspace({ deploymentId }: Props) {
       .then(setInfo)
       .catch((e) => setError(e.message));
   }, [deploymentId]);
+
+  useEffect(() => {
+    loadInfo();
+  }, [loadInfo]);
 
   // 菜单点击 → 选页面；初始依 URL ?page=<id>，否则取第一棵子菜单指向的页面
   const firstPageId = useMemo(() => firstLeafRef(info?.menus) ?? info?.pages[0]?.id ?? null, [info]);
@@ -107,6 +114,48 @@ export default function Workspace({ deploymentId }: Props) {
 
   const active: WorkspacePage | null =
     systemPage !== null ? null : (info?.pages.find((p) => p.id === activePage) ?? null);
+
+  // M3-1：停止态入口 → 「系统已停止」提示页（数据保留；创建人可一键再启动）
+  if (info?.status === "stopped") {
+    return (
+      <Result
+        status="info"
+        title="系统已停止"
+        subTitle={
+          info.role === "creator"
+            ? `「${info.biz_name}」已停止，数据已保留；可在控制台或此处再启动恢复使用。`
+            : `「${info.biz_name}」已由创建人停止，数据已保留；请联系创建人再启动。`
+        }
+        extra={
+          <Space>
+            <Button type="primary" icon={<ArrowLeftOutlined />} onClick={() => navigate("/deployments")}>
+              返回控制台
+            </Button>
+            {info.role === "creator" && (
+              <Button
+                icon={<PlayCircleOutlined />}
+                loading={restarting}
+                onClick={async () => {
+                  setRestarting(true);
+                  try {
+                    await DeployApi.start(deploymentId);
+                    message.success("已再启动");
+                    loadInfo();
+                  } catch (e) {
+                    message.error((e as Error).message);
+                  } finally {
+                    setRestarting(false);
+                  }
+                }}
+              >
+                再启动
+              </Button>
+            )}
+          </Space>
+        }
+      />
+    );
+  }
 
   if (error) {
     return (

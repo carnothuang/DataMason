@@ -14,7 +14,7 @@
 """
 from __future__ import annotations
 
-from werkzeug.exceptions import HTTPException
+from werkzeug.exceptions import Conflict, HTTPException
 
 from flask import Blueprint, current_app, jsonify, request, session
 
@@ -61,10 +61,23 @@ def get_workspace(deployment_id: int):
         d = s.get(Deployment, deployment_id)
         if d is None:
             return jsonify({"error": "部署不存在"}), 404
-        if d.status != "running":
-            return jsonify({"error": f"该部署尚未就绪（状态：{d.status}），请回到控制台查看"}), 409
         uid = session.get("user_id") or 1
         role = member_service.assert_member(s, d, uid)  # 非成员 → PermissionDenied → 403
+
+        if d.status == "stopped":
+            # M3-1：停止态入口直达「系统已停止」提示页（数据保留，创建人可再启动）
+            return jsonify({
+                "deployment_id": deployment_id,
+                "biz_name": d.biz_name,
+                "status": "stopped",
+                "data_mode": d.data_mode,
+                "entry_path": d.entry_path,
+                "role": role,
+                "menus": [],
+                "pages": [],
+            })
+        if d.status != "running":
+            return jsonify({"error": f"该部署尚未就绪（状态：{d.status}），请回到控制台查看"}), 409
 
         menus = (
             s.query(DeploymentMenu)
@@ -125,8 +138,28 @@ def _session_user_id() -> int:
     return session.get("user_id") or 1
 
 
+_STATUS_LABEL = {"running": "运行中", "stopped": "已停止", "deploying": "部署中",
+                 "draft": "草稿", "destroyed": "已销毁"}
+
+
+def _assert_running(deployment_id: int) -> None:
+    """M3-1：工作台 CRUD/日志仅运行态可用；停止态入口不可操作（数据保留可再启动）。"""
+    Session = current_app.extensions["datamason_session_factory"]
+    with Session() as s:
+        d = s.get(Deployment, deployment_id)
+        if d is None:
+            raise KeyError(deployment_id)
+        if d.status != "running":
+            label = _STATUS_LABEL.get(d.status, d.status)
+            hint = ("系统已停止，请返回控制台再启动后使用"
+                    if d.status == "stopped" else "请返回控制台查看")
+            raise Conflict(description=f"当前状态「{label}」，{hint}")
+
+
 def _deployment_api(deployment_id: int):
-    """按部署构建 registry + engine（会话用户注入归属列），调用方负责 dispose engine。"""
+    """按部署构建 registry + engine（会话用户注入归属列），调用方负责 dispose engine。
+    M3-1：非运行态直接 409（停止后入口不可操作）。"""
+    _assert_running(deployment_id)
     _d, registry, engine = runtime._registry(
         current_app, deployment_id, _session_user_id()
     )
@@ -192,6 +225,7 @@ def app_activity_logs(deployment_id: int):
     """操作日志（M2-6）：倒序分页 + 时间/人/动作/对象四维筛选；记录↔日志双向跳转复用。"""
     from server.audit import service as audit_service
 
+    _assert_running(deployment_id)
     Session = current_app.extensions["datamason_session_factory"]
     with Session() as s:
         d = s.get(Deployment, deployment_id)

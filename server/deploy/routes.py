@@ -45,6 +45,28 @@ def list_deployments():
     return jsonify(service.list_deployments(current_app))
 
 
+# ---------------- M3-1 生命周期：停止 / 再启动（创建人独有，DR-14） ----------------
+
+@bp.post("/deployments/<int:deployment_id>/stop")
+def deployment_stop(deployment_id: int):
+    _deployment_and_role(current_app, deployment_id)
+    _require_creator(deployment_id)
+    try:
+        return jsonify(service.set_lifecycle(current_app, deployment_id, "stop", _uid()))
+    except service.DeployError as exc:
+        return jsonify({"error": str(exc)}), 400
+
+
+@bp.post("/deployments/<int:deployment_id>/start")
+def deployment_start(deployment_id: int):
+    _deployment_and_role(current_app, deployment_id)
+    _require_creator(deployment_id)
+    try:
+        return jsonify(service.set_lifecycle(current_app, deployment_id, "start", _uid()))
+    except service.DeployError as exc:
+        return jsonify({"error": str(exc)}), 400
+
+
 @bp.post("/deployments/preview")
 def preview():
     data = _body()
