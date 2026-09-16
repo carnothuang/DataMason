@@ -14,3 +14,7 @@ redis>=5.0
 
 # 测试
 pytest>=8.0
+
+# E2E 真浏览器验收的正式 WSGI serve（scripts/e2e/serve_for_e2e.py
+# 优先使用 waitress，缺失时回退 werkzeug dev server）
+waitress>=3.0
