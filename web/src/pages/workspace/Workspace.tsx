@@ -3,6 +3,7 @@ import { useNavigate, useSearchParams } from "react-router-dom";
 import { App, Button, Layout, Menu, Result, Space, Spin, Typography } from "antd";
 import type { MenuProps } from "antd";
 import {
+  AppstoreOutlined,
   ArrowLeftOutlined,
   CrownOutlined,
   FileSearchOutlined,
@@ -13,6 +14,7 @@ import { DeployApi, WorkspaceApi, WorkspaceInfo, WorkspaceMenu, WorkspacePage } 
 import PageRenderer from "./PageRenderer";
 import MembersPage from "./MembersPage";
 import LogsPage from "./LogsPage";
+import EngineerMenusPage from "./EngineerMenusPage";
 
 const { Header, Sider, Content } = Layout;
 const { Text } = Typography;
@@ -29,7 +31,8 @@ export interface RecordFocus {
 
 /** M2-2 工作台运行时：入口 path=/app/{deployment_id}，左菜单树 + 右页面内容区。
  *  M2-5：新增「成员与权限」系统页（创建人见可编辑，管理员见只读，操作员不见）。
- *  M2-6：新增「操作日志」系统页（创建人/管理员常驻）；日志→记录双向跳转。 */
+ *  M2-6：新增「操作日志」系统页（创建人/管理员常驻）；日志→记录双向跳转。
+ *  M3-2：新增「界面与菜单」系统页（创建人独有 DR-14）——真实界面卡拖入导航树即拖即存。 */
 export default function Workspace({ deploymentId }: Props) {
   const { message } = App.useApp();
   const navigate = useNavigate();
@@ -37,7 +40,7 @@ export default function Workspace({ deploymentId }: Props) {
   const [info, setInfo] = useState<WorkspaceInfo | null>(null);
   const [error, setError] = useState("");
   const [activePage, setActivePage] = useState<number | null>(null);
-  const [systemPage, setSystemPage] = useState<"members" | "logs" | null>(null);
+  const [systemPage, setSystemPage] = useState<"menus" | "members" | "logs" | null>(null);
   const [focus, setFocus] = useState<RecordFocus | null>(null);
   const [restarting, setRestarting] = useState(false);
 
@@ -74,6 +77,15 @@ export default function Workspace({ deploymentId }: Props) {
     return [
       ...(base || []),
       { type: "divider" as const },
+      ...(info?.role === "creator"
+        ? [
+            {
+              key: "sys:menus",
+              icon: <AppstoreOutlined />,
+              label: "界面与菜单",
+            },
+          ]
+        : []),
       {
         key: "sys:members",
         icon: <TeamOutlined />,
@@ -88,9 +100,9 @@ export default function Workspace({ deploymentId }: Props) {
   }, [info, canSeeSystemPages]);
 
   const onClick: MenuProps["onClick"] = ({ key }) => {
-    if (key === "sys:members" || key === "sys:logs") {
+    if (key === "sys:menus" || key === "sys:members" || key === "sys:logs") {
       setFocus(null);
-      setSystemPage(key === "sys:members" ? "members" : "logs");
+      setSystemPage(key === "sys:menus" ? "menus" : key === "sys:members" ? "members" : "logs");
       return;
     }
     if (!key.startsWith("page:")) return;
@@ -205,13 +217,15 @@ export default function Workspace({ deploymentId }: Props) {
           mode="inline"
           items={menuItems}
           selectedKeys={
-            systemPage === "members"
-              ? ["sys:members"]
-              : systemPage === "logs"
-                ? ["sys:logs"]
-                : activePage !== null
-                  ? [`page:${activePage}`]
-                  : []
+            systemPage === "menus"
+              ? ["sys:menus"]
+              : systemPage === "members"
+                ? ["sys:members"]
+                : systemPage === "logs"
+                  ? ["sys:logs"]
+                  : activePage !== null
+                    ? [`page:${activePage}`]
+                    : []
           }
           onClick={onClick}
         />
@@ -228,18 +242,22 @@ export default function Workspace({ deploymentId }: Props) {
           }}
         >
           <Text strong>
-            {systemPage === "members"
-              ? "成员与权限"
-              : systemPage === "logs"
-                ? "操作日志"
-                : (active?.title || "工作台")}
+            {systemPage === "menus"
+              ? "界面与菜单"
+              : systemPage === "members"
+                ? "成员与权限"
+                : systemPage === "logs"
+                  ? "操作日志"
+                  : (active?.title || "工作台")}
           </Text>
           <Button size="small" icon={<ArrowLeftOutlined />} onClick={() => navigate("/deployments")}>
             返回控制台
           </Button>
         </Header>
         <Content style={{ padding: 24 }}>
-          {systemPage === "members" && canSeeSystemPages ? (
+          {systemPage === "menus" && info?.role === "creator" ? (
+            <EngineerMenusPage deploymentId={deploymentId} />
+          ) : systemPage === "members" && canSeeSystemPages ? (
             <MembersPage deploymentId={deploymentId} canEdit={canEditMembers} />
           ) : systemPage === "logs" && canSeeSystemPages ? (
             <LogsPage deploymentId={deploymentId} onViewRecord={handleViewRecord} />

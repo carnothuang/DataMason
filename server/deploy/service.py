@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 import re
+import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -25,6 +26,7 @@ from server.models import (
     Deployment,
     DeploymentMember,
     DeploymentMenu,
+    DeploymentMenuGrant,
     PageSpec,
     TableSpec,
     User,
@@ -155,7 +157,10 @@ def confirm(app, spec_dict: dict, biz_name: str, seed_data: bool = True,
         else:
             # ① 建独立 SQLite 物理库并登记 connections（B1：创建模式自动建连接）
             slug = _slugify(biz_name) or "dm"
-            unique = f"{slug}_{int(datetime.now(timezone.utc).timestamp()) % 100000}"
+            unique = (
+                f"{slug}_{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S')}"
+                f"_{secrets.token_hex(3)}"
+            )
             rel_db = f"deployments/{unique}.db"
             abs_db = Path(app.config["DATA_ROOT"]) / rel_db
             abs_db.parent.mkdir(parents=True, exist_ok=True)
@@ -255,6 +260,7 @@ def confirm(app, spec_dict: dict, biz_name: str, seed_data: bool = True,
         # ⑤ 页面清单 + 菜单（ref_id → page_specs.id，闭环 B2）
         page_ids: dict[str, int] = {}
         pages = _derive_pages(schema, with_public_forms=not link_mode)
+        menu_index = 0
         for p in pages:
             ps = PageSpec(
                 deployment_id=deployment_id,
@@ -267,14 +273,16 @@ def confirm(app, spec_dict: dict, biz_name: str, seed_data: bool = True,
             s.add(ps)
             s.flush()
             page_ids[f"{p['table']}:{p['kind']}"] = ps.id
-            # 每张 crud_list 自动挂一个菜单项
+            # 每张 crud_list 自动挂一个菜单项（M3-2 起带同层排序号，拖拽重组用）
             if p["kind"] == "crud_list":
                 s.add(DeploymentMenu(
                     deployment_id=deployment_id,
                     label=p["title"],
                     kind="table",
                     ref_id=ps.id,
+                    order_index=menu_index,
                 ))
+                menu_index += 1
             # CRUD 配置占位（M2 完整化）
             s.add(CrudConfig(
                 deployment_id=deployment_id,
@@ -378,6 +386,292 @@ def set_lifecycle(app, deployment_id: int, target: str, actor_user_id: int) -> d
     )
     return {"deployment_id": deployment_id, "biz_name": biz_name,
             "status": status, "entry_path": entry_path}
+
+
+# ---------------- M3-2 界面与菜单：工程室（创建人独有，DR-14） ----------------
+
+_ENTRY_RE = re.compile(r"^\/[A-Za-z0-9][A-Za-z0-9_\-]*(?:\/[A-Za-z0-9_\-]+)*$", re.ASCII)
+_ENTRY_RESERVED = {"/app", "/login", "/deployments", "/settings", "/assets", "/api"}
+
+
+def get_interfaces(app, deployment_id: int) -> dict:
+    """工程室「界面与菜单」数据：菜单树（平铺，含排序）+ 页面卡 + 已授权菜单 id + 入口路径。"""
+    with _session(app) as s:
+        d = s.get(Deployment, deployment_id)
+        if d is None:
+            raise DeployError("部署不存在")
+        menus = (
+            s.query(DeploymentMenu)
+            .filter_by(deployment_id=deployment_id)
+            .order_by(DeploymentMenu.order_index, DeploymentMenu.id)
+            .all()
+        )
+        granted = {
+            g.menu_id
+            for g in s.query(DeploymentMenuGrant)
+            .join(DeploymentMenu, DeploymentMenuGrant.menu_id == DeploymentMenu.id)
+            .filter(DeploymentMenu.deployment_id == deployment_id)
+            .all()
+        }
+        specs = {
+            t.id: t for t in s.query(TableSpec).filter_by(deployment_id=deployment_id).all()
+        }
+        pages = (
+            s.query(PageSpec)
+            .filter_by(deployment_id=deployment_id)
+            .order_by(PageSpec.id)
+            .all()
+        )
+        return {
+            "menus": [
+                {"id": m.id, "label": m.label, "kind": m.kind,
+                 "ref_id": m.ref_id, "parent_id": m.parent_id}
+                for m in menus
+            ],
+            "pages": [
+                {"id": p.id, "kind": p.kind, "access": p.access, "title": p.title,
+                 "table": specs[p.table_id].name if p.table_id and p.table_id in specs else None,
+                 "table_biz_name": specs[p.table_id].biz_name
+                 if p.table_id and p.table_id in specs else None}
+                for p in pages
+            ],
+            "granted_menu_ids": sorted(granted),
+            "entry_path": d.entry_path or f"/app/{deployment_id}",
+        }
+
+
+def save_menus(app, deployment_id: int, nodes: list[dict], actor_user_id: int) -> dict:
+    """整组保存菜单树（即拖即存）：把前端拖拽后的菜单列表按序落库。
+
+    - 有 id → 复用该部署既有菜单行（校验归属）；无 id → 新建（界面卡拖入/新建分组）。
+    - parent_id：正数=既有菜单 id；负数=-1/-2… 表示本列表第 1/2 个节点（新建分组当日拖入，
+      一条请求即可建组并收纳子节点）；缺失/0 → 根。
+    - 按列表位置重排 order_index；支持建分组/改父子/增删/挪动；自校验环。
+    - 变更走 structure 埋点（M3-2）；空 diff 不写日志。
+    """
+    from server.audit.service import log_system
+
+    if not isinstance(nodes, list):
+        raise DeployError("menus 必须是菜单节点列表")
+    if len(nodes) > 500:
+        raise DeployError("菜单节点过多")
+
+    Session = app.extensions["datamason_session_factory"]
+    with Session() as s:
+        d = s.get(Deployment, deployment_id)
+        if d is None:
+            raise DeployError("部署不存在")
+        existing = {
+            m.id: m
+            for m in s.query(DeploymentMenu).filter_by(deployment_id=deployment_id).all()
+        }
+        old_state = {
+            m.id: (m.order_index, m.parent_id) for m in existing.values()
+        }
+        page_ids = {
+            pid for (pid,) in s.query(PageSpec.id)
+            .filter_by(deployment_id=deployment_id).all()
+        }
+
+        reused: set[int] = set()
+        new_rows: list[DeploymentMenu] = []
+        items: list[tuple[dict, DeploymentMenu]] = []
+        for node in nodes:
+            if not isinstance(node, dict):
+                raise DeployError("菜单节点格式错误")
+            label = (node.get("label") or "").strip()
+            if not label or len(label) > 128:
+                raise DeployError("菜单名称必须为 1-128 字符")
+            kind = node.get("kind") or "table"
+            if kind not in ("table", "flow", "dashboard"):
+                raise DeployError("不支持的菜单类型")
+            ref_id = node.get("ref_id")
+            if ref_id is not None and ref_id not in page_ids:
+                raise DeployError("菜单指向的页面不属于该部署")
+            nid = node.get("id")
+            if nid is not None:
+                if nid not in existing or nid in reused:
+                    raise DeployError("存在不属于该部署或重复的菜单 id")
+                row = existing[nid]
+                reused.add(nid)
+            else:
+                row = DeploymentMenu(deployment_id=deployment_id)
+                s.add(row)
+                new_rows.append(row)
+            row.label = label
+            row.kind = kind
+            row.ref_id = ref_id
+            items.append((node, row))
+        s.flush()
+
+        # 解析父引用：正数=既有菜单 id；负数=-1 表示列表中第 1 个节点（父先子后）；
+        # 事务内自校验环，保证有向无环。
+        def _resolve_parent(node: dict, item_rows: list[DeploymentMenu]) -> int | None:
+            pid = node.get("parent_id")
+            if pid is None or pid == 0:
+                return None
+            if isinstance(pid, int) and pid < 0:
+                idx = -pid - 1
+                if idx >= len(item_rows):
+                    raise DeployError("parent_id 索引超出节点列表")
+                return item_rows[idx].id
+            if pid not in existing or pid not in reused:
+                return None  # 父被移除/未出现在本次提交 → 孤儿升级为根
+            return pid
+
+        item_id: list[int] = []
+        for idx, (node, row) in enumerate(items):
+            row.parent_id = _resolve_parent(node, [r for _n, r in items])
+            row.order_index = idx
+            item_id.append(row.id)
+
+        # 环检测：沿父链上溯，超过节点数即存在环（异常时事务回滚，不落库）
+        for node, row in items:
+            cur = row.id
+            seen = {cur}
+            probe = row
+            for _ in range(len(items) + 1):
+                if probe.parent_id is None:
+                    break
+                probe = next(r for _n, r in items if r.id == probe.parent_id)
+                if probe.id in seen:
+                    raise DeployError("菜单父子关系存在环")
+                seen.add(probe.id)
+
+        removed_labels: list[str] = []
+        for mid, mrow in existing.items():
+            if mid in reused:
+                continue
+            removed_labels.append(mrow.label)
+            s.query(DeploymentMenuGrant).filter_by(menu_id=mid).delete()
+            s.delete(mrow)
+        s.commit()
+
+        snapshot = [
+            {"id": r.id, "label": r.label, "kind": r.kind,
+             "ref_id": r.ref_id, "parent_id": r.parent_id}
+            for _n, r in items
+        ]
+        added_labels = [r.label for r in new_rows]
+        reordered = any(
+            old_state.get(row.id) != (row.order_index, row.parent_id)
+            for _n, row in items
+            if _n.get("id") is not None
+        )
+        changed = bool(added_labels or removed_labels or reordered)
+        if changed:
+            label = "菜单调整" + (f"：新增「{'、'.join(added_labels)}」" if added_labels else "")
+            if removed_labels:
+                label += f"，移除「{'、'.join(removed_labels)}」"
+            log_system(
+                app, deployment_id, "structure", actor_user_id=actor_user_id,
+                object_kind="menu", object_table="deployment_menus",
+                object_pk=str(deployment_id),
+                object_label=label or "菜单调整",
+                changes={"action": "menu_layout",
+                         "added": added_labels,
+                         "removed": removed_labels,
+                         "reordered": reordered,
+                         "menu_count": len(items)},
+            )
+    return {"ok": True, "nodes": snapshot}
+
+
+def update_page_title(app, deployment_id: int, page_id: int, title: str,
+                      actor_user_id: int) -> dict:
+    """界面卡「调整」：改页面标题（页面编辑器整体在后续里程碑）。"""
+    from server.audit.service import log_system
+
+    title = (title or "").strip()
+    if not title or len(title) > 128:
+        raise DeployError("页面标题必须为 1-128 字符")
+    Session = app.extensions["datamason_session_factory"]
+    with Session() as s:
+        p = s.get(PageSpec, page_id)
+        if p is None or p.deployment_id != deployment_id:
+            raise DeployError("页面不存在")
+        old = p.title
+        p.title = title
+        s.commit()
+    log_system(
+        app, deployment_id, "structure", actor_user_id=actor_user_id,
+        object_kind="page", object_table="page_specs", object_pk=str(page_id),
+        object_label=f"界面标题调整：{old} → {title}",
+        changes={"action": "page_title", "old": old, "new": title},
+    )
+    return {"ok": True, "page_id": page_id, "title": title}
+
+
+def set_entry_path(app, deployment_id: int, path: str, actor_user_id: int) -> dict:
+    """自定义入口路径（M3-2/DR-15）：留言板 → /guestbook；留空恢复 /app/{id}。
+
+    旧路径在改后不再是入口（/app/{id} 失配 → 前端 404 提示「入口已迁移」）。
+    """
+    from server.audit.service import log_system
+
+    path = (path or "").strip()
+    Session = app.extensions["datamason_session_factory"]
+    with Session() as s:
+        d = s.get(Deployment, deployment_id)
+        if d is None:
+            raise DeployError("部署不存在")
+        default_path = f"/app/{deployment_id}"
+        if not path or path == default_path or path.startswith("/app/"):
+            new_path = default_path
+        else:
+            if len(path) > 64 or not _ENTRY_RE.match(path):
+                raise DeployError("入口路径须为 /字母数字_/ 组成（如 /guestbook），最长 64 字符")
+            if path in _ENTRY_RESERVED or any(
+                path.startswith(f"{r}/") for r in _ENTRY_RESERVED
+            ):
+                raise DeployError(f"「{path}」为保留路径，请换一个")
+            dup = (
+                s.query(Deployment)
+                .filter(Deployment.entry_path == path,
+                        Deployment.id != deployment_id)
+                .first()
+            )
+            if dup is not None:
+                raise DeployError(f"入口路径已被「{dup.biz_name}」占用")
+            new_path = path
+        old = d.entry_path
+        if new_path != old:
+            d.entry_path = new_path
+            s.commit()
+            log_system(
+                app, deployment_id, "structure", actor_user_id=actor_user_id,
+                object_kind="deployment", object_table="deployments",
+                object_pk=str(deployment_id),
+                object_label=f"入口路径调整：{old or '未设置'} → {new_path}",
+                changes={"action": "entry_path", "old": old, "new": new_path},
+            )
+        biz_name = d.biz_name
+    return {"deployment_id": deployment_id, "entry_path": new_path, "biz_name": biz_name}
+
+
+def resolve_entry_path(app, path: str) -> dict:
+    """自定义路径解析（M3-2）：匹配 entry_path → {found, deployment_id, ...}。
+
+    非成员不返回（避免泄露部署存在性）；无匹配 → found=false。
+    """
+    from server.members import service as member_service
+
+    with _session(app) as s:
+        d = s.query(Deployment).filter(Deployment.entry_path == path).first()
+        if d is None:
+            return {"found": False}
+        uid = _session_user_id() or d.owner_id
+        role = member_service.get_role(s, d, uid)
+        if role is None:
+            return {"found": False}
+        return {
+            "found": True,
+            "deployment_id": d.id,
+            "entry_path": d.entry_path,
+            "status": d.status,
+            "biz_name": d.biz_name,
+            "role": role,
+        }
 
 
 def list_deployments(app) -> list[dict]:

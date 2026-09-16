@@ -107,6 +107,71 @@ def confirm():
         return jsonify({"error": f"{type(exc).__name__}: {exc}"}), 502
 
 
+# ---------------- M3-2 界面与菜单：工程室（创建人独有，DR-14） ----------------
+
+@bp.get("/deployments/<int:deployment_id>/interfaces")
+def deployment_interfaces(deployment_id: int):
+    """工程室「界面与菜单」：菜单树（平铺）+ 页面卡 + 已授权菜单 id（前端打「需授权」标）。"""
+    _deployment_and_role(current_app, deployment_id)
+    _require_creator(deployment_id)
+    try:
+        return jsonify(service.get_interfaces(current_app, deployment_id))
+    except KeyError as exc:
+        return jsonify({"error": str(exc)}), 404
+
+
+@bp.put("/deployments/<int:deployment_id>/menus")
+def deployment_save_menus(deployment_id: int):
+    """拖拽即拖即存：整组菜单树落库（增删/排序/父子），变更走 structure 埋点。"""
+    _deployment_and_role(current_app, deployment_id)
+    _require_creator(deployment_id)
+    data = _body()
+    try:
+        return jsonify(service.save_menus(
+            current_app, deployment_id, data.get("nodes"), _uid()))
+    except service.DeployError as exc:
+        return jsonify({"error": str(exc)}), 400
+    except KeyError as exc:
+        return jsonify({"error": str(exc)}), 404
+
+
+@bp.put("/deployments/<int:deployment_id>/pages/<int:page_id>")
+def deployment_page_title(deployment_id: int, page_id: int):
+    """界面卡「调整」：改页面标题（页面编辑器整体在后续里程碑）。"""
+    _deployment_and_role(current_app, deployment_id)
+    _require_creator(deployment_id)
+    data = _body()
+    try:
+        return jsonify(service.update_page_title(
+            current_app, deployment_id, page_id,
+            (data.get("title") or "").strip(), _uid()))
+    except service.DeployError as exc:
+        return jsonify({"error": str(exc)}), 400
+
+
+@bp.put("/deployments/<int:deployment_id>/entry_path")
+def deployment_entry_path(deployment_id: int):
+    """自定义入口路径（DR-15）：/guestbook 形态；留空恢复 /app/{id}。旧路径不再暴露。"""
+    _deployment_and_role(current_app, deployment_id)
+    _require_creator(deployment_id)
+    data = _body()
+    try:
+        return jsonify(service.set_entry_path(
+            current_app, deployment_id, data.get("path"), _uid()))
+    except service.DeployError as exc:
+        return jsonify({"error": str(exc)}), 400
+
+
+@bp.get("/entry/lookup")
+def entry_lookup():
+    """自定义入口解析：path=精确匹配 entry_path → {found, deployment_id, ...}。
+
+    非成员/无匹配一律 found=false（不泄露部署存在性）。
+    """
+    path = (request.args.get("path") or "").strip()
+    return jsonify(service.resolve_entry_path(current_app, path))
+
+
 # ---------------- M2-7 直连模式（接已有的，DR-09/DR-18） ----------------
 
 @bp.get("/deployments/link/connections")

@@ -82,7 +82,7 @@ def get_workspace(deployment_id: int):
         menus = (
             s.query(DeploymentMenu)
             .filter_by(deployment_id=deployment_id)
-            .order_by(DeploymentMenu.id)
+            .order_by(DeploymentMenu.order_index, DeploymentMenu.id)
             .all()
         )
         if role == "operator":

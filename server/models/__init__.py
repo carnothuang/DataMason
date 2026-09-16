@@ -131,6 +131,7 @@ class DeploymentMenu(Base):
     label: Mapped[str] = mapped_column(String(128), nullable=False)
     kind: Mapped[str] = mapped_column(String(16), default="table")  # table/flow/dashboard（渲染提示）
     ref_id: Mapped[int | None] = mapped_column(ForeignKey("page_specs.id"), nullable=True)  # → page_specs.id（闭环）
+    order_index: Mapped[int] = mapped_column(Integer, default=0)  # M3-2：同层排序（拖拽即拖即存）
 
 
 class DeploymentMenuGrant(Base):
@@ -226,6 +227,8 @@ def create_all_lazy(app) -> None:
     """惰性建表：启动时（或测试内显式调用）建齐全部元数据表。
 
     - checkfirst=True：幂等，已存在的表跳过（对齐 superset-lite 手法，不引 alembic）。
+    - 已存在的表缺新列时轻量 ALTER 补齐（M3-2 deployment_menus.order_index；
+      只补可空/有默认的列，避免老库升级断档，仍不引 alembic）。
     - 元数据库与业务库是两个库：这里只建元数据库的表。
     """
     from sqlalchemy import create_engine
@@ -237,8 +240,52 @@ def create_all_lazy(app) -> None:
         pass
     engine = create_engine(uri, future=True)
     Base.metadata.create_all(bind=engine, checkfirst=True)
+    _backfill_missing_columns(engine)
     app.extensions["datamason_engine"] = engine
     app.extensions["datamason_session_factory"] = sessionmaker_bound(engine)
+
+
+def _backfill_missing_columns(engine) -> None:
+    """对已存在的表补齐模型里新增的列（SQLite 单列 ADD COLUMN，幂等）。
+
+    仅处理带默认值/可空列，避免老库升级断档（无 alembic 约束下的轻量迁移）。
+    """
+    from sqlalchemy import inspect as sa_inspect
+    from sqlalchemy import text
+
+    try:
+        insp = sa_inspect(engine)
+        existing_tables = set(insp.get_table_names())
+    except Exception:  # noqa: BLE001 - 反射失败时跳过（不重要且不阻塞启动）
+        return
+    for table in Base.metadata.sorted_tables:
+        if table.name not in existing_tables:
+            continue
+        have = {c["name"] for c in insp.get_columns(table.name)}
+        for col in table.columns:
+            if col.name in have or col.primary_key:
+                continue
+            _default = _sql_default_for(col)
+            with engine.begin() as conn:
+                conn.execute(text(
+                    f"ALTER TABLE {table.name} ADD COLUMN {col.name} "
+                    f"{col.type.compile(dialect=engine.dialect)}{_default}"
+                ))
+
+
+def _sql_default_for(col) -> str:
+    """补列用 SQL 默认值：无默认、可空列可直接 NULL；否则按类型给安全默认。"""
+    if col.nullable and col.default is None:
+        return ""
+    from sqlalchemy import Boolean, Integer, String, Text
+
+    if isinstance(col.type, Boolean):
+        return " DEFAULT 0"
+    if isinstance(col.type, Integer):
+        return " DEFAULT 0"
+    if isinstance(col.type, (String, Text)):
+        return " DEFAULT ''"
+    return ""
 
 
 def sessionmaker_bound(engine):

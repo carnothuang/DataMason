@@ -1,12 +1,12 @@
 import { useEffect, useState } from "react";
-import { Layout, Menu, Spin, Typography, App as AntApp } from "antd";
+import { Button, Layout, Menu, Result, Spin, Typography, App as AntApp } from "antd";
 import { AppstoreOutlined, LogoutOutlined, SettingOutlined, UserOutlined } from "@ant-design/icons";
 import { Routes, Route, Navigate, useNavigate, useLocation } from "react-router-dom";
 import Deployments from "./pages/Deployments";
 import Settings from "./pages/Settings";
 import Login, { loadCachedUser } from "./pages/Login";
 import Workspace from "./pages/workspace/Workspace";
-import { AuthApi, CurrentUser } from "./api";
+import { AuthApi, CurrentUser, EntryApi } from "./api";
 
 const { Header, Sider, Content } = Layout;
 
@@ -61,6 +61,15 @@ export default function App() {
     // 用 location 携带来源路径（react-router v6 Navigate 不支持 state in `to`）
     const target = `/login?from=${encodeURIComponent(location.pathname)}`;
     return <Navigate to={target} replace />;
+  }
+
+  // M3-2 自定义入口：非系统路由的路径 → 查 entry_path；找到渲染对应工作台（DR-15）
+  const knownRoot =
+    location.pathname === "/" ||
+    location.pathname.startsWith("/deployments") ||
+    location.pathname.startsWith("/settings");
+  if (!knownRoot) {
+    return <CustomEntry path={location.pathname} />;
   }
 
   const selected = location.pathname.startsWith("/settings") ? "settings" : "deployments";
@@ -145,4 +154,45 @@ function parseWorkspaceId(pathname: string): number | null {
   if (!m) return null;
   const id = Number(m[1]);
   return Number.isInteger(id) && id > 0 ? id : null;
+}
+
+/** M3-2 自定义入口解析：匹配到 entry_path → 渲染对应部署工作台（保持原 URL）；否则提示入口已失效。 */
+function CustomEntry({ path }: { path: string }) {
+  const [state, setState] = useState<"loading" | "found" | "missing">("loading");
+  const [deploymentId, setDeploymentId] = useState<number | null>(null);
+
+  useEffect(() => {
+    let alive = true;
+    setState("loading");
+    EntryApi.lookup(path)
+      .then((r) => {
+        if (!alive) return;
+        if (r.found && r.deployment_id != null) {
+          setDeploymentId(r.deployment_id);
+          setState("found");
+        } else {
+          setState("missing");
+        }
+      })
+      .catch(() => alive && setState("missing"));
+    return () => {
+      alive = false;
+    };
+  }, [path]);
+
+  if (state === "loading") return <SpinPage />;
+  if (state === "found" && deploymentId != null) return <Workspace deploymentId={deploymentId} />;
+
+  return (
+    <Result
+      status="404"
+      title="入口不存在"
+      subTitle="该入口不存在或已迁移（自定义入口路径调整后，原路径不再对外暴露）。"
+      extra={
+        <Button type="primary" onClick={() => window.location.replace("/deployments")}>
+          返回控制台
+        </Button>
+      }
+    />
+  );
 }

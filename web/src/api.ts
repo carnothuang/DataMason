@@ -415,6 +415,86 @@ export const LogsApi = {
       .then((r) => r.data),
 };
 
+// ---------- M3-2 界面与菜单（工程室，创建人独有 DR-14） ----------
+export interface EngineerMenuItem {
+  id: number;
+  label: string;
+  kind: string;
+  ref_id: number | null;
+  parent_id: number | null;
+}
+
+export interface EngineerPageCard {
+  id: number;
+  kind: string;
+  access: string;
+  title: string;
+  table: string | null;
+  table_biz_name: string | null;
+}
+
+export interface EngineerInterfacesPayload {
+  menus: EngineerMenuItem[];
+  pages: EngineerPageCard[];
+  granted_menu_ids: number[];
+  entry_path: string;
+}
+
+export interface EntryLookupResult {
+  found: boolean;
+  deployment_id?: number;
+  entry_path?: string;
+  status?: string;
+  biz_name?: string;
+  role?: string;
+}
+
+export const EngineerApi = {
+  /** 工程室「界面与菜单」数据：菜单（平铺）+ 页面卡 + 已授权菜单 id + 入口路径。 */
+  interfaces: (deploymentId: number) =>
+    http
+      .get<EngineerInterfacesPayload>(`/deployments/${deploymentId}/interfaces`)
+      .then((r) => r.data),
+  /** 整组保存菜单树（即拖即存）；nodes 按菜单树前序拍平，父引用 parent_id（-1/-2… 指列表位置）。 */
+  saveMenus: (
+    deploymentId: number,
+    nodes: Array<{
+      id?: number | null;
+      label: string;
+      kind?: string;
+      ref_id?: number | null;
+      parent_id?: number | null;
+    }>,
+  ) =>
+    http
+      .put<{ ok: boolean; nodes: EngineerMenuItem[] }>(
+        `/deployments/${deploymentId}/menus`,
+        { nodes },
+      )
+      .then((r) => r.data),
+  /** 界面卡「调整」：改页面标题（页面编辑器整体在后续里程碑）。 */
+  updatePageTitle: (deploymentId: number, pageId: number, title: string) =>
+    http
+      .put<{ ok: boolean }>(`/deployments/${deploymentId}/pages/${pageId}`, { title })
+      .then((r) => r.data),
+  /** 自定义入口路径（DR-15）：留空恢复到 /app/{id}。 */
+  setEntryPath: (deploymentId: number, path: string) =>
+    http
+      .put<{ deployment_id: number; entry_path: string }>(
+        `/deployments/${deploymentId}/entry_path`,
+        { path },
+      )
+      .then((r) => r.data),
+};
+
+export const EntryApi = {
+  /** 自定义入口解析：path=精确匹配 entry_path（成员才返回，防泄露）。 */
+  lookup: (path: string) =>
+    http
+      .get<EntryLookupResult>("/entry/lookup", { params: { path } })
+      .then((r) => r.data),
+};
+
 // ---------- 认证 ----------
 export interface CurrentUser {
   id: number;
