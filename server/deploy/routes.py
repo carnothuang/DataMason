@@ -67,6 +67,19 @@ def deployment_start(deployment_id: int):
         return jsonify({"error": str(exc)}), 400
 
 
+# ---------------- M3-7 销毁（创建人独有，DR-14） ----------------
+
+@bp.post("/deployments/<int:deployment_id>/destroy")
+def deployment_destroy(deployment_id: int):
+    """销毁部署：创建模式连物理库一起清，直连模式只清元数据（绝不删外部库）；元数据/日志全清。"""
+    _deployment_and_role(current_app, deployment_id)
+    _require_creator(deployment_id)
+    try:
+        return jsonify(service.destroy_deployment(current_app, deployment_id, _uid()))
+    except service.DeployError as exc:
+        return jsonify({"error": str(exc)}), 400
+
+
 @bp.post("/deployments/preview")
 def preview():
     data = _body()

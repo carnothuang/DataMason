@@ -10,13 +10,14 @@ import {
   Tag,
   Typography,
 } from "antd";
-import { PlayCircleOutlined, PlusOutlined, ProjectOutlined, ReloadOutlined, ShareAltOutlined, TableOutlined, ThunderboltOutlined, DownloadOutlined } from "@ant-design/icons";
+import { PlayCircleOutlined, PlusOutlined, ProjectOutlined, ReloadOutlined, ShareAltOutlined, TableOutlined, ThunderboltOutlined, DownloadOutlined, DeleteOutlined } from "@ant-design/icons";
 import { useNavigate } from "react-router-dom";
 import { DeployApi, Deployment, downloadJson } from "../api";
 import DeployWizard from "./deploy/DeployWizard";
 import DataViewer from "./deploy/DataViewer";
 import BlueprintPage from "./deploy/BlueprintPage";
 import ShareModal from "./ShareModal";
+import DestroyModal from "./DestroyModal";
 
 const { Title, Text, Paragraph } = Typography;
 
@@ -44,6 +45,7 @@ export default function Deployments() {
   const [openId, setOpenId] = useState<number | null>(null);
   const [blueprintId, setBlueprintId] = useState<number | null>(null);
   const [shareDep, setShareDep] = useState<Deployment | null>(null);
+  const [destroyDep, setDestroyDep] = useState<Deployment | null>(null);
   const [exportingId, setExportingId] = useState<number | null>(null);
 
   const load = useCallback(async () => {
@@ -220,6 +222,11 @@ export default function Deployments() {
               再启动
             </Button>
           )}
+          {d.role === "creator" && (
+            <Button size="small" danger icon={<DeleteOutlined />} onClick={() => setDestroyDep(d)}>
+              销毁
+            </Button>
+          )}
         </Space>
       </Space>
     </Card>
@@ -300,6 +307,13 @@ export default function Deployments() {
         bizName={shareDep?.biz_name ?? ""}
         open={shareDep !== null}
         onClose={() => setShareDep(null)}
+      />
+
+      <DestroyModal
+        deployment={destroyDep}
+        open={destroyDep !== null}
+        onClose={() => setDestroyDep(null)}
+        onDestroyed={load}
       />
     </div>
   );

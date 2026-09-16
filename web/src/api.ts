@@ -802,6 +802,18 @@ export const DeployApi = {
   /** M3-6：导出配置包（部署元信息 + 表/页面/菜单/流程 + crud_configs + 全量日志）。 */
   exportPackage: (id: number) =>
     http.get<DeploymentExport>(`/deployments/${id}/export`).then((r) => r.data),
+  /** M3-7：销毁部署（创建人独有）；创建模式连物理库一起清，直连模式只清元数据。 */
+  destroy: (id: number) =>
+    http
+      .post<{
+        deployment_id: number;
+        biz_name: string;
+        data_mode: string;
+        destroyed: boolean;
+        db_file_removed: boolean;
+        external_preserved: boolean;
+      }>(`/deployments/${id}/destroy`)
+      .then((r) => r.data),
 };
 
 // ---------- 模型 ----------

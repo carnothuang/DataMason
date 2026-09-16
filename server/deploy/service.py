@@ -21,12 +21,15 @@ from server.dataaccess.manager import execute_ddl
 from server.ddl.ddl_builder import build_schema_ddl, inject_ownership_columns
 from server.llm.structure import generate_schema, generate_seed_rows
 from server.models import (
+    ActivityLog,
     Connection,
     CrudConfig,
     Deployment,
     DeploymentMember,
     DeploymentMenu,
     DeploymentMenuGrant,
+    DeploymentShareToken,
+    FlowSpec,
     PageSpec,
     TableSpec,
     User,
@@ -386,6 +389,92 @@ def set_lifecycle(app, deployment_id: int, target: str, actor_user_id: int) -> d
     )
     return {"deployment_id": deployment_id, "biz_name": biz_name,
             "status": status, "entry_path": entry_path}
+
+
+# ---------------- M3-7 销毁（创建人独有，DR-14） ----------------
+
+def _sqlite_file_from_uri(uri: str | None) -> str | None:
+    if not uri or not uri.startswith("sqlite"):
+        return None
+    if ":memory:" in uri:
+        return None
+    tail = uri.split("sqlite:///", 1)[-1] if "sqlite:///" in uri else uri.split("sqlite://", 1)[-1]
+    return tail or None
+
+
+def destroy_deployment(app, deployment_id: int, actor_user_id: int) -> dict:
+    """销毁部署（创建人独有，路由层保证）：二次确认/先导出由前端引导。
+
+    - 创建模式：删独立 SQLite 物理库文件（限 DATA_ROOT 内）+ 自动登记的连接（无他部署引用时）；
+    - 直连模式：**绝不删外部库与连接**，只清元数据（红线同 M2-7/M2-8）；
+    - 元数据级联清除：菜单/授权/页面/流程/表/成员/CRUD 配置/分享链接/操作日志/deployment 行；
+    - destroy 埋点随销毁清（导出包在销毁前已带走全量日志，DR-03/§五）。
+    """
+    cipher = app.extensions["cipher"]
+    data_root = Path(app.config["DATA_ROOT"]).resolve()
+    remove_file: str | None = None
+    remove_conn_id: int | None = None
+    with _session(app) as s:
+        d = s.get(Deployment, deployment_id)
+        if d is None:
+            raise DeployError("部署不存在")
+        biz_name, data_mode = d.biz_name, d.data_mode
+        if data_mode == "create" and d.connection_id:
+            conn = s.get(Connection, d.connection_id)
+            if conn is not None:
+                path = _sqlite_file_from_uri(cipher.decrypt(conn.conn_uri))
+                if path:
+                    resolved = Path(path).resolve()
+                    if resolved == data_root or data_root in resolved.parents:
+                        remove_file = str(resolved)  # 仅在 DATA_ROOT 内才删（防误删）
+                others = (
+                    s.query(Deployment)
+                    .filter(Deployment.connection_id == conn.id,
+                            Deployment.id != deployment_id)
+                    .count()
+                )
+                if others == 0:
+                    remove_conn_id = conn.id
+        # 级联清除：先子后父（尊重外键依赖：menus→pages→flows→tables；deployment→connection）
+        menu_ids = [
+            mid for (mid,) in s.query(DeploymentMenu.id)
+            .filter_by(deployment_id=deployment_id).all()
+        ]
+        if menu_ids:
+            s.query(DeploymentMenuGrant).filter(
+                DeploymentMenuGrant.menu_id.in_(menu_ids)
+            ).delete(synchronize_session=False)
+        s.query(DeploymentMenu).filter_by(deployment_id=deployment_id).delete(synchronize_session=False)
+        s.query(DeploymentShareToken).filter_by(deployment_id=deployment_id).delete(synchronize_session=False)
+        s.query(DeploymentMember).filter_by(deployment_id=deployment_id).delete(synchronize_session=False)
+        s.query(ActivityLog).filter_by(deployment_id=deployment_id).delete(synchronize_session=False)
+        s.query(CrudConfig).filter_by(deployment_id=deployment_id).delete(synchronize_session=False)
+        s.query(PageSpec).filter_by(deployment_id=deployment_id).delete(synchronize_session=False)
+        s.query(FlowSpec).filter_by(deployment_id=deployment_id).delete(synchronize_session=False)
+        s.query(TableSpec).filter_by(deployment_id=deployment_id).delete(synchronize_session=False)
+        s.delete(d)
+        s.flush()
+        if remove_conn_id is not None:
+            conn = s.get(Connection, remove_conn_id)
+            if conn is not None:
+                s.delete(conn)
+        s.commit()
+
+    file_removed = False
+    if remove_file:
+        try:
+            Path(remove_file).unlink(missing_ok=True)
+            file_removed = True
+        except OSError:
+            file_removed = False
+    return {
+        "deployment_id": deployment_id,
+        "biz_name": biz_name,
+        "data_mode": data_mode,
+        "destroyed": True,
+        "db_file_removed": file_removed,
+        "external_preserved": data_mode != "create",
+    }
 
 
 # ---------------- M3-2 界面与菜单：工程室（创建人独有，DR-14） ----------------
