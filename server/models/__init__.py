@@ -154,6 +154,28 @@ class DeploymentMember(Base):
     role: Mapped[str] = mapped_column(String(16), default="operator")  # creator/admin/operator
 
 
+class DeploymentShareToken(Base):
+    """分享链接（M3-5，DR-04）：创建人生成 → 对方进入即绑定为该部署成员。
+
+    - token：URL 安全随机串（不可枚举）；role/menu_ids_json = 进入后授予的档位与功能。
+    - 分享=创建人独有（DR-14）；撤销即删除本行（链接失效）。
+    """
+
+    __tablename__ = "deployment_share_tokens"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    deployment_id: Mapped[int] = mapped_column(ForeignKey("deployments.id"), nullable=False)
+    token: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
+    role: Mapped[str] = mapped_column(String(16), default="operator")  # admin/operator
+    menu_ids_json: Mapped[str] = mapped_column(Text, default="[]")
+    created_by: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
+
+    @property
+    def menu_ids(self) -> list[int]:
+        return json.loads(self.menu_ids_json or "[]")
+
+
 class FlowSpec(Base):
     __tablename__ = "flow_specs"
 

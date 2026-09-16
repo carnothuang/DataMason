@@ -10,12 +10,13 @@ import {
   Tag,
   Typography,
 } from "antd";
-import { PlayCircleOutlined, PlusOutlined, ProjectOutlined, ReloadOutlined, TableOutlined, ThunderboltOutlined } from "@ant-design/icons";
+import { PlayCircleOutlined, PlusOutlined, ProjectOutlined, ReloadOutlined, ShareAltOutlined, TableOutlined, ThunderboltOutlined } from "@ant-design/icons";
 import { useNavigate } from "react-router-dom";
 import { DeployApi, Deployment } from "../api";
 import DeployWizard from "./deploy/DeployWizard";
 import DataViewer from "./deploy/DataViewer";
 import BlueprintPage from "./deploy/BlueprintPage";
+import ShareModal from "./ShareModal";
 
 const { Title, Text, Paragraph } = Typography;
 
@@ -42,6 +43,7 @@ export default function Deployments() {
   const [wizardOpen, setWizardOpen] = useState(false);
   const [openId, setOpenId] = useState<number | null>(null);
   const [blueprintId, setBlueprintId] = useState<number | null>(null);
+  const [shareDep, setShareDep] = useState<Deployment | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -174,6 +176,15 @@ export default function Deployments() {
           >
             数据蓝图
           </Button>
+          {d.role === "creator" && (
+            <Button
+              size="small"
+              icon={<ShareAltOutlined />}
+              onClick={() => setShareDep(d)}
+            >
+              分享
+            </Button>
+          )}
           {d.status === "running" && d.role === "creator" && (
             <Button size="small" danger onClick={() => onStop(d)}>
               停止
@@ -257,6 +268,13 @@ export default function Deployments() {
         open={wizardOpen}
         onClose={() => setWizardOpen(false)}
         onDeployed={load}
+      />
+
+      <ShareModal
+        deploymentId={shareDep?.id ?? null}
+        bizName={shareDep?.biz_name ?? ""}
+        open={shareDep !== null}
+        onClose={() => setShareDep(null)}
       />
     </div>
   );

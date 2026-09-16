@@ -10,6 +10,10 @@ http.interceptors.response.use(
   (error) => {
     const status = error?.response?.status;
     if (status === 401 && typeof window !== "undefined") {
+      // M3-5：访客公开页匿名访问，me() 必然 401——不在此处强制跳登录
+      if (window.location.pathname.startsWith("/public/")) {
+        return Promise.reject(new Error(error?.response?.data?.error || "请求失败"));
+      }
       const target = "/login";
       if (redirectingTo !== target) {
         redirectingTo = target;
@@ -576,6 +580,87 @@ export const FlowRuntimeApi = {
       .post<{ ok: boolean; step: string; current_index: number; done: boolean; records_advanced: number }>(
         `/app/${deploymentId}/flows/${flowId}/advance`,
       )
+      .then((r) => r.data),
+};
+
+// ---------- M3-5 访客公开页 + 分享链接（DR-04） ----------
+export interface PublicField {
+  name: string;
+  biz_name: string;
+  type: string;
+  length: number | null;
+  nullable: boolean;
+  is_pk: boolean;
+  is_ownership: boolean;
+}
+
+export interface PublicPageMeta {
+  deployment_id: number;
+  biz_name: string;
+  page_id: number;
+  title: string;
+  kind: string;
+  table: string;
+  fields: PublicField[];
+}
+
+export const PublicApi = {
+  /** 匿名读取公开表单元数据（访客仅能提交，看不到菜单与数据）。 */
+  page: (deploymentId: number, pageId: number) =>
+    http
+      .get<PublicPageMeta>(`/public/${deploymentId}/pages/${pageId}`)
+      .then((r) => r.data),
+  /** 匿名提交到公开表单（走 CRUD 写路径，归属记系统，进操作日志）。 */
+  submit: (deploymentId: number, pageId: number, values: Record<string, unknown>) =>
+    http
+      .post<{ ok: boolean; id: string | number }>(
+        `/public/${deploymentId}/pages/${pageId}/submit`,
+        values,
+      )
+      .then((r) => r.data),
+};
+
+export interface ShareLink {
+  id: number;
+  token: string;
+  role: "admin" | "operator";
+  menu_ids: number[];
+  created_by: number;
+  created_by_display: string;
+  created_at: string;
+}
+
+export interface ShareLinksPayload {
+  links: ShareLink[];
+  menus: { id: number; label: string; parent_id: number | null }[];
+  public_pages: { id: number; title: string }[];
+}
+
+export interface ShareAcceptResult {
+  deployment_id: number;
+  entry_path: string;
+  biz_name: string;
+  role: string;
+}
+
+export const ShareApi = {
+  /** 分享链接列表 + 可选菜单 + 公开页（创建人独有 DR-14）。 */
+  list: (deploymentId: number) =>
+    http
+      .get<ShareLinksPayload>(`/deployments/${deploymentId}/share-links`)
+      .then((r) => r.data),
+  create: (deploymentId: number, payload: { role: "admin" | "operator"; menu_ids?: number[] }) =>
+    http
+      .post<ShareLink>(`/deployments/${deploymentId}/share-links`, payload)
+      .then((r) => r.data),
+  revoke: (deploymentId: number, linkId: number) =>
+    http
+      .delete<{ ok: boolean }>(`/deployments/${deploymentId}/share-links/${linkId}`)
+      .then((r) => r.data),
+  /** 进入分享链接即绑定为该部署成员（需登录）。 */
+  accept: (token: string) =>
+    http
+      .post<ShareAcceptResult>(`/share/${encodeURIComponent(token)}/accept`)
       .then((r) => r.data),
 };
 

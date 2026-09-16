@@ -49,6 +49,8 @@ def create_app(config_object: object | None = None) -> Flask:
     from server.workspace.routes import bp as workspace_bp
     from server.members.routes import bp as members_bp
     from server.flow.routes import bp as flow_bp
+    from server.public.routes import bp as public_bp
+    from server.share.routes import bp as share_bp
 
     app.register_blueprint(auth_bp, url_prefix="/api/v1/auth")
     app.register_blueprint(settings_bp, url_prefix="/api/v1/settings")
@@ -56,6 +58,8 @@ def create_app(config_object: object | None = None) -> Flask:
     app.register_blueprint(members_bp, url_prefix="/api/v1")
     app.register_blueprint(workspace_bp, url_prefix="/api/v1/app")
     app.register_blueprint(flow_bp, url_prefix="/api/v1")
+    app.register_blueprint(share_bp, url_prefix="/api/v1")
+    app.register_blueprint(public_bp, url_prefix="/api/v1/public")
 
     _register_auth_guard(app)
     _register_spa(app)
@@ -93,6 +97,9 @@ def _register_auth_guard(app: Flask) -> None:
     def _auth_guard():
         path = request.path
         if not path.startswith("/api/") or path in public_paths:
+            return None
+        # M3-5 访客公开页（DR-04）：匿名提交/读取公开表单，不走登录拦截
+        if path.startswith("/api/v1/public/"):
             return None
         uid = session.get("user_id")
         if not uid:

@@ -2,6 +2,7 @@ import { Card, Empty, Typography } from "antd";
 import { WorkspacePage } from "../../api";
 import CrudListPage from "./CrudListPage";
 import FlowWizardPage from "./FlowWizardPage";
+import PublicPage from "../PublicPage";
 import type { RecordFocus } from "./Workspace";
 
 const { Text } = Typography;
@@ -53,6 +54,10 @@ export default function PageRenderer({ deploymentId, page, role, dataMode, focus
         dataMode={dataMode}
       />
     );
+  }
+
+  if (page.kind === "public_form") {
+    return <PublicPage deploymentId={deploymentId} pageId={page.id} embedded />;
   }
 
   const KIND_LABEL: Record<string, string> = {

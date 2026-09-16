@@ -6,6 +6,8 @@ import Deployments from "./pages/Deployments";
 import Settings from "./pages/Settings";
 import Login, { loadCachedUser } from "./pages/Login";
 import Workspace from "./pages/workspace/Workspace";
+import PublicPage from "./pages/PublicPage";
+import JoinPage from "./pages/JoinPage";
 import { AuthApi, CurrentUser, EntryApi } from "./api";
 
 const { Header, Sider, Content } = Layout;
@@ -20,6 +22,13 @@ export default function App() {
 
   useEffect(() => {
     let alive = true;
+    // M3-5：访客公开页匿名访问，无需探测会话（避免 401 触发的登录跳转）
+    if (typeof window !== "undefined" && window.location.pathname.startsWith("/public/")) {
+      setBootChecking(false);
+      return () => {
+        alive = false;
+      };
+    }
     AuthApi.me()
       .then((me) => {
         if (!alive) return;
@@ -42,6 +51,22 @@ export default function App() {
     if (bootChecking) return <SpinPage />;
     if (user) return <Navigate to="/deployments" replace />;
     return <Login />;
+  }
+
+  // M3-5 访客公开页（DR-04）：匿名可访问，无需登录，也不带任何菜单（只剩提交表单）
+  const publicMatch = location.pathname.match(/^\/public\/(\d+)\/(\d+)\/?$/);
+  if (publicMatch) {
+    return <PublicPage deploymentId={Number(publicMatch[1])} pageId={Number(publicMatch[2])} />;
+  }
+
+  // M3-5 分享链接（DR-04）：进入即绑定为该部署成员（需登录，未登录先跳登录并携带来源）
+  const joinMatch = location.pathname.match(/^\/join\/([^/]+)\/?$/);
+  if (joinMatch) {
+    if (bootChecking) return <SpinPage />;
+    if (!user) {
+      return <Navigate to={`/login?from=${encodeURIComponent(location.pathname)}`} replace />;
+    }
+    return <JoinPage token={decodeURIComponent(joinMatch[1])} />;
   }
 
   // 工作台运行时 /app/{id}：全屏渲染部署的菜单+页面（仍要求登录）
