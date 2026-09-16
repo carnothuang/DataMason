@@ -185,7 +185,14 @@ export default function ApiDocsPage({ deploymentId, canManageKeys }: Props) {
       width: 100,
       render: (_: unknown, r) =>
         r.status === "active" ? (
-          <Popconfirm title="吊销该密钥？" description="吊销后立即失效。" onConfirm={() => revoke(r.id)}>
+          <Popconfirm
+            title="吊销该密钥？"
+            description="吊销后立即失效。"
+            okText="吊销"
+            cancelText="取消"
+            okButtonProps={{ danger: true }}
+            onConfirm={() => revoke(r.id)}
+          >
             <Button type="link" size="small" danger>
               吊销
             </Button>
