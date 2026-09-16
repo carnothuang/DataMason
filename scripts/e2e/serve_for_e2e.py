@@ -70,6 +70,13 @@ def _install_stub_llm(app) -> None:
 
     class _StubLlm:
         def chat_json(self, system_prompt: str, user_prompt: str):
+            # M4-1 问数据：只读 SQL / 一句话结论（桩无视问题，返回确定性查询）
+            if "只读 SQL" in system_prompt:
+                return ({"sql": "SELECT id, name, vip FROM customers ORDER BY id",
+                         "title": "客户列表"}, Usage(tokens_in=0, tokens_out=0, duration_ms=1))
+            if "总结" in system_prompt:
+                return {"conclusion": "已列出当前客户。"}, Usage(
+                    tokens_in=0, tokens_out=0, duration_ms=1)
             return E2E_SPEC, Usage(tokens_in=0, tokens_out=0, duration_ms=1)
 
         def close(self):
