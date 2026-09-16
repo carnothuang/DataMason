@@ -1,6 +1,7 @@
 import { Card, Empty, Typography } from "antd";
 import { WorkspacePage } from "../../api";
 import CrudListPage from "./CrudListPage";
+import FlowWizardPage from "./FlowWizardPage";
 import type { RecordFocus } from "./Workspace";
 
 const { Text } = Typography;
@@ -39,6 +40,17 @@ export default function PageRenderer({ deploymentId, page, role, dataMode, focus
         dataMode={dataMode}
         focusPk={focus?.table === page.table ? focus.pk : null}
         focusNonce={focus?.table === page.table ? focus.nonce : 0}
+      />
+    );
+  }
+
+  if (page.kind === "flow" && page.flow_id) {
+    return (
+      <FlowWizardPage
+        deploymentId={deploymentId}
+        page={page}
+        role={role}
+        dataMode={dataMode}
       />
     );
   }

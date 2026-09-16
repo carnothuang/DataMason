@@ -48,12 +48,14 @@ def create_app(config_object: object | None = None) -> Flask:
     from server.deploy.routes import bp as deploy_bp
     from server.workspace.routes import bp as workspace_bp
     from server.members.routes import bp as members_bp
+    from server.flow.routes import bp as flow_bp
 
     app.register_blueprint(auth_bp, url_prefix="/api/v1/auth")
     app.register_blueprint(settings_bp, url_prefix="/api/v1/settings")
     app.register_blueprint(deploy_bp, url_prefix="/api/v1")
     app.register_blueprint(members_bp, url_prefix="/api/v1")
     app.register_blueprint(workspace_bp, url_prefix="/api/v1/app")
+    app.register_blueprint(flow_bp, url_prefix="/api/v1")
 
     _register_auth_guard(app)
     _register_spa(app)

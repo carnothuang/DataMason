@@ -119,6 +119,7 @@ def get_workspace(deployment_id: int):
                     "kind": p.kind,
                     "access": p.access,
                     "title": p.title,
+                    "flow_id": p.flow_id,
                     "table": tables[p.table_id].name
                     if (p.table_id and p.table_id in tables)
                     else None,

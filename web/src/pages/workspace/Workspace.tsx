@@ -7,6 +7,7 @@ import {
   ArrowLeftOutlined,
   CrownOutlined,
   FileSearchOutlined,
+  NodeIndexOutlined,
   PlayCircleOutlined,
   TeamOutlined,
 } from "@ant-design/icons";
@@ -15,6 +16,7 @@ import PageRenderer from "./PageRenderer";
 import MembersPage from "./MembersPage";
 import LogsPage from "./LogsPage";
 import EngineerMenusPage from "./EngineerMenusPage";
+import EngineerFlowsPage from "./EngineerFlowsPage";
 
 const { Header, Sider, Content } = Layout;
 const { Text } = Typography;
@@ -40,7 +42,7 @@ export default function Workspace({ deploymentId }: Props) {
   const [info, setInfo] = useState<WorkspaceInfo | null>(null);
   const [error, setError] = useState("");
   const [activePage, setActivePage] = useState<number | null>(null);
-  const [systemPage, setSystemPage] = useState<"menus" | "members" | "logs" | null>(null);
+  const [systemPage, setSystemPage] = useState<"menus" | "flows" | "members" | "logs" | null>(null);
   const [focus, setFocus] = useState<RecordFocus | null>(null);
   const [restarting, setRestarting] = useState(false);
 
@@ -84,6 +86,11 @@ export default function Workspace({ deploymentId }: Props) {
               icon: <AppstoreOutlined />,
               label: "界面与菜单",
             },
+            {
+              key: "sys:flows",
+              icon: <NodeIndexOutlined />,
+              label: "流程编排",
+            },
           ]
         : []),
       {
@@ -100,9 +107,17 @@ export default function Workspace({ deploymentId }: Props) {
   }, [info, canSeeSystemPages]);
 
   const onClick: MenuProps["onClick"] = ({ key }) => {
-    if (key === "sys:menus" || key === "sys:members" || key === "sys:logs") {
+    if (key === "sys:menus" || key === "sys:flows" || key === "sys:members" || key === "sys:logs") {
       setFocus(null);
-      setSystemPage(key === "sys:menus" ? "menus" : key === "sys:members" ? "members" : "logs");
+      setSystemPage(
+        key === "sys:menus"
+          ? "menus"
+          : key === "sys:flows"
+            ? "flows"
+            : key === "sys:members"
+              ? "members"
+              : "logs",
+      );
       return;
     }
     if (!key.startsWith("page:")) return;
@@ -219,13 +234,15 @@ export default function Workspace({ deploymentId }: Props) {
           selectedKeys={
             systemPage === "menus"
               ? ["sys:menus"]
-              : systemPage === "members"
-                ? ["sys:members"]
-                : systemPage === "logs"
-                  ? ["sys:logs"]
-                  : activePage !== null
-                    ? [`page:${activePage}`]
-                    : []
+              : systemPage === "flows"
+                ? ["sys:flows"]
+                : systemPage === "members"
+                  ? ["sys:members"]
+                  : systemPage === "logs"
+                    ? ["sys:logs"]
+                    : activePage !== null
+                      ? [`page:${activePage}`]
+                      : []
           }
           onClick={onClick}
         />
@@ -244,11 +261,13 @@ export default function Workspace({ deploymentId }: Props) {
           <Text strong>
             {systemPage === "menus"
               ? "界面与菜单"
-              : systemPage === "members"
-                ? "成员与权限"
-                : systemPage === "logs"
-                  ? "操作日志"
-                  : (active?.title || "工作台")}
+              : systemPage === "flows"
+                ? "流程编排"
+                : systemPage === "members"
+                  ? "成员与权限"
+                  : systemPage === "logs"
+                    ? "操作日志"
+                    : (active?.title || "工作台")}
           </Text>
           <Button size="small" icon={<ArrowLeftOutlined />} onClick={() => navigate("/deployments")}>
             返回控制台
@@ -257,6 +276,8 @@ export default function Workspace({ deploymentId }: Props) {
         <Content style={{ padding: 24 }}>
           {systemPage === "menus" && info?.role === "creator" ? (
             <EngineerMenusPage deploymentId={deploymentId} />
+          ) : systemPage === "flows" && info?.role === "creator" ? (
+            <EngineerFlowsPage deploymentId={deploymentId} />
           ) : systemPage === "members" && canSeeSystemPages ? (
             <MembersPage deploymentId={deploymentId} canEdit={canEditMembers} />
           ) : systemPage === "logs" && canSeeSystemPages ? (

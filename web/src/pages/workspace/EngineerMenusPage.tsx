@@ -42,6 +42,7 @@ const KIND_LABEL: Record<string, string> = {
   crud_list: "数据清单",
   public_form: "公开表单",
   dashboard: "看板",
+  flow: "流程向导",
 };
 
 interface TreeNode {
@@ -319,7 +320,7 @@ export default function EngineerMenusPage({ deploymentId }: Props) {
         key: `new:${Date.now()}`,
         id: null,
         label: page.title && page.title !== page.table_biz_name ? page.title : page.table_biz_name || page.title || "新菜单",
-        kind: "table",
+        kind: page.kind === "flow" ? "flow" : page.kind === "dashboard" ? "dashboard" : "table",
         ref_id: page.id,
         children: [],
       };
@@ -774,7 +775,17 @@ function PageCard({
         <Text strong ellipsis style={{ flex: 1, minWidth: 0 }}>
           {page.title}
         </Text>
-        <Tag color={page.kind === "crud_list" ? "blue" : page.kind === "public_form" ? "green" : "purple"}>
+        <Tag
+          color={
+            page.kind === "crud_list"
+              ? "blue"
+              : page.kind === "public_form"
+                ? "green"
+                : page.kind === "flow"
+                  ? "magenta"
+                  : "purple"
+          }
+        >
           {KIND_LABEL[page.kind] ?? page.kind}
         </Tag>
       </div>
@@ -822,7 +833,11 @@ function PageCard({
               color: "#bfbfbf",
             }}
           >
-            {page.kind === "dashboard" ? "看板预览" : "预览不可用"}
+            {page.kind === "dashboard"
+              ? "看板预览"
+              : page.kind === "flow"
+                ? "流程向导（步骤条）"
+                : "预览不可用"}
           </div>
         )}
       </div>

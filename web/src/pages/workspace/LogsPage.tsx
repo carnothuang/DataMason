@@ -16,6 +16,7 @@ export const ACTION_META: Record<string, { label: string; color: string }> = {
   deploy: { label: "部署", color: "gold" },
   member: { label: "成员", color: "purple" },
   structure: { label: "结构变更", color: "orange" },
+  flow: { label: "流程", color: "cyan" },
 };
 
 function pad(n: number): string {

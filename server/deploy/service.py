@@ -430,6 +430,7 @@ def get_interfaces(app, deployment_id: int) -> dict:
             ],
             "pages": [
                 {"id": p.id, "kind": p.kind, "access": p.access, "title": p.title,
+                 "flow_id": p.flow_id,
                  "table": specs[p.table_id].name if p.table_id and p.table_id in specs else None,
                  "table_biz_name": specs[p.table_id].biz_name
                  if p.table_id and p.table_id in specs else None}

@@ -108,6 +108,9 @@ class PageSpec(Base):
     table_id: Mapped[int | None] = mapped_column(ForeignKey("table_specs.id"), nullable=True)
     title: Mapped[str] = mapped_column(String(128), default="")
     layout_json: Mapped[str] = mapped_column(Text, default="{}")
+    flow_id: Mapped[int | None] = mapped_column(
+        ForeignKey("flow_specs.id"), nullable=True  # M3-4：流程页 → flow_specs
+    )
 
     deployment: Mapped[Deployment] = relationship(back_populates="pages")
 
@@ -157,7 +160,10 @@ class FlowSpec(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     deployment_id: Mapped[int] = mapped_column(ForeignKey("deployments.id"), nullable=False)
     name: Mapped[str] = mapped_column(String(128), nullable=False)
-    steps_json: Mapped[str] = mapped_column(Text, default="[]")  # [{page_id, done_when, status_field}]
+    steps_json: Mapped[str] = mapped_column(Text, default="[]")  # [{name, page_id, done_when, status_field, status_value}]
+    progress_json: Mapped[str] = mapped_column(
+        Text, default="{}"  # M3-4：{user_id: 游标} 每用户当前步骤（0..len，==len 表示完成）
+    )
     version: Mapped[int] = mapped_column(Integer, default=1)
 
     @property

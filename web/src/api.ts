@@ -210,6 +210,7 @@ export interface WorkspacePage {
   kind: string;
   access: string;
   title: string;
+  flow_id: number | null;
   table: string | null;
   table_biz_name: string | null;
 }
@@ -381,7 +382,7 @@ export interface ActivityLog {
   occurred_at: string;
   actor_user_id: number | null;
   actor_display: string;
-  action: "create" | "update" | "delete" | "deploy" | "member" | "structure";
+  action: "create" | "update" | "delete" | "deploy" | "member" | "structure" | "flow";
   object_kind: string;
   object_table: string;
   object_pk: string;
@@ -429,6 +430,7 @@ export interface EngineerPageCard {
   kind: string;
   access: string;
   title: string;
+  flow_id: number | null;
   table: string | null;
   table_biz_name: string | null;
 }
@@ -492,6 +494,88 @@ export const EntryApi = {
   lookup: (path: string) =>
     http
       .get<EntryLookupResult>("/entry/lookup", { params: { path } })
+      .then((r) => r.data),
+};
+
+// ---------- M3-4 流程向导 v0（DR-06，向导式流程非工作流引擎） ----------
+export interface FlowStep {
+  index: number;
+  name: string;
+  page_id: number | null;
+  page_title: string;
+  kind: string;
+  table: string | null;
+  table_biz_name: string | null;
+  done_when: { type: string; min: number };
+  status_field: string | null;
+  status_value: string | null;
+}
+
+export interface FlowSpec {
+  id: number;
+  name: string;
+  version: number;
+  /** 流程页 page_specs.id（菜单 kind=flow 的 ref_id 指向它）。 */
+  page_id: number | null;
+  steps: FlowStep[];
+}
+
+export interface FlowRuntimeStep extends FlowStep {
+  condition: string;
+  state: "done" | "current" | "pending";
+  met: boolean;
+}
+
+export interface FlowRuntime {
+  id: number;
+  name: string;
+  version: number;
+  done: boolean;
+  current_index: number;
+  page_id: number | null;
+  steps: FlowRuntimeStep[];
+}
+
+export interface FlowStepInput {
+  name: string;
+  page_id: number;
+  done_when?: { type: string; min: number };
+  status_field?: string | null;
+  status_value?: string | null;
+}
+
+export const FlowApi = {
+  /** 流程清单（工程室，创建人独有 DR-14）。 */
+  list: (deploymentId: number) =>
+    http
+      .get<{ flows: FlowSpec[] }>(`/deployments/${deploymentId}/flows`)
+      .then((r) => r.data.flows),
+  create: (deploymentId: number, payload: { name: string; steps: FlowStepInput[] }) =>
+    http
+      .post<FlowSpec>(`/deployments/${deploymentId}/flows`, payload)
+      .then((r) => r.data),
+  update: (deploymentId: number, flowId: number, payload: { name: string; steps: FlowStepInput[] }) =>
+    http
+      .put<FlowSpec>(`/deployments/${deploymentId}/flows/${flowId}`, payload)
+      .then((r) => r.data),
+  remove: (deploymentId: number, flowId: number) =>
+    http
+      .delete<{ ok: boolean }>(`/deployments/${deploymentId}/flows/${flowId}`)
+      .then((r) => r.data),
+};
+
+export const FlowRuntimeApi = {
+  /** 运行态：游标推导 已完成/当前/待做 + 当前步完成条件。 */
+  get: (deploymentId: number, flowId: number) =>
+    http
+      .get<FlowRuntime>(`/app/${deploymentId}/flows/${flowId}`)
+      .then((r) => r.data),
+  /** 下一步：完成条件不满足 → 409（error 提示）；满足则推进状态字段并写日志。 */
+  advance: (deploymentId: number, flowId: number) =>
+    http
+      .post<{ ok: boolean; step: string; current_index: number; done: boolean; records_advanced: number }>(
+        `/app/${deploymentId}/flows/${flowId}/advance`,
+      )
       .then((r) => r.data),
 };
 
