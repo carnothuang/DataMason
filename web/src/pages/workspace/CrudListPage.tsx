@@ -18,6 +18,7 @@ import type { CrudRowFilters, RowPage, TableMeta } from "../../api";
 import { CrudApi } from "../../api";
 import CrudForm from "./CrudForm";
 import { LogsModal } from "./LogsPage";
+import { maskText, useDemo } from "./demo";
 
 const { Text } = Typography;
 
@@ -46,6 +47,9 @@ export default function CrudListPage({
   focusNonce,
 }: Props) {
   const { message } = App.useApp();
+  const { demo, masked } = useDemo();
+  // M3-3 演示脱敏：只改展示层；脱敏时禁写，避免把脱敏值回写库
+  const readOnlyMask = demo && masked;
   const [meta, setMeta] = useState<TableMeta | null>(null);
   const [rows, setRows] = useState<RowPage | null>(null);
   const [loading, setLoading] = useState(false);
@@ -119,34 +123,41 @@ export default function CrudListPage({
           ? (sort.order === "desc" ? "descend" : "ascend")
           : null,
       render: (v: unknown) =>
-        v === null || v === undefined ? <Text type="secondary">—</Text> : String(v),
+        v === null || v === undefined ? (
+          <Text type="secondary">—</Text>
+        ) : (
+          String(masked ? maskText(v) : v)
+        ),
     })) as ColumnsType<Record<string, unknown>>),
     {
       title: "操作",
       key: "_ops",
       width: 220,
       fixed: "right",
-      render: (_: unknown, record: Record<string, unknown>) => (
-        <Space size="small">
-          <Button type="link" size="small" onClick={() => openEdit(record)}>
-            编辑
-          </Button>
-          <Button type="link" size="small" onClick={() => setLogsRow(record)}>
-            操作记录
-          </Button>
-          <Popconfirm
-            title="确认删除此行？"
-            description="删除后不可恢复"
-            okText="删除"
-            okButtonProps={{ danger: true }}
-            onConfirm={() => doDelete(record)}
-          >
-            <Button type="link" size="small" danger>
-              删除
+      render: (_: unknown, record: Record<string, unknown>) =>
+        readOnlyMask ? (
+          <Tag>演示脱敏 · 只读</Tag>
+        ) : (
+          <Space size="small">
+            <Button type="link" size="small" onClick={() => openEdit(record)}>
+              编辑
             </Button>
-          </Popconfirm>
-        </Space>
-      ),
+            <Button type="link" size="small" onClick={() => setLogsRow(record)}>
+              操作记录
+            </Button>
+            <Popconfirm
+              title="确认删除此行？"
+              description="删除后不可恢复"
+              okText="删除"
+              okButtonProps={{ danger: true }}
+              onConfirm={() => doDelete(record)}
+            >
+              <Button type="link" size="small" danger>
+                删除
+              </Button>
+            </Popconfirm>
+          </Space>
+        ),
     },
   ];
 
@@ -182,12 +193,14 @@ export default function CrudListPage({
     <Card
       title={tableBizName || table}
       extra={
-        <Button type="primary" onClick={openCreate}>
-          新增
-        </Button>
+        !readOnlyMask ? (
+          <Button type="primary" onClick={openCreate}>
+            新增
+          </Button>
+        ) : null
       }
     >
-      {role === "operator" && hasCreatedBy && (
+      {!demo && role === "operator" && hasCreatedBy && (
         <Alert
           type="info"
           showIcon
@@ -195,7 +208,7 @@ export default function CrudListPage({
           message="我的记录：这里只显示您录入的数据（全量数据归创建人与管理员）"
         />
       )}
-      {role === "operator" && !hasCreatedBy && (
+      {!demo && role === "operator" && !hasCreatedBy && (
         <Alert
           type="warning"
           showIcon
@@ -207,7 +220,7 @@ export default function CrudListPage({
           }
         />
       )}
-      {focusedPk && (
+      {!demo && focusedPk && (
         <Alert
           type="success"
           showIcon
