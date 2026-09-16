@@ -22,9 +22,11 @@ from server.ddl.ddl_builder import build_schema_ddl, inject_ownership_columns
 from server.llm.structure import generate_schema, generate_seed_rows
 from server.models import (
     ActivityLog,
+    AiGeneration,
     Connection,
     CrudConfig,
     Deployment,
+    DeploymentApiKey,
     DeploymentMember,
     DeploymentMenu,
     DeploymentMenuGrant,
@@ -467,8 +469,10 @@ def destroy_deployment(app, deployment_id: int, actor_user_id: int) -> dict:
             ).delete(synchronize_session=False)
         s.query(DeploymentMenu).filter_by(deployment_id=deployment_id).delete(synchronize_session=False)
         s.query(DeploymentShareToken).filter_by(deployment_id=deployment_id).delete(synchronize_session=False)
+        s.query(DeploymentApiKey).filter_by(deployment_id=deployment_id).delete(synchronize_session=False)
         s.query(DeploymentMember).filter_by(deployment_id=deployment_id).delete(synchronize_session=False)
         s.query(ActivityLog).filter_by(deployment_id=deployment_id).delete(synchronize_session=False)
+        s.query(AiGeneration).filter_by(deployment_id=deployment_id).delete(synchronize_session=False)
         s.query(CrudConfig).filter_by(deployment_id=deployment_id).delete(synchronize_session=False)
         s.query(PageSpec).filter_by(deployment_id=deployment_id).delete(synchronize_session=False)
         s.query(FlowSpec).filter_by(deployment_id=deployment_id).delete(synchronize_session=False)

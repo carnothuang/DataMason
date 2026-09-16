@@ -147,8 +147,18 @@ def revoke_link(app, deployment_id: int, link_id: int, actor_user_id: int) -> di
 
 
 def _set_grants(s, deployment_id: int, user_id: int, menu_ids: list[int]) -> None:
-    """按人授权（DR-02）：替换为该链接绑定的功能集合。"""
-    s.query(DeploymentMenuGrant).filter_by(user_id=user_id).delete()
+    """按人授权（DR-02）：替换为该链接绑定的功能集合（按部署隔离）。"""
+    owned_menu_ids = [
+        mid
+        for (mid,) in s.query(DeploymentMenu.id)
+        .filter_by(deployment_id=deployment_id)
+        .all()
+    ]
+    if owned_menu_ids:
+        s.query(DeploymentMenuGrant).filter(
+            DeploymentMenuGrant.user_id == user_id,
+            DeploymentMenuGrant.menu_id.in_(owned_menu_ids),
+        ).delete(synchronize_session=False)
     for menu_id in menu_ids:
         s.add(DeploymentMenuGrant(menu_id=menu_id, user_id=user_id))
 
@@ -177,7 +187,8 @@ def accept(app, token: str, uid: int) -> dict:
             if row.role == "operator":
                 _set_grants(s, deployment_id, uid, row.menu_ids)
             else:
-                s.query(DeploymentMenuGrant).filter_by(user_id=uid).delete()
+                # 管理员不需要按人授权；仅清本部署残留授权（跨部署隔离）
+                _set_grants(s, deployment_id, uid, [])
             s.commit()
         user = s.get(User, uid)
         who = (user.display_name or user.username) if user else f"#{uid}"

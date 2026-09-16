@@ -11,7 +11,7 @@ from __future__ import annotations
 import pytest
 
 from server.auth.service import hash_password
-from server.models import DeploymentMenu, DeploymentMember, PageSpec, User
+from server.models import DeploymentMenu, DeploymentMember, DeploymentMenuGrant, PageSpec, User
 
 LINKED_SPEC = {
     "biz_notes": "进销存：客户与订单",
@@ -426,3 +426,52 @@ def test_console_data_routes_member_checked(app, env, patch_llm):
     assert op.get(f"/api/v1/deployments/{did}/tables").status_code == 200
     assert op.get(f"/api/v1/deployments/{did}/tables/customers/rows").status_code == 200
     assert op.get(f"/api/v1/deployments/{did}/tables/orders/rows").status_code == 404
+
+
+# ---------------- 授权按部署隔离（同一用户同时是两个部署的操作员） ----------------
+
+def _grant_menu_ids(app, user_id: int) -> set[int]:
+    Session = app.extensions["datamason_session_factory"]
+    with Session() as s:
+        return {
+            g.menu_id
+            for g in s.query(DeploymentMenuGrant).filter_by(user_id=user_id).all()
+        }
+
+
+def test_update_grants_isolated_across_deployments(app, env, patch_llm):
+    """在部署 A 改授权不得清掉同一用户在部署 B 的授权（跨部署隔离）。"""
+    c = env["client"]
+    did_a = _deploy(c)
+    did_b = _deploy(c)
+    ma, mb = _members(app, did_a), _members(app, did_b)
+    xiaoli_id = _mk_user(app, "xiaoli")
+    _grant(c, did_a, "xiaoli", [ma["customers_menu"]])
+    _grant(c, did_b, "xiaoli", [mb["orders_menu"]])
+
+    assert c.put(f"/api/v1/deployments/{did_a}/members/{xiaoli_id}",
+                 json={"menu_ids": [ma["orders_menu"]]}).status_code == 200
+
+    grants = _grant_menu_ids(app, xiaoli_id)
+    assert ma["orders_menu"] in grants and ma["customers_menu"] not in grants
+    assert mb["orders_menu"] in grants  # 部署 B 的授权必须完好
+
+
+def test_remove_member_isolated_across_deployments(app, env, patch_llm):
+    """从部署 A 移除成员只得清 A 的授权，B 中仍是操作员且菜单可用。"""
+    c = env["client"]
+    did_a = _deploy(c)
+    did_b = _deploy(c)
+    ma, mb = _members(app, did_a), _members(app, did_b)
+    xiaoli_id = _mk_user(app, "xiaoli")
+    _grant(c, did_a, "xiaoli", [ma["customers_menu"]])
+    _grant(c, did_b, "xiaoli", [mb["orders_menu"]])
+
+    assert c.delete(f"/api/v1/deployments/{did_a}/members/{xiaoli_id}").status_code == 200
+
+    grants = _grant_menu_ids(app, xiaoli_id)
+    assert ma["customers_menu"] not in grants
+    assert mb["orders_menu"] in grants
+    op = _login(app, "xiaoli")
+    info = op.get(f"/api/v1/app/{did_b}").get_json()
+    assert {x["label"] for x in info["menus"]} == {mb["orders_label"]}

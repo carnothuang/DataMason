@@ -257,6 +257,43 @@ def test_share_link_create_creator_only_and_accept_operator(app, env, patch_llm)
                    .all())
 
 
+def test_share_accept_grants_isolated_across_deployments(app, env, patch_llm):
+    """同一用户接受两部署的分享链接，重接一个不得清掉另一个的授权（跨部署隔离）。"""
+    did_a = _deploy(env["client"])
+    did_b = _deploy(env["client"])
+    menu_a = env["client"].get(
+        f"/api/v1/deployments/{did_a}/interfaces").get_json()["menus"][0]
+    menu_b = env["client"].get(
+        f"/api/v1/deployments/{did_b}/interfaces").get_json()["menus"][0]
+
+    link_a = env["client"].post(
+        f"/api/v1/deployments/{did_a}/share-links",
+        json={"role": "operator", "menu_ids": [menu_a["id"]]}).get_json()["token"]
+    link_b = env["client"].post(
+        f"/api/v1/deployments/{did_b}/share-links",
+        json={"role": "operator", "menu_ids": [menu_b["id"]]}).get_json()["token"]
+
+    uid = _mk_user(app, "xiaoli")
+    xiaoli = _login(app, "xiaoli")
+    assert xiaoli.post(f"/api/v1/share/{link_a}/accept").status_code == 200
+    assert xiaoli.post(f"/api/v1/share/{link_b}/accept").status_code == 200
+
+    # 重接 A（幂等）不得清掉 B 的授权
+    assert xiaoli.post(f"/api/v1/share/{link_a}/accept").status_code == 200
+    with _session(app) as s:
+        grants = {g.menu_id for g in s.query(DeploymentMenuGrant).filter_by(user_id=uid).all()}
+    assert menu_a["id"] in grants and menu_b["id"] in grants
+
+    # A 的管理员链接也不得清掉 B 的操作员授权
+    admin_link_a = env["client"].post(
+        f"/api/v1/deployments/{did_a}/share-links", json={"role": "admin"}).get_json()["token"]
+    assert xiaoli.post(f"/api/v1/share/{admin_link_a}/accept").status_code == 200
+    with _session(app) as s:
+        grants = {g.menu_id for g in s.query(DeploymentMenuGrant).filter_by(user_id=uid).all()}
+    assert menu_b["id"] in grants
+    assert menu_a["id"] not in grants  # A 的授权已清（管理员不需按人授权）
+
+
 def test_share_link_admin_binding_sees_all_menus(app, env, patch_llm):
     did = _deploy(env["client"])
     resp = env["client"].post(f"/api/v1/deployments/{did}/share-links",

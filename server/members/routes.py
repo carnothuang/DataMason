@@ -167,7 +167,18 @@ def _validate_menu_ids(s, deployment_id: int, menu_ids) -> list[int]:
 def _set_grants(s, deployment_id: int, user_id: int, menu_ids: list[int]) -> None:
     if menu_ids is None:
         return
-    s.query(DeploymentMenuGrant).filter_by(user_id=user_id).delete()
+    # 仅清本部署的菜单授权：同一用户可同时是多个部署的操作员，授权须按部署隔离
+    owned_menu_ids = [
+        mid
+        for (mid,) in s.query(DeploymentMenu.id)
+        .filter_by(deployment_id=deployment_id)
+        .all()
+    ]
+    if owned_menu_ids:
+        s.query(DeploymentMenuGrant).filter(
+            DeploymentMenuGrant.user_id == user_id,
+            DeploymentMenuGrant.menu_id.in_(owned_menu_ids),
+        ).delete(synchronize_session=False)
     for menu_id in menu_ids:
         s.add(DeploymentMenuGrant(menu_id=menu_id, user_id=user_id))
 
@@ -269,7 +280,17 @@ def remove_member(deployment_id: int, user_id: int):
         if row is None:
             abort(404, description="该成员不在本部署中")
         s.delete(row)
-        s.query(DeploymentMenuGrant).filter_by(user_id=user_id).delete()
+        owned_menu_ids = [
+            mid
+            for (mid,) in s.query(DeploymentMenu.id)
+            .filter_by(deployment_id=deployment_id)
+            .all()
+        ]
+        if owned_menu_ids:
+            s.query(DeploymentMenuGrant).filter(
+                DeploymentMenuGrant.user_id == user_id,
+                DeploymentMenuGrant.menu_id.in_(owned_menu_ids),
+            ).delete(synchronize_session=False)
         s.commit()
         user = s.get(User, user_id)
         log_system(current_app, deployment_id, "member", actor_user_id=uid,

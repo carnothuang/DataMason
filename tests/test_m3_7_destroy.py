@@ -18,9 +18,11 @@ from server.auth.service import hash_password
 from server.deploy import service as deploy_service
 from server.models import (
     ActivityLog,
+    AiGeneration,
     Connection,
     CrudConfig,
     Deployment,
+    DeploymentApiKey,
     DeploymentMember,
     DeploymentMenu,
     DeploymentMenuGrant,
@@ -139,6 +141,8 @@ def _counts(app, did: int) -> dict:
             "cruds": s.query(CrudConfig).filter_by(deployment_id=did).count(),
             "flows": s.query(FlowSpec).filter_by(deployment_id=did).count(),
             "share": s.query(DeploymentShareToken).filter_by(deployment_id=did).count(),
+            "api_keys": s.query(DeploymentApiKey).filter_by(deployment_id=did).count(),
+            "generations": s.query(AiGeneration).filter_by(deployment_id=did).count(),
             "logs": s.query(ActivityLog).filter_by(deployment_id=did).count(),
         }
 
@@ -151,7 +155,12 @@ def test_destroy_create_mode_removes_db_metadata_and_logs(app, env, patch_llm):
     env["client"].post(f"/api/v1/deployments/{did}/flows", json={
         "name": "入库流程", "steps": [{"name": "收货登记", "page_id": crud_page["id"]}]})
     env["client"].post(f"/api/v1/deployments/{did}/share-links", json={"role": "admin"})
+    env["client"].post(f"/api/v1/deployments/{did}/api-keys", json={"name": "对接密钥"})
     env["client"].post(f"/api/v1/app/{did}/api/tables/messages/rows", json={"visitor": "甲"})
+    with _session(app) as s:
+        s.add(AiGeneration(kind="deploy", status="ok", deployment_id=did,
+                           prompt_summary="销毁级联用例"))
+        s.commit()
 
     with _session(app) as s:
         d = s.get(Deployment, did)
@@ -165,6 +174,7 @@ def test_destroy_create_mode_removes_db_metadata_and_logs(app, env, patch_llm):
     before = _counts(app, did)
     assert before["tables"] == 1 and before["pages"] >= 2 and before["menus"] >= 1
     assert before["flows"] == 1 and before["share"] == 1 and before["logs"] >= 1
+    assert before["api_keys"] == 1 and before["generations"] == 1
 
     resp = env["client"].post(f"/api/v1/deployments/{did}/destroy")
     assert resp.status_code == 200, resp.get_data(as_text=True)

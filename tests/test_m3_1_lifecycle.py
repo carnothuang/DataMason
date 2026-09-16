@@ -208,6 +208,24 @@ def test_invalid_transitions(app, env, patch_llm):
     assert env["client"].post("/api/v1/deployments/999/start").status_code == 404
 
 
+def test_frontend_logs_action_meta_covers_system_actions():
+    """前端日志动作元数据须覆盖后端全部系统动作（防新增动作漏标签/漏筛选）。
+
+    回归 M3-1：stop/start 曾只写后端、前端 ACTION_META 缺项 → 日志显示英文且不可筛选。
+    """
+    from pathlib import Path
+
+    from server.audit.service import SYSTEM_ACTIONS
+
+    src = (
+        Path(__file__).resolve().parent.parent
+        / "web" / "src" / "pages" / "workspace" / "LogsPage.tsx"
+    ).read_text(encoding="utf-8")
+    meta = src.split("export const ACTION_META", 1)[1].split("};", 1)[0]
+    missing = [a for a in SYSTEM_ACTIONS if f"{a}:" not in meta]
+    assert not missing, f"LogsPage ACTION_META 缺少系统动作: {missing}"
+
+
 def test_list_deployments_carries_role(app, env, patch_llm):
     did = _deploy(env["client"])
     adm_id = _mk_user(app, "adminer")

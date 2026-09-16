@@ -544,7 +544,7 @@ export interface ActivityLog {
   occurred_at: string;
   actor_user_id: number | null;
   actor_display: string;
-  action: "create" | "update" | "delete" | "deploy" | "member" | "structure" | "flow" | "apikey";
+  action: "create" | "update" | "delete" | "deploy" | "member" | "structure" | "flow" | "apikey" | "stop" | "start";
   object_kind: string;
   object_table: string;
   object_pk: string;
