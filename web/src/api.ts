@@ -157,9 +157,55 @@ export interface WorkspaceInfo {
   biz_name: string;
   status: string;
   entry_path: string;
+  role: "creator" | "admin" | "operator";
   menus: WorkspaceMenu[];
   pages: WorkspacePage[];
 }
+
+// ---------- 成员与权限（M2-5） ----------
+export interface DeploymentMember {
+  user_id: number;
+  username: string;
+  display_name: string;
+  role: "creator" | "admin" | "operator";
+  menu_ids: number[];
+  is_self: boolean;
+}
+
+export interface MemberMenusPayload {
+  members: DeploymentMember[];
+  menus: { id: number; label: string; parent_id: number | null }[];
+}
+
+export const MembersApi = {
+  list: (deploymentId: number) =>
+    http
+      .get<MemberMenusPayload>(`/deployments/${deploymentId}/members`)
+      .then((r) => r.data),
+  candidates: (deploymentId: number) =>
+    http
+      .get<CurrentUser[]>(`/deployments/${deploymentId}/members/candidates`)
+      .then((r) => ensureArray<CurrentUser>(r.data, "候选成员")),
+  add: (
+    deploymentId: number,
+    payload: { username: string; role: "admin" | "operator"; menu_ids?: number[] },
+  ) =>
+    http
+      .post<{ ok: boolean }>(`/deployments/${deploymentId}/members`, payload)
+      .then((r) => r.data),
+  update: (
+    deploymentId: number,
+    userId: number,
+    payload: { role?: "admin" | "operator"; menu_ids?: number[] },
+  ) =>
+    http
+      .put<{ ok: boolean }>(`/deployments/${deploymentId}/members/${userId}`, payload)
+      .then((r) => r.data),
+  remove: (deploymentId: number, userId: number) =>
+    http
+      .delete<{ ok: boolean }>(`/deployments/${deploymentId}/members/${userId}`)
+      .then((r) => r.data),
+};
 
 // ---------- CRUD 元数据（M2-3/M2-4） ----------
 export interface FkRef {

@@ -45,9 +45,13 @@ class CrudRegistry:
         engine: Engine,
         tables: Iterable[str] | None = None,
         current_user_id: int = 1,
+        owner_only: bool = False,
     ):
+        """owner_only（M2-5）：仅展示/操作「当前用户创建的记录」。
+        操作员角色由工作台层注入 True，实现对业务数据按归属列的强制撒权过滤（DR-05）。"""
         self.engine = engine
         self.current_user_id = current_user_id
+        self.owner_only = owner_only
         self.meta = MetaData()
         allowed = list(tables) if tables is not None else None
         self.meta.reflect(bind=engine, only=allowed if allowed else None)
@@ -195,12 +199,25 @@ def get_meta(registry: CrudRegistry) -> dict:
     return out
 
 
+def _owner_condition(registry: "CrudRegistry", table: Table):
+    """「我的记录」强制过滤（DR-05/§十一 七）：操作员只见 created_by=自己的记录。
+
+    仅在表含归属列 created_by 且 registry.owner_only 时生效；返回 SQLAlchemy 条件或 None。
+    """
+    if registry.owner_only and "created_by" in table.c:
+        return table.c.created_by == registry.current_user_id
+    return None
+
+
 def list_rows(registry: CrudRegistry, name: str, with_search: bool = True) -> dict:
     table = registry.table(name)
     page = max(int(request.args.get("page", 1)), 1)
     page_size = min(max(int(request.args.get("page_size", 20)), 1), 200)
 
     conditions = _filtered(table)
+    owner = _owner_condition(registry, table)
+    if owner is not None:
+        conditions.append(owner)
     search = (request.args.get("search") or "").strip()
     if search and with_search:
         text_cols = [
@@ -240,10 +257,12 @@ def list_rows(registry: CrudRegistry, name: str, with_search: bool = True) -> di
 def get_row(registry: CrudRegistry, name: str, pk: str) -> dict:
     table = registry.table(name)
     pk_col = _pk_column(table)
+    owner = _owner_condition(registry, table)
+    cond = [pk_col == _coerce_value(pk_col, pk)]
+    if owner is not None:
+        cond.append(owner)
     with registry.engine.connect() as conn:
-        row = conn.execute(
-            select(table).where(pk_col == _coerce_value(pk_col, pk))
-        ).mappings().first()
+        row = conn.execute(select(table).where(*cond)).mappings().first()
     if row is None:
         abort(404)
     return dict(row)
@@ -253,20 +272,20 @@ def create_row(registry: CrudRegistry, name: str) -> dict:
     table = registry.table(name)
     payload = request.get_json(force=True) or {}
     values = {}
-    # 列白名单：不在反射 schema 里的键一律忽略
+    # 列白名单：不在反射 schema 里的键一律忽略；归属列（DR-05）禁止客户端改写
     for key, value in payload.items():
-        if key in table.c and not table.c[key].primary_key:
+        if key in table.c and key not in _OWNERSHIP_COLS and not table.c[key].primary_key:
             values[key] = _coerce_value(table.c[key], value)
-    # 归属列自动注入（DR-05）：业务表强制四列，前端不传也补齐
+    # 归属列自动注入（DR-05）：业务表强制四列，一律以会话用户为准
     now = _utcnow()
     if "created_by" in table.c:
-        values.setdefault("created_by", registry.current_user_id)
+        values["created_by"] = registry.current_user_id
     if "created_at" in table.c:
-        values.setdefault("created_at", now)
+        values["created_at"] = now
     if "updated_by" in table.c:
-        values.setdefault("updated_by", registry.current_user_id)
+        values["updated_by"] = registry.current_user_id
     if "updated_at" in table.c:
-        values.setdefault("updated_at", now)
+        values["updated_at"] = now
     with registry.engine.begin() as conn:
         result = conn.execute(table.insert().values(**values))
         pk = result.inserted_primary_key[0]
@@ -279,7 +298,7 @@ def update_row(registry: CrudRegistry, name: str, pk: str) -> dict:
     payload = request.get_json(force=True) or {}
     values = {}
     for key, value in payload.items():
-        if key in table.c and not table.c[key].primary_key:
+        if key in table.c and key not in _OWNERSHIP_COLS and not table.c[key].primary_key:
             values[key] = _coerce_value(table.c[key], value)
     if "updated_by" in table.c:
         values["updated_by"] = registry.current_user_id
@@ -287,20 +306,30 @@ def update_row(registry: CrudRegistry, name: str, pk: str) -> dict:
         values["updated_at"] = _utcnow()
     if not values:
         abort(400, description="没有可更新的列")
+    cond = [pk_col == _coerce_value(pk_col, pk)]
+    owner = _owner_condition(registry, table)
+    if owner is not None:
+        cond.append(owner)
     with registry.engine.begin() as conn:
-        conn.execute(
-            table.update().where(pk_col == _coerce_value(pk_col, pk)).values(**values)
+        result = conn.execute(
+            table.update().where(*cond).values(**values)
         )
+    if result.rowcount == 0:
+        abort(404)
     return {"updated": True}
 
 
 def delete_row(registry: CrudRegistry, name: str, pk: str) -> dict:
     table = registry.table(name)
     pk_col = _pk_column(table)
+    cond = [pk_col == _coerce_value(pk_col, pk)]
+    owner = _owner_condition(registry, table)
+    if owner is not None:
+        cond.append(owner)
     with registry.engine.begin() as conn:
-        conn.execute(
-            table.delete().where(pk_col == _coerce_value(pk_col, pk))
-        )
+        result = conn.execute(table.delete().where(*cond))
+    if result.rowcount == 0:
+        abort(404)
     return {"deleted": True}
 
 

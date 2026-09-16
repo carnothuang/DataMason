@@ -154,6 +154,10 @@ def test_ownership_column_takes_session_user(app, client, admin, patch_llm):
     Session = app.extensions["datamason_session_factory"]
     with Session() as s:
         li_id = s.query(User).filter_by(username="xiaoli").one().id
+    # M2-5：成员校验——非成员不能访问工作台
+    assert client.post(f"/api/v1/deployments/{did}/members", json={
+        "username": "xiaoli", "role": "admin",
+    }).status_code == 201
     assert client.post("/api/v1/auth/logout").status_code == 200
     assert client.post("/api/v1/auth/login",
                        json={"username": "xiaoli", "password": "li123"}).status_code == 200

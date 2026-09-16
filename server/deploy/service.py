@@ -23,6 +23,7 @@ from server.models import (
     Connection,
     CrudConfig,
     Deployment,
+    DeploymentMember,
     DeploymentMenu,
     PageSpec,
     TableSpec,
@@ -168,6 +169,10 @@ def confirm(app, spec_dict: dict, biz_name: str, seed_data: bool = True,
         s.add(deployment)
         s.flush()
         deployment_id = deployment.id
+        # M2-5：创建人即部署第一位成员（三层角色 creator），成员管理的基础
+        s.add(DeploymentMember(
+            deployment_id=deployment_id, user_id=owner, role="creator",
+        ))
         s.commit()  # 必须提交：后续新会话要按外键引用 connection/deployment
 
     # ③ 物理建表（独立连接，避免元数据会话内跨库）
@@ -291,7 +296,19 @@ def confirm(app, spec_dict: dict, biz_name: str, seed_data: bool = True,
 
 def list_deployments(app) -> list[dict]:
     with _session(app) as s:
-        rows = s.query(Deployment).order_by(Deployment.id.desc()).all()
+        rows = (
+            s.query(Deployment)
+            .order_by(Deployment.id.desc())
+            .all()
+        )
+        # M2-5：控制台只列我参与的部署（创建人或成员）；无会话上下文（脚本）全列
+        uid = _session_user_id()
+        if uid is not None:
+            member_ids = {
+                r.deployment_id
+                for r in s.query(DeploymentMember).filter_by(user_id=uid).all()
+            }
+            rows = [d for d in rows if d.owner_id == uid or d.id in member_ids]
         return [
             {
                 "id": d.id,
@@ -304,3 +321,15 @@ def list_deployments(app) -> list[dict]:
             }
             for d in rows
         ]
+
+
+def _session_user_id() -> int | None:
+    """当前会话用户 id；无请求上下文（脚本直调 service）返回 None。"""
+    try:
+        from flask import has_request_context, session
+
+        if has_request_context():
+            return session.get("user_id")
+    except ImportError:  # pragma: no cover
+        pass
+    return None

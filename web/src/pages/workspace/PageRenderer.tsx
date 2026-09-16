@@ -7,10 +7,12 @@ const { Text } = Typography;
 interface Props {
   deploymentId: number;
   page: WorkspacePage | null;
+  role?: string;
 }
 
-/** 按 page_spec 渲染内容区：crud_list → 元数据驱动 CRUD 列表（M2-4）；其余类型 v0 占位（M3 起补全）。 */
-export default function PageRenderer({ deploymentId, page }: Props) {
+/** 按 page_spec 渲染内容区：crud_list → 元数据驱动 CRUD 列表（M2-4）；其余类型 v0 占位（M3 起补全）。
+ *  M2-5：role=operator 时列表受「我的记录」过滤（服务端强制 created_by=自己，前端仅提示）。 */
+export default function PageRenderer({ deploymentId, page, role }: Props) {
   if (!page) {
     return (
       <Card>
@@ -28,6 +30,7 @@ export default function PageRenderer({ deploymentId, page }: Props) {
         deploymentId={deploymentId}
         table={page.table}
         tableBizName={page.table_biz_name || page.table}
+        role={role}
       />
     );
   }

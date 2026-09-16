@@ -2,9 +2,10 @@ import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { Button, Layout, Menu, Result, Spin, Typography } from "antd";
 import type { MenuProps } from "antd";
-import { ArrowLeftOutlined, CrownOutlined } from "@ant-design/icons";
+import { ArrowLeftOutlined, CrownOutlined, TeamOutlined } from "@ant-design/icons";
 import { WorkspaceApi, WorkspaceInfo, WorkspaceMenu, WorkspacePage } from "../../api";
 import PageRenderer from "./PageRenderer";
+import MembersPage from "./MembersPage";
 
 const { Header, Sider, Content } = Layout;
 const { Text } = Typography;
@@ -13,18 +14,21 @@ interface Props {
   deploymentId: number;
 }
 
-/** M2-2 工作台运行时：入口 path=/app/{deployment_id}，左菜单树 + 右页面内容区。 */
+/** M2-2 工作台运行时：入口 path=/app/{deployment_id}，左菜单树 + 右页面内容区。
+ *  M2-5：新增「成员与权限」系统页（创建人见可编辑，管理员见只读，操作员不见）。 */
 export default function Workspace({ deploymentId }: Props) {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const [info, setInfo] = useState<WorkspaceInfo | null>(null);
   const [error, setError] = useState("");
   const [activePage, setActivePage] = useState<number | null>(null);
+  const [systemPage, setSystemPage] = useState<"members" | null>(null);
 
   useEffect(() => {
     setInfo(null);
     setError("");
     setActivePage(null);
+    setSystemPage(null);
     WorkspaceApi.info(deploymentId)
       .then(setInfo)
       .catch((e) => setError(e.message));
@@ -39,10 +43,30 @@ export default function Workspace({ deploymentId }: Props) {
     setActivePage(info.pages.some((p) => p.id === fromQuery) ? fromQuery : firstPageId);
   }, [info, error, activePage, firstPageId, searchParams]);
 
-  const menuItems = useMemo<MenuProps["items"]>(() => toMenuItems(info?.menus || []), [info]);
+  const canSeeMembers = info && (info.role === "creator" || info.role === "admin");
+  const canEditMembers = info?.role === "creator";
+
+  const menuItems = useMemo<MenuProps["items"]>(() => {
+    const base = toMenuItems(info?.menus || []);
+    if (!canSeeMembers) return base;
+    return [
+      ...(base || []),
+      { type: "divider" as const },
+      {
+        key: "sys:members",
+        icon: <TeamOutlined />,
+        label: "成员与权限",
+      },
+    ];
+  }, [info, canSeeMembers]);
 
   const onClick: MenuProps["onClick"] = ({ key }) => {
+    if (key === "sys:members") {
+      setSystemPage("members");
+      return;
+    }
     if (!key.startsWith("page:")) return;
+    setSystemPage(null);
     const pageId = Number(key.slice("page:".length));
     if (Number.isInteger(pageId)) {
       setActivePage(pageId);
@@ -51,7 +75,7 @@ export default function Workspace({ deploymentId }: Props) {
   };
 
   const active: WorkspacePage | null =
-    info?.pages.find((p) => p.id === activePage) ?? null;
+    systemPage === "members" ? null : (info?.pages.find((p) => p.id === activePage) ?? null);
 
   if (error) {
     return (
@@ -100,7 +124,13 @@ export default function Workspace({ deploymentId }: Props) {
           theme="dark"
           mode="inline"
           items={menuItems}
-          selectedKeys={activePage !== null ? [`page:${activePage}`] : []}
+          selectedKeys={
+            systemPage === "members"
+              ? ["sys:members"]
+              : activePage !== null
+                ? [`page:${activePage}`]
+                : []
+          }
           onClick={onClick}
         />
       </Sider>
@@ -115,13 +145,17 @@ export default function Workspace({ deploymentId }: Props) {
             borderBottom: "1px solid #f0f0f0",
           }}
         >
-          <Text strong>{active?.title || "工作台"}</Text>
+          <Text strong>{systemPage === "members" ? "成员与权限" : (active?.title || "工作台")}</Text>
           <Button size="small" icon={<ArrowLeftOutlined />} onClick={() => navigate("/deployments")}>
             返回控制台
           </Button>
         </Header>
         <Content style={{ padding: 24 }}>
-          <PageRenderer deploymentId={deploymentId} page={active} />
+          {systemPage === "members" && canSeeMembers ? (
+            <MembersPage deploymentId={deploymentId} canEdit={canEditMembers} />
+          ) : (
+            <PageRenderer deploymentId={deploymentId} page={active} role={info?.role} />
+          )}
         </Content>
       </Layout>
     </Layout>

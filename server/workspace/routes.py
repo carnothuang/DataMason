@@ -1,12 +1,13 @@
-"""工作台运行时接口（M2-2 菜单树 + M2-3 CRUD）。
+"""工作台运行时接口（M2-2 菜单树 + M2-3 CRUD + M2-5 按角色裁剪）。
 
 - GET  /app/<id>          ：部署信息 + 菜单树 + 页面规格（M2-2）
-- GET/POST/PUT/DELETE 等  ：/app/<id>/api/* 业务 CRUD（M2-3）
-  - /meta                   全表列元数据（含外键对）
+  - M2-5：非成员 403；操作员只见被授权菜单与「我的记录」对应内容
+- GET/POST/PUT/DELETE 等  ：/app/<id>/api/* 业务 CRUD（M2-3/M2-5）
+  - /meta                   全表列元数据（含外键对；操作员仅被授权表）
   - /tables/<name>/rows    列表（参数化+白名单+分页/排序/过滤）
   - /tables/<name>/rows/<pk> 单行 GET/PUT/DELETE
   - /tables/<name>/refs/<fk_col> 外键下拉数据
-- 归属列写入身份取会话用户；成员/按人授权过滤在 M2-5 接入。
+- 归属列写入身份取会话用户；成员/按人授权过滤（M2-5）。
 """
 from __future__ import annotations
 
@@ -16,6 +17,8 @@ from flask import Blueprint, current_app, jsonify, request, session
 
 from server.crud import engine as crud_engine
 from server.crud import runtime
+from server.members import service as member_service
+from server.members.service import PermissionDenied
 from server.models import Deployment, DeploymentMenu, PageSpec, TableSpec
 
 bp = Blueprint("workspace", __name__)
@@ -56,18 +59,31 @@ def get_workspace(deployment_id: int):
             return jsonify({"error": "部署不存在"}), 404
         if d.status != "running":
             return jsonify({"error": f"该部署尚未就绪（状态：{d.status}），请回到控制台查看"}), 409
+        uid = session.get("user_id") or 1
+        role = member_service.assert_member(s, d, uid)  # 非成员 → PermissionDenied → 403
+
         menus = (
             s.query(DeploymentMenu)
             .filter_by(deployment_id=deployment_id)
             .order_by(DeploymentMenu.id)
             .all()
         )
+        if role == "operator":
+            # 功能级裁剪（DR-02）：操作员可见菜单=自己的授权集合（含祖先分组）
+            granted = member_service.granted_menu_ids(s, d, uid)
+            visible = member_service.visible_menu_ids(menus, granted)
+            menus = [m for m in menus if m.id in visible]
+
+        visible_ref_ids = {m.ref_id for m in menus if m.ref_id}
         pages = (
             s.query(PageSpec)
             .filter_by(deployment_id=deployment_id)
             .order_by(PageSpec.id)
             .all()
         )
+        if role == "operator":
+            # 页面同菜单一起裁剪：只保留被授权菜单指向的页面
+            pages = [p for p in pages if p.id in visible_ref_ids]
         tables = {
             t.id: t
             for t in s.query(TableSpec).filter_by(deployment_id=deployment_id).all()
@@ -77,6 +93,7 @@ def get_workspace(deployment_id: int):
             "biz_name": d.biz_name,
             "status": d.status,
             "entry_path": d.entry_path,
+            "role": role,
             "menus": _menu_tree(menus),
             "pages": [
                 {
@@ -196,6 +213,11 @@ def app_refs(deployment_id: int, name: str, fk_col: str):
 @bp.errorhandler(HTTPException)
 def _http_error(exc: HTTPException):
     return jsonify({"error": exc.description}), exc.code
+
+
+@bp.errorhandler(PermissionDenied)
+def _permission_error(exc: PermissionDenied):
+    return jsonify({"error": str(exc)}), 403
 
 
 @bp.errorhandler(KeyError)

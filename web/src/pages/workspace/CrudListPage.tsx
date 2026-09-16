@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   App,
+  Alert,
   Button,
   Card,
   Empty,
@@ -23,10 +24,12 @@ interface Props {
   deploymentId: number;
   table: string;
   tableBizName: string;
+  role?: string;
 }
 
-/** M2-4 工作台 CRUD 列表页：元数据驱动（meta 渲染列），搜索/筛选/排序/分页/新增/编辑/删除。 */
-export default function CrudListPage({ deploymentId, table, tableBizName }: Props) {
+/** M2-4 工作台 CRUD 列表页：元数据驱动（meta 渲染列），搜索/筛选/排序/分页/新增/编辑/删除。
+ *  M2-5：操作员视角默认即「我的记录」（服务端强制，前端加提示），全量数据仅创建人/管理员可见。 */
+export default function CrudListPage({ deploymentId, table, tableBizName, role }: Props) {
   const { message } = App.useApp();
   const [meta, setMeta] = useState<TableMeta | null>(null);
   const [rows, setRows] = useState<RowPage | null>(null);
@@ -150,6 +153,14 @@ export default function CrudListPage({ deploymentId, table, tableBizName }: Prop
         </Button>
       }
     >
+      {role === "operator" && (
+        <Alert
+          type="info"
+          showIcon
+          style={{ marginBottom: 12 }}
+          message="我的记录：这里只显示您录入的数据（全量数据归创建人与管理员）"
+        />
+      )}
       {!meta ? (
         <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="元数据加载中…" />
       ) : (

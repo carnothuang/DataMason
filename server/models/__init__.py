@@ -21,6 +21,7 @@ from sqlalchemy import (
     Integer,
     String,
     Text,
+    UniqueConstraint,
 )
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
@@ -141,6 +142,7 @@ class DeploymentMenuGrant(Base):
 
 class DeploymentMember(Base):
     __tablename__ = "deployment_members"
+    __table_args__ = (UniqueConstraint("deployment_id", "user_id", name="uq_member_deployment_user"),)
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     deployment_id: Mapped[int] = mapped_column(ForeignKey("deployments.id"), nullable=False)

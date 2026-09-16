@@ -2,6 +2,7 @@
 
 每次请求按 deployment_id 解析连接串（加密）→ 反射该部署声明的表 → 查询。
 M1 不缓存 engine（部署数量小）；M2 按部署做 engine 池化。
+M2-5：成员校验 + 操作员仅被授权表 + 「我的记录」owner_only（DR-02/DR-05）。
 """
 from __future__ import annotations
 
@@ -9,6 +10,7 @@ from sqlalchemy import create_engine, func, select
 from sqlalchemy.engine import Engine
 
 from server.crud.engine import CrudRegistry
+from server.members import service as member_service
 from server.models import Connection, Deployment, TableSpec
 
 
@@ -29,19 +31,30 @@ def _registry(app, deployment_id: int, current_user_id: int | None = None) -> tu
         deployment = s.get(Deployment, deployment_id)
         if deployment is None:
             raise KeyError("部署不存在")
+        uid = current_user_id
+        role = None
+        if uid is not None:
+            role = member_service.assert_member(s, deployment, uid)
         table_names = [
             t.name for t in s.query(TableSpec)
             .filter_by(deployment_id=deployment_id).all()
         ]
+        if uid is not None and role == "operator":
+            # 操作员只能操作被授权菜单背后的表（DR-02），其余一律不可见
+            table_names = member_service.allowed_table_names(s, deployment, uid)
     engine = _biz_engine(app, deployment)
-    # 仅暴露该部署声明过的表（白名单）；归属列写入身份由会话注入（M2-3）
-    registry = CrudRegistry(engine, tables=table_names,
-                            current_user_id=current_user_id or 1)
+    # 仅暴露该部署声明过的表（白名单）；归属列写入身份由会话注入（M2-3）；
+    # 操作员「我的记录」强制 owner_only（M2-5，DR-05）
+    registry = CrudRegistry(
+        engine, tables=table_names,
+        current_user_id=uid or 1,
+        owner_only=(uid is not None and role == "operator"),
+    )
     return deployment, registry, engine
 
 
-def list_tables(app, deployment_id: int) -> list[dict]:
-    _d, registry, engine = _registry(app, deployment_id)
+def list_tables(app, deployment_id: int, user_id: int | None = None) -> list[dict]:
+    _d, registry, engine = _registry(app, deployment_id, user_id)
     try:
         result = []
         Session = app.extensions["datamason_session_factory"]
@@ -62,16 +75,18 @@ def list_tables(app, deployment_id: int) -> list[dict]:
 
 def list_rows(app, deployment_id: int, table_name: str,
               page: int, page_size: int, sort: str | None,
-              order: str, filters: dict) -> dict:
+              order: str, filters: dict, user_id: int | None = None) -> dict:
     from sqlalchemy import asc, desc
 
-    _d, registry, engine = _registry(app, deployment_id)
+    _d, registry, engine = _registry(app, deployment_id, user_id)
     try:
         table = registry.table(table_name)
         conditions = []
         for key, value in filters.items():
             if key in table.c and value != "":
                 conditions.append(table.c[key] == value)
+        if registry.owner_only and "created_by" in table.c:
+            conditions.append(table.c.created_by == registry.current_user_id)
         stmt = select(table).where(*conditions)
         if sort and sort in table.c:
             direction = desc if order == "desc" else asc
