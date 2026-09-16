@@ -380,6 +380,54 @@ export const QaApi = {
     http
       .post<QaAnswer>(`/app/${deploymentId}/qa/ask`, { question }, { timeout: 120_000 })
       .then((r) => r.data),
+  /** M4-3 钉住报表：写 dashboard 页 + 菜单（创建人/管理员；同一 SQL 幂等）。 */
+  pin: (
+    deploymentId: number,
+    payload: { title: string; sql: string; chart?: QaChart | null; question?: string },
+  ) =>
+    http
+      .post<{ page_id: number; menu_id: number | null; title: string; duplicate: boolean }>(
+        `/deployments/${deploymentId}/qa/pin`,
+        payload,
+      )
+      .then((r) => r.data),
+  /** M4-3 报表清单。 */
+  pins: (deploymentId: number) =>
+    http
+      .get<{ pins: QaPin[] }>(`/deployments/${deploymentId}/qa/pins`)
+      .then((r) => r.data.pins),
+  /** M4-3 取消钉住：页面 + 菜单 + 授权一并清理。 */
+  unpin: (deploymentId: number, pageId: number) =>
+    http
+      .delete<{ ok: boolean }>(`/deployments/${deploymentId}/qa/pins/${pageId}`)
+      .then((r) => r.data),
+};
+
+export interface QaPin {
+  page_id: number;
+  menu_id: number | null;
+  title: string;
+  sql: string;
+  chart: QaChart | null;
+  question: string;
+}
+
+export interface DashboardRun {
+  page_id: number;
+  title: string;
+  sql: string;
+  chart: QaChart | null;
+  columns: string[];
+  rows: Record<string, unknown>[];
+  row_count: number;
+}
+
+export const DashboardApi = {
+  /** M4-3 运行态重跑钉住的报表（只读门复检 + 白名单后执行，数据为最新）。 */
+  run: (deploymentId: number, pageId: number) =>
+    http
+      .get<DashboardRun>(`/app/${deploymentId}/dashboards/${pageId}`, { timeout: 60_000 })
+      .then((r) => r.data),
 };
 
 // ---------- 工作台业务 CRUD（M2-3/M2-4，挂 /app/{id}/api/） ----------

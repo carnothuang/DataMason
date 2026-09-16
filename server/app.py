@@ -52,7 +52,7 @@ def create_app(config_object: object | None = None) -> Flask:
     from server.public.routes import bp as public_bp
     from server.share.routes import bp as share_bp
     from server.apiaccess.routes import bp as apiaccess_bp
-    from server.qa.routes import bp as qa_bp
+    from server.qa.routes import bp as qa_bp, engineer_bp as qa_engineer_bp
 
     app.register_blueprint(auth_bp, url_prefix="/api/v1/auth")
     app.register_blueprint(settings_bp, url_prefix="/api/v1/settings")
@@ -60,6 +60,7 @@ def create_app(config_object: object | None = None) -> Flask:
     app.register_blueprint(members_bp, url_prefix="/api/v1")
     app.register_blueprint(workspace_bp, url_prefix="/api/v1/app")
     app.register_blueprint(qa_bp, url_prefix="/api/v1/app")
+    app.register_blueprint(qa_engineer_bp, url_prefix="/api/v1")
     app.register_blueprint(flow_bp, url_prefix="/api/v1")
     app.register_blueprint(share_bp, url_prefix="/api/v1")
     app.register_blueprint(public_bp, url_prefix="/api/v1/public")

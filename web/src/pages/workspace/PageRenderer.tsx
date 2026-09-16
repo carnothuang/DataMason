@@ -2,6 +2,7 @@ import { Card, Empty, Typography } from "antd";
 import { WorkspacePage } from "../../api";
 import CrudListPage from "./CrudListPage";
 import FlowWizardPage from "./FlowWizardPage";
+import DashboardPage from "./DashboardPage";
 import PublicPage from "../PublicPage";
 import type { RecordFocus } from "./Workspace";
 
@@ -54,6 +55,10 @@ export default function PageRenderer({ deploymentId, page, role, dataMode, focus
         dataMode={dataMode}
       />
     );
+  }
+
+  if (page.kind === "dashboard") {
+    return <DashboardPage deploymentId={deploymentId} page={page} />;
   }
 
   if (page.kind === "public_form") {

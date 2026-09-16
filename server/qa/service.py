@@ -12,7 +12,9 @@
 """
 from __future__ import annotations
 
-from sqlalchemy import select
+import json
+
+from sqlalchemy import func, select
 from sqlalchemy.engine import Engine
 from werkzeug.exceptions import Conflict
 
@@ -22,7 +24,15 @@ from sqlglot.errors import ParseError
 
 from server.llm.client import LlmCallError, Usage
 from server.members import service as member_service
-from server.models import AiGeneration, Connection, Deployment, TableSpec
+from server.models import (
+    AiGeneration,
+    Connection,
+    Deployment,
+    DeploymentMenu,
+    DeploymentMenuGrant,
+    PageSpec,
+    TableSpec,
+)
 
 # 结果集硬上限（与 CRUD 列表 page_size 上限一致）；模型给出的 LIMIT 之外再兜一层
 MAX_ROWS = 200
@@ -374,3 +384,195 @@ def ask(app, deployment_id: int, question: str, uid: int) -> dict:
         }
     finally:
         engine.dispose()
+
+
+# ---------------- 钉住报表（M4-3，dashboard 页） ----------------
+
+def _normalize_chart(chart: object) -> dict | None:
+    """钉住时对图表规格做结构归一（类型白名单 + x/y 非空且不同）；不合法返回 None。"""
+    if not isinstance(chart, dict):
+        return None
+    ctype = str(chart.get("type") or "").lower()
+    x, y = chart.get("x"), chart.get("y")
+    if ctype in CHART_TYPES and isinstance(x, str) and isinstance(y, str) and x and y and x != y:
+        return {"type": ctype, "x": x, "y": y}
+    return None
+
+
+def _pins(sess, deployment_id: int) -> list[PageSpec]:
+    return (
+        sess.query(PageSpec)
+        .filter_by(deployment_id=deployment_id, kind="dashboard")
+        .order_by(PageSpec.id)
+        .all()
+    )
+
+
+def list_pins(app, deployment_id: int) -> dict:
+    with _session(app) as s:
+        if s.get(Deployment, deployment_id) is None:
+            raise KeyError("部署不存在")
+        menus = {
+            m.ref_id: m
+            for m in s.query(DeploymentMenu).filter_by(deployment_id=deployment_id).all()
+        }
+        out = []
+        for p in _pins(s, deployment_id):
+            try:
+                layout = json.loads(p.layout_json or "{}")
+            except (ValueError, TypeError):
+                layout = {}
+            menu = menus.get(p.id)
+            out.append({
+                "page_id": p.id,
+                "menu_id": menu.id if menu else None,
+                "title": p.title,
+                "sql": layout.get("sql", ""),
+                "chart": layout.get("chart"),
+                "question": layout.get("question", ""),
+            })
+        return {"pins": out}
+
+
+def pin_report(app, deployment_id: int, uid: int, title: str, sql: str,
+               chart: object = None, question: str = "") -> dict:
+    """把一条只读查询钉成常驻报表：写 page_specs(kind=dashboard) + 挂菜单（structure 埋点）。
+
+    SQL 重新过只读门/白名单后才落库；同一 SQL 已钉住则幂等返回（不重复建页面/菜单）。
+    新菜单默认不授权给操作员（M2-5 体系约束沿用）。
+    """
+    from server.crud import runtime as crud_runtime
+    from server.audit.service import log_system
+
+    title = (title or "").strip()[:64] or "报表"
+    with _session(app) as s:
+        d = s.get(Deployment, deployment_id)
+        if d is None:
+            raise KeyError("部署不存在")
+        conn = s.get(Connection, d.connection_id) if d.connection_id else None
+        dialect = conn.dialect if conn else "sqlite"
+
+    _d, registry, engine = crud_runtime._registry(app, deployment_id, uid)
+    try:
+        inner = enforce_readonly(sql, registry.allowed_tables, dialect)
+    finally:
+        engine.dispose()
+    norm_chart = _normalize_chart(chart)
+    layout_json = json.dumps(
+        {"sql": inner, "chart": norm_chart, "question": question or ""},
+        ensure_ascii=False)
+
+    with _session(app) as s:
+        for p in _pins(s, deployment_id):
+            try:
+                existing = json.loads(p.layout_json or "{}")
+            except (ValueError, TypeError):
+                existing = {}
+            if existing.get("sql") == inner:
+                menu = (
+                    s.query(DeploymentMenu)
+                    .filter_by(deployment_id=deployment_id, ref_id=p.id)
+                    .first()
+                )
+                return {"page_id": p.id, "menu_id": menu.id if menu else None,
+                        "title": p.title, "duplicate": True}
+        page = PageSpec(deployment_id=deployment_id, kind="dashboard", access="member",
+                        table_id=None, title=title, layout_json=layout_json)
+        s.add(page)
+        s.flush()
+        max_order = (
+            s.query(func.max(DeploymentMenu.order_index))
+            .filter(DeploymentMenu.deployment_id == deployment_id)
+            .scalar()
+        )
+        menu = DeploymentMenu(
+            deployment_id=deployment_id, label=title, kind="dashboard",
+            ref_id=page.id, order_index=int(max_order or 0) + 1,
+        )
+        s.add(menu)
+        s.flush()
+        result = {"page_id": page.id, "menu_id": menu.id, "title": title, "duplicate": False}
+        s.commit()
+
+    log_system(app, deployment_id, "structure", actor_user_id=uid,
+               object_kind="page", object_table="page_specs", object_pk=str(result["page_id"]),
+               object_label=f"钉住报表「{title}」",
+               changes={"action": "pin", "sql": inner})
+    return result
+
+
+def unpin_report(app, deployment_id: int, page_id: int, uid: int) -> dict:
+    """取消钉住：删除该报表页面 + 其挂载菜单 + 菜单授权（structure 埋点）。"""
+    from server.audit.service import log_system
+
+    with _session(app) as s:
+        page = s.get(PageSpec, page_id)
+        if page is None or page.deployment_id != deployment_id or page.kind != "dashboard":
+            raise KeyError("报表不存在")
+        title = page.title
+        for menu in (
+            s.query(DeploymentMenu).filter_by(deployment_id=deployment_id, ref_id=page_id).all()
+        ):
+            s.query(DeploymentMenuGrant).filter_by(menu_id=menu.id).delete()
+            s.delete(menu)
+        s.delete(page)
+        s.commit()
+
+    log_system(app, deployment_id, "structure", actor_user_id=uid,
+               object_kind="page", object_table="page_specs", object_pk=str(page_id),
+               object_label=f"取消钉住报表「{title}」", changes={"action": "unpin"})
+    return {"ok": True}
+
+
+def run_dashboard(app, deployment_id: int, page_id: int, uid: int) -> dict:
+    """运行态重跑报表：只读门复检 + 白名单后执行 SQL，返回最新行集 + 图表规格。
+
+    报表是成员页面；操作员须被授权挂载该报表的菜单（DR-02），否则 403。
+    """
+    from server.crud import runtime as crud_runtime
+
+    with _session(app) as s:
+        d = s.get(Deployment, deployment_id)
+        if d is None:
+            raise KeyError("部署不存在")
+        role = member_service.assert_member(s, d, uid)
+        if d.status != "running":
+            raise Conflict(description="部署未处于运行态，无法查看报表")
+        page = s.get(PageSpec, page_id)
+        if page is None or page.deployment_id != deployment_id or page.kind != "dashboard":
+            raise KeyError("报表不存在")
+        if role == "operator":
+            granted = member_service.granted_menu_ids(s, d, uid)
+            visible = any(
+                m.ref_id == page_id and m.id in granted
+                for m in s.query(DeploymentMenu).filter_by(deployment_id=deployment_id).all()
+            )
+            if not visible:
+                raise member_service.PermissionDenied("该报表尚未授权给你")
+        conn = s.get(Connection, d.connection_id) if d.connection_id else None
+        dialect = conn.dialect if conn else "sqlite"
+        title = page.title
+        try:
+            layout = json.loads(page.layout_json or "{}")
+        except (ValueError, TypeError):
+            layout = {}
+
+    sql = layout.get("sql") or ""
+    if not sql:
+        raise QaError("报表 SQL 为空，无法运行")
+    _d, registry, engine = crud_runtime._registry(app, deployment_id, uid)
+    try:
+        inner = enforce_readonly(sql, registry.allowed_tables, dialect)
+        result = _execute(engine, inner, dialect)
+    finally:
+        engine.dispose()
+    chart = layout.get("chart")
+    return {
+        "page_id": page_id,
+        "title": title,
+        "sql": inner,
+        "chart": chart if isinstance(chart, dict) else None,
+        "columns": result["columns"],
+        "rows": result["rows"],
+        "row_count": len(result["rows"]),
+    }

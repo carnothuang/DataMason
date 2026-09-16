@@ -75,6 +75,13 @@ export default function Workspace({ deploymentId }: Props) {
     loadInfo();
   }, [loadInfo]);
 
+  // M4-3：钉住/取消钉住后只刷新菜单与页面，不清空当前视图（避免抽屉与选中页被重置）
+  const refreshInfo = useCallback(() => {
+    WorkspaceApi.info(deploymentId).then(setInfo).catch(() => {
+      /* 忽略：保持现有视图 */
+    });
+  }, [deploymentId]);
+
   // 菜单点击 → 选页面；初始依 URL ?page=<id>，否则取第一棵子菜单指向的页面
   const firstPageId = useMemo(() => firstLeafRef(info?.menus) ?? info?.pages[0]?.id ?? null, [info]);
 
@@ -420,7 +427,13 @@ export default function Workspace({ deploymentId }: Props) {
             </Text>
           </div>
         )}
-        <AskData deploymentId={deploymentId} open={askOpen} onClose={() => setAskOpen(false)} />
+        <AskData
+          deploymentId={deploymentId}
+          open={askOpen}
+          onClose={() => setAskOpen(false)}
+          canPin={!!canSeeSystemPages}
+          onPinned={refreshInfo}
+        />
       </div>
     </DemoContext.Provider>
   );
