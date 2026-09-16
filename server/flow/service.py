@@ -423,7 +423,7 @@ def runtime_flow(app, deployment_id: int, flow_id: int, uid: int) -> dict:
 
 
 def advance_flow(app, deployment_id: int, flow_id: int, uid: int) -> dict:
-    from server.audit.service import log_system
+    from server.audit.service import AuditSession
 
     role, registry, engine = _registry(app, deployment_id, uid)
     try:
@@ -462,34 +462,59 @@ def advance_flow(app, deployment_id: int, flow_id: int, uid: int) -> dict:
                 f"{_condition_text(step)}；请先在页面完成操作再点「下一步」"))
 
         writes = 0
+        affected_pks: list[str] = []
         col_name = step.get("status_field")
         col = table.c.get(col_name) if col_name else None
-        if col is not None and step.get("status_value"):
-            values = {col_name: step["status_value"]}
-            if "updated_by" in table.c:
-                values["updated_by"] = uid
-            if "updated_at" in table.c:
-                values["updated_at"] = datetime.now(timezone.utc)
-            conds = []
-            scope = _scope_cond(role, table, uid)
-            if scope is not None:
-                conds.append(scope)
-            boundary = _boundary_conds(table, step, prev)
-            if boundary:
-                conds.append(or_(*boundary))
-            with engine.begin() as conn:
-                result = conn.execute(table.update().where(*conds).values(**values))
-            writes = result.rowcount or 0
+        conds = []
+        scope = _scope_cond(role, table, uid)
+        if scope is not None:
+            conds.append(scope)
+        boundary = _boundary_conds(table, step, prev)
+        if boundary:
+            conds.append(or_(*boundary))
 
-        log_system(
-            app, deployment_id, "flow", actor_user_id=uid,
-            object_kind="flow", object_table="flow_specs", object_pk=str(flow_id),
+        will_write = col is not None and bool(step.get("status_value"))
+        if will_write:
+            # ①' 读边界记录主键（对账用；只读，不改数据）
+            pk_col = list(table.primary_key.columns)[0]
+            with engine.connect() as conn:
+                affected_pks = [
+                    str(row[0])
+                    for row in conn.execute(select(pk_col).select_from(table).where(*conds)).all()
+                ]
+
+        # ① 两阶段日志（DR-03）：先写 pending，业务写成功后再置 committed
+        audit = AuditSession(app, deployment_id, uid)
+        log_id = audit.begin(
+            "flow", table_name, object_kind="flow", object_pk=str(flow_id),
             object_label=f"流程「{f.name}」·{step.get('name')} 完成",
             changes={"step_name": step.get("name"), "step_index": c,
                      "status_field": step.get("status_field"),
                      "status_value": step.get("status_value"),
-                     "records_advanced": writes},
+                     "affected_pks": affected_pks},
         )
+        try:
+            # ② 业务写（状态字段推进）
+            if will_write:
+                values = {col_name: step["status_value"]}
+                if "updated_by" in table.c:
+                    values["updated_by"] = uid
+                if "updated_at" in table.c:
+                    values["updated_at"] = datetime.now(timezone.utc)
+                with engine.begin() as conn:
+                    result = conn.execute(table.update().where(*conds).values(**values))
+                writes = result.rowcount or 0
+        except Exception:
+            audit.abort(log_id)  # 业务失败 → 删 pending（无日志）
+            raise
+        # ③ committed（补 records_advanced）
+        audit.commit(log_id, object_pk=str(flow_id), changes={
+            "step_name": step.get("name"), "step_index": c,
+            "status_field": step.get("status_field"),
+            "status_value": step.get("status_value"),
+            "affected_pks": affected_pks,
+            "records_advanced": writes,
+        })
         _store_cursor(app, f, uid, c + 1)
         return {"ok": True, "step": step.get("name"), "current_index": c + 1,
                 "done": c + 1 >= len(steps), "records_advanced": writes}

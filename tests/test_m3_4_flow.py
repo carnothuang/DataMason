@@ -359,3 +359,53 @@ def test_flow_update_and_delete_cleanup(app, env, patch_llm):
         assert s.query(DeploymentMenu).filter_by(ref_id=flow_page["id"]).count() == 0
     assert any("已删除" in lg["object_label"] for lg in _flow_logs(app, did))
     assert env["client"].delete(f"/api/v1/deployments/{did}/flows/{fid}").status_code == 404
+
+
+def test_flow_advance_writes_two_phase_flow_log(app, env, patch_llm):
+    """真实推进写 committed 的 flow 日志（object_kind=flow），含边界主键与推进条数。"""
+    did = _deploy(env["client"])
+    flow = _make_flow(env, did)
+    base = f"/api/v1/app/{did}/api/tables/goods/rows"
+    r = env["client"].post(base, json={"name": "货X"}).get_json()
+    assert env["client"].post(
+        f"/api/v1/app/{did}/flows/{flow['id']}/advance").status_code == 200
+    with _session(app) as s:
+        lg = (s.query(ActivityLog)
+              .filter_by(deployment_id=did, action="flow")
+              .order_by(ActivityLog.id.desc()).first())
+        assert lg is not None and lg.status == "committed" and lg.object_kind == "flow"
+        assert lg.object_table == "goods"
+        assert str(r["id"]) in lg.changes["affected_pks"]
+        assert lg.changes["records_advanced"] >= 1
+
+
+def test_flow_advance_pending_reconcile(app, env, patch_llm):
+    """DR-03 两阶段：流程推进崩溃后，启动对账按边界记录状态收尾/丢弃。"""
+    from server.audit.service import AuditSession, reconcile_pending
+
+    did = _deploy(env["client"])
+    flow = _make_flow(env, did)
+    base = f"/api/v1/app/{did}/api/tables/goods/rows"
+
+    def pending(pk: int) -> int:
+        return AuditSession(app, did, env["id"]).begin(
+            "flow", "goods", object_kind="flow", object_pk=str(flow["id"]),
+            object_label="流程「入库流程」·收货登记 完成",
+            changes={"step_name": "收货登记", "step_index": 0,
+                     "status_field": "status", "status_value": "待收货",
+                     "affected_pks": [str(pk)]})
+
+    # 情形一：业务已写入目标状态 → 对账收尾为 committed
+    r1 = env["client"].post(base, json={"name": "货A"}).get_json()
+    lid1 = pending(r1["id"])
+    assert env["client"].put(f"{base}/{r1['id']}", json={"status": "待收货"}).status_code == 200
+    assert reconcile_pending(app) == 1
+    with _session(app) as s:
+        assert s.get(ActivityLog, lid1).status == "committed"
+
+    # 情形二：业务未写入（仍是空状态）→ 丢弃 pending
+    r2 = env["client"].post(base, json={"name": "货B"}).get_json()
+    lid2 = pending(r2["id"])
+    assert reconcile_pending(app) == 1
+    with _session(app) as s:
+        assert s.get(ActivityLog, lid2) is None

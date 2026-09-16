@@ -77,7 +77,8 @@ class AuditSession:
         self.actor_label = actor_label
 
     def begin(self, action: str, object_table: str, *,
-              object_pk: str = "", object_label: str = "", changes: dict | None = None) -> int:
+              object_pk: str = "", object_label: str = "", changes: dict | None = None,
+              object_kind: str = "table") -> int:
         with self.Session() as s:
             row = ActivityLog(
                 deployment_id=self.deployment_id,
@@ -86,7 +87,7 @@ class AuditSession:
                 actor_label=self.actor_label,
                 action=action,
                 status="pending",
-                object_kind="table",
+                object_kind=object_kind,
                 object_table=object_table,
                 object_pk=object_pk,
                 object_label=object_label,
@@ -346,7 +347,53 @@ def _pending_effective(registry, row: ActivityLog) -> bool | None:
         if not row.object_pk:
             return None
         return _row_matches(registry, table, row.object_pk, _changes_new(row))
+    if row.action == "flow":
+        return _flow_pending_effective(registry, row)
     return None
+
+
+def _flow_pending_effective(registry, row: ActivityLog) -> bool | None:
+    """流程推进 pending 的生效判定（DR-03）：边界记录是否已写入本步状态值。
+
+    - 无状态字段/状态值（仅推进游标）→ 视为已生效；
+    - 全部/部分命中目标状态 → True（业务写已发生，收尾）；
+    - 一条未命中 → False（业务写未发生，丢弃）；
+    - 表/字段不可判定 → None（保留待下次）。
+    """
+    ch = row.changes or {}
+    status_field = ch.get("status_field")
+    status_value = ch.get("status_value")
+    pks = ch.get("affected_pks") or []
+    if not status_field or status_value in (None, ""):
+        return True
+    table_name = row.object_table
+    try:
+        table = registry.table(table_name)
+    except Exception:  # noqa: BLE001
+        return None
+    if status_field not in table.c or not pks:
+        return None
+    pk_col = crud_engine._pk_column(table)
+    col = table.c[status_field]
+    try:
+        target = crud_engine._coerce_value(col, status_value)
+    except (ValueError, TypeError):
+        target = status_value
+    hits = 0
+    for raw_pk in pks:
+        try:
+            pk_value = crud_engine._coerce_value(pk_col, raw_pk)
+        except (ValueError, TypeError):
+            continue
+        with registry.engine.connect() as conn:
+            r = conn.execute(
+                crud_engine.select(table).where(pk_col == pk_value)
+            ).mappings().first()
+        if r is not None and same(r[status_field], target):
+            hits += 1
+    if hits == 0:
+        return False
+    return True
 
 
 def reconcile_pending(app, min_age_seconds: float = 0) -> int:
@@ -363,7 +410,7 @@ def reconcile_pending(app, min_age_seconds: float = 0) -> int:
     with Session() as s:
         rows = (
             s.query(ActivityLog)
-            .filter(ActivityLog.object_kind == "table")
+            .filter(ActivityLog.object_kind.in_(("table", "flow")))
             .filter(ActivityLog.status == "pending")
             .order_by(ActivityLog.id)
             .all()
