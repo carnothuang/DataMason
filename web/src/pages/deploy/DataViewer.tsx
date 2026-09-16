@@ -2,19 +2,22 @@ import { useEffect, useState } from "react";
 import { App, Button, Empty, Segmented, Space, Table, Tag, Typography } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import { DeployApi, RowPage, TableInfo } from "../../api";
-import FieldEditor from "./FieldEditor";
 
 const { Text } = Typography;
 
 interface Props {
   deploymentId: number;
   bizName: string;
+  /** M2-8：直连外部库（link）只读浏览，结构变更入口进蓝图页并受保护。 */
+  dataMode?: string;
   onBack: () => void;
+  /** M2-8：「编辑字段」从 Drawer 升为蓝图页入口。 */
+  onOpenBlueprint?: () => void;
 }
 
 const HIDDEN_COLS = new Set(["created_by", "updated_by"]);
 
-export default function DataViewer({ deploymentId, bizName, onBack }: Props) {
+export default function DataViewer({ deploymentId, bizName, dataMode, onBack, onOpenBlueprint }: Props) {
   const { message } = App.useApp();
   const [tables, setTables] = useState<TableInfo[]>([]);
   const [active, setActive] = useState<string>("");
@@ -22,8 +25,6 @@ export default function DataViewer({ deploymentId, bizName, onBack }: Props) {
   const [sort, setSort] = useState<{ field?: string; order?: "asc" | "desc" }>({});
   const [rows, setRows] = useState<RowPage | null>(null);
   const [loading, setLoading] = useState(false);
-  const [editing, setEditing] = useState(false);
-  const [reloadKey, setReloadKey] = useState(0);
 
   useEffect(() => {
     DeployApi.tables(deploymentId)
@@ -32,7 +33,7 @@ export default function DataViewer({ deploymentId, bizName, onBack }: Props) {
         if (list.length) setActive(list[0].name);
       })
       .catch((e) => message.error(e.message));
-  }, [deploymentId, reloadKey]);
+  }, [deploymentId]);
 
   useEffect(() => {
     if (!active) return;
@@ -46,7 +47,7 @@ export default function DataViewer({ deploymentId, bizName, onBack }: Props) {
       .then(setRows)
       .catch((e) => message.error(e.message))
       .finally(() => setLoading(false));
-  }, [deploymentId, active, page, sort.field, sort.order, reloadKey]);
+  }, [deploymentId, active, page, sort.field, sort.order]);
 
   const columns: ColumnsType<Record<string, unknown>> = rows
     ? rows.columns
@@ -71,6 +72,7 @@ export default function DataViewer({ deploymentId, bizName, onBack }: Props) {
           {bizName}
         </Text>
         <Tag color="green">运行中</Tag>
+        {dataMode === "link" && <Tag color="orange">直连外部库</Tag>}
       </Space>
 
       {tables.length === 0 ? (
@@ -93,11 +95,10 @@ export default function DataViewer({ deploymentId, bizName, onBack }: Props) {
             />
             <Button
               size="small"
-              onClick={() => setEditing(true)}
-              disabled={!active}
+              onClick={onOpenBlueprint}
               style={{ marginLeft: 8 }}
             >
-              编辑字段
+              数据蓝图
             </Button>
           </Space>
           <Table
@@ -123,20 +124,6 @@ export default function DataViewer({ deploymentId, bizName, onBack }: Props) {
               }
             }}
           />
-          {active && (
-            <FieldEditor
-              deploymentId={deploymentId}
-              tableName={active}
-              bizName={tables.find((t) => t.name === active)?.biz_name || active}
-              open={editing}
-              onClose={() => setEditing(false)}
-              onChanged={() => {
-                setSort({});
-                setPage(1);
-                setReloadKey((k) => k + 1);
-              }}
-            />
-          )}
         </>
       )}
     </div>

@@ -9,11 +9,12 @@ import {
   Tag,
   Typography,
 } from "antd";
-import { PlusOutlined, ReloadOutlined, TableOutlined, ThunderboltOutlined } from "@ant-design/icons";
+import { PlusOutlined, ProjectOutlined, ReloadOutlined, TableOutlined, ThunderboltOutlined } from "@ant-design/icons";
 import { useNavigate } from "react-router-dom";
 import { DeployApi, Deployment } from "../api";
 import DeployWizard from "./deploy/DeployWizard";
 import DataViewer from "./deploy/DataViewer";
+import BlueprintPage from "./deploy/BlueprintPage";
 
 const { Title, Text, Paragraph } = Typography;
 
@@ -39,6 +40,7 @@ export default function Deployments() {
   const [loading, setLoading] = useState(false);
   const [wizardOpen, setWizardOpen] = useState(false);
   const [openId, setOpenId] = useState<number | null>(null);
+  const [blueprintId, setBlueprintId] = useState<number | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -56,12 +58,25 @@ export default function Deployments() {
   }, [load]);
 
   const current = rows.find((r) => r.id === openId);
+  const blueprint = rows.find((r) => r.id === blueprintId);
+  if (blueprint) {
+    return (
+      <BlueprintPage
+        deploymentId={blueprint.id}
+        bizName={blueprint.biz_name}
+        dataMode={blueprint.data_mode}
+        onBack={() => setBlueprintId(null)}
+      />
+    );
+  }
   if (current) {
     return (
       <DataViewer
         deploymentId={current.id}
         bizName={current.biz_name}
+        dataMode={current.data_mode}
         onBack={() => setOpenId(null)}
+        onOpenBlueprint={() => setBlueprintId(current.id)}
       />
     );
   }
@@ -116,6 +131,7 @@ export default function Deployments() {
                       <Tag color={STATUS_COLOR[d.status] || "default"}>
                         {STATUS_LABEL[d.status] || d.status}
                       </Tag>
+                      {d.data_mode === "link" && <Tag color="orange">直连</Tag>}
                       {d.entry_path && (
                         <Text code style={{ fontSize: 12 }}>
                           {d.entry_path}
@@ -148,6 +164,13 @@ export default function Deployments() {
                       onClick={() => setOpenId(d.id)}
                     >
                       打开数据
+                    </Button>
+                    <Button
+                      size="small"
+                      icon={<ProjectOutlined />}
+                      onClick={() => setBlueprintId(d.id)}
+                    >
+                      数据蓝图
                     </Button>
                   </Space>
                 </Space>

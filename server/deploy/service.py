@@ -364,6 +364,7 @@ def list_deployments(app) -> list[dict]:
                 "purpose": d.purpose,
                 "status": d.status,
                 "entry_path": d.entry_path,
+                "data_mode": d.data_mode,
                 "seed_data": d.seed_data,
                 "created_at": d.created_at.isoformat() if d.created_at else None,
             }

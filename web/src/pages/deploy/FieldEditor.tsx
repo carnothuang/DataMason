@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
 import {
+  Alert,
   App,
   Button,
+  Divider,
   Drawer,
   Input,
   InputNumber,
@@ -13,7 +15,13 @@ import {
   Typography,
 } from "antd";
 import type { ColumnsType } from "antd/es/table";
-import { ColumnOp, DeployApi, FieldColumn } from "../../api";
+import {
+  ColumnOp,
+  DeployApi,
+  FieldColumn,
+  StructureDiff,
+  StructureProposal,
+} from "../../api";
 
 const { Text } = Typography;
 
@@ -60,9 +68,14 @@ export default function FieldEditor({ deploymentId, tableName, bizName, open, on
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [rows, setRows] = useState<DraftRow[]>([]);
+  // M2-8：两段式——编辑后先「生成变更提案」（diff 提案卡），确认后才执行 ALTER
+  const [proposal, setProposal] = useState<StructureProposal | null>(null);
+  const [pendingOps, setPendingOps] = useState<ColumnOp[]>([]);
 
   useEffect(() => {
     if (!open) return;
+    setProposal(null);
+    setPendingOps([]);
     setLoading(true);
     DeployApi.blueprint(deploymentId)
       .then((list) => {
@@ -172,26 +185,69 @@ export default function FieldEditor({ deploymentId, tableName, bizName, open, on
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [rows, errors]);
 
-  const save = async () => {
+  const propose = async () => {
     const ops = buildOps();
     if (!ops) {
       message.error("请先修正标红的字段");
       return;
     }
     if (ops.length === 0) {
-      message.info("没有变更");
+      message.info("没有结构变更");
       return;
     }
     setSaving(true);
     try {
-      await DeployApi.alterColumns(deploymentId, tableName, ops);
-      message.success("字段已更新");
+      const p = await DeployApi.proposeStructure(deploymentId, tableName, ops);
+      if (!p.dirty) {
+        message.info("没有结构变更");
+        return;
+      }
+      setPendingOps(ops);
+      setProposal(p);
+    } catch (e) {
+      message.error((e as Error).message);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const confirm = async () => {
+    setSaving(true);
+    try {
+      await DeployApi.alterColumns(deploymentId, tableName, pendingOps);
+      message.success("结构已更新");
       onChanged();
       onClose();
     } catch (e) {
       message.error((e as Error).message);
     } finally {
       setSaving(false);
+    }
+  };
+
+  const backToEdit = () => setProposal(null);
+
+  const DIFF_META: Record<StructureDiff["action"], { label: string; color: string }> = {
+    add: { label: "新增字段", color: "green" },
+    drop: { label: "删除字段", color: "red" },
+    rename: { label: "字段改名", color: "orange" },
+    change_type: { label: "改类型", color: "blue" },
+  };
+
+  const diffSummary = (d: StructureDiff) => {
+    switch (d.action) {
+      case "add":
+        return `${d.name}${d.biz_name ? `（${d.biz_name}）` : ""} · ${d.type}${
+          d.type === "VARCHAR" && d.length ? `(${d.length})` : ""
+        }`;
+      case "drop":
+        return `${d.name}`;
+      case "rename":
+        return `${d.old} → ${d.name}`;
+      case "change_type":
+        return `${d.name} → ${d.type}${d.type === "VARCHAR" && d.length ? `(${d.length})` : ""}`;
+      default:
+        return d.name;
     }
   };
 
@@ -301,37 +357,96 @@ export default function FieldEditor({ deploymentId, tableName, bizName, open, on
 
   return (
     <Drawer
-      title={`编辑字段 · ${bizName || tableName}（${tableName}）`}
+      title={
+        proposal
+          ? `变更提案 · ${bizName || tableName}（${tableName}）`
+          : `编辑字段 · ${bizName || tableName}（${tableName}）`
+      }
       width={760}
       open={open}
-      onClose={onClose}
+      onClose={proposal ? backToEdit : onClose}
       destroyOnClose
       extra={
-        <Space>
-          <Button onClick={onClose}>取消</Button>
-          <Button type="primary" loading={saving} onClick={save}>
-            保存变更{dirtyCount > 0 ? `（${dirtyCount} 项）` : ""}
-          </Button>
-        </Space>
+        proposal ? (
+          <Space>
+            <Button onClick={backToEdit} disabled={saving}>
+              返回调整
+            </Button>
+            <Button type="primary" loading={saving} onClick={confirm}>
+              确认并执行 ALTER
+            </Button>
+          </Space>
+        ) : (
+          <Space>
+            <Button onClick={onClose}>取消</Button>
+            <Button type="primary" loading={saving} onClick={propose}>
+              生成变更提案{dirtyCount > 0 ? `（${dirtyCount} 项）` : ""}
+            </Button>
+          </Space>
+        )
       }
     >
-      <Space style={{ marginBottom: 12 }}>
-        <Button type="dashed" onClick={addRow}>
-          + 新增字段
-        </Button>
-        <Text type="secondary" style={{ fontSize: 12 }}>
-          新增字段将可空；主键 / 系统归属列 / 外键列受保护不可改。
-        </Text>
-      </Space>
-      <Table<DraftRow>
-        rowKey="key"
-        size="small"
-        loading={loading}
-        dataSource={visibleRows}
-        columns={columns}
-        pagination={false}
-        scroll={{ y: "calc(100vh - 240px)" }}
-      />
+      {proposal ? (
+        <>
+          <Alert
+            type="warning"
+            showIcon
+            style={{ marginBottom: 12 }}
+            message={
+              proposal.diff.length
+                ? `即将对 ${tableName} 执行 ${proposal.diff.length} 项结构变更，操作在数据库层面不可撤销`
+                : "没有可执行的结构变更"
+            }
+          />
+          <Space direction="vertical" style={{ width: "100%" }} size={6}>
+            {proposal.diff.map((d, i) => (
+              <Space key={i} size={8}>
+                <Tag color={DIFF_META[d.action].color} style={{ margin: 0, width: 72, textAlign: "center" }}>
+                  {DIFF_META[d.action].label}
+                </Tag>
+                <Text>{diffSummary(d)}</Text>
+              </Space>
+            ))}
+          </Space>
+          {proposal.statements.length > 0 && (
+            <>
+              <Divider style={{ margin: "14px 0 8px" }} orientation="left">
+                <Text type="secondary" style={{ fontSize: 12 }}>
+                  将执行的 ALTER（方言由连接类型决定）
+                </Text>
+              </Divider>
+              <pre
+                style={{
+                  margin: 0, padding: 12, background: "#fafafa", border: "1px solid #f0f0f0",
+                  borderRadius: 8, fontSize: 12, lineHeight: 1.6, whiteSpace: "pre-wrap",
+                }}
+              >
+                {proposal.statements.join("\n")}
+              </pre>
+            </>
+          )}
+        </>
+      ) : (
+        <>
+          <Space style={{ marginBottom: 12 }}>
+            <Button type="dashed" onClick={addRow}>
+              + 新增字段
+            </Button>
+            <Text type="secondary" style={{ fontSize: 12 }}>
+              先出「变更提案」再审一次再执行；新增字段将可空；主键 / 系统归属列 / 外键列受保护不可改。
+            </Text>
+          </Space>
+          <Table<DraftRow>
+            rowKey="key"
+            size="small"
+            loading={loading}
+            dataSource={visibleRows}
+            columns={columns}
+            pagination={false}
+            scroll={{ y: "calc(100vh - 240px)" }}
+          />
+        </>
+      )}
     </Drawer>
   );
 }

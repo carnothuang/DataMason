@@ -3,6 +3,7 @@ import {
   Alert,
   App,
   Button,
+  Card,
   Checkbox,
   Descriptions,
   Divider,
@@ -28,6 +29,7 @@ import {
   Proposal,
 } from "../../api";
 import { LinkApi } from "../../api";
+import ErGraph from "../../components/ErGraph";
 
 const { Text } = Typography;
 
@@ -426,9 +428,26 @@ export default function DeployWizard({ open, onClose, onDeployed }: Props) {
               message={`结构经过 ${proposal.attempts} 次自检修正`}
             />
           )}
-          <Descriptions size="small" column={1} style={{ marginBottom: 8 }}>
-            <Descriptions.Item label="我准备这样建">{proposal.biz_notes}</Descriptions.Item>
-          </Descriptions>
+<Descriptions size="small" column={1} style={{ marginBottom: 8 }}>
+          <Descriptions.Item label="我准备这样建">{proposal.biz_notes}</Descriptions.Item>
+        </Descriptions>
+
+          {/* M2-8：提案卡升级——表关系缩略图（ER 简版） */}
+          <Card
+            size="small"
+            title="数据关系（简版）"
+            style={{ marginBottom: 12 }}
+          >
+            <ErGraph
+              tables={proposal.tables.map((t) => ({
+                name: t.name,
+                biz_name: t.biz_name || t.name,
+                columns: t.columns,
+              }))}
+              height={180}
+              compact
+            />
+          </Card>
 
           {proposal.tables.map((t) => (
             <div key={t.name} style={{ marginBottom: 12 }}>

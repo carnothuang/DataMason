@@ -108,6 +108,88 @@ def _to_model(name: str, biz_name: str, cols: list[dict]) -> TableSpecModel:
     )
 
 
+def _assert_editable(deployment: Deployment) -> None:
+    """直连模式 = 外部库（DR-05/DR-09）：结构受保护，绝不执行 ALTER（M2-7 红线）。"""
+    if (getattr(deployment, "data_mode", "create") or "create") == "link":
+        raise EditorError(
+            "该部署为直连模式（外部库结构受保护，DR-05/09）。"
+            "如需改结构请在创建模式重新部署，DataMason 不会对外部库执行 ALTER"
+        )
+
+
+def _diff_ops(ops: list[dict]) -> list[dict]:
+    """把列操作列表加工成「人话 diff」供提案卡审查（before/after 都在列名+类型里）。"""
+    out: list[dict] = []
+    for op in ops:
+        action = op.get("action")
+        if action == "add":
+            out.append({
+                "action": "add",
+                "name": op.get("name", ""),
+                "biz_name": op.get("biz_name", ""),
+                "type": op.get("type", ""),
+                "length": op.get("length"),
+            })
+        elif action == "drop":
+            out.append({"action": "drop", "name": op.get("name", "")})
+        elif action == "rename":
+            out.append({
+                "action": "rename",
+                "old": op.get("name", ""),
+                "name": op.get("new_name", ""),
+            })
+        elif action == "change_type":
+            out.append({
+                "action": "change_type",
+                "name": op.get("name", ""),
+                "type": op.get("type", ""),
+                "length": op.get("length"),
+            })
+    return out
+
+
+def propose_table(app, deployment_id: int, table_name: str, ops: list[dict]) -> dict:
+    """生成表结构变更的 diff 提案：只算不执行（生成即提案，确认后才 ALTER）。
+
+    M2-8 把 M1-4 的直接 ALTER 升级为「diff 提案卡」：返回人类可读 diff +
+    方言化 DDL 语句 + 变更后列蓝图；前端审查确认后调 alter_table 落地。
+    """
+    if not isinstance(ops, list) or not ops:
+        raise EditorError("ops 必须是非空操作列表")
+
+    deployment, snapshot = _load_specs(app, deployment_id)
+    _assert_editable(deployment)
+    engine, dialect = _biz_engine(app, deployment)
+
+    models: dict[str, TableSpecModel] = {}
+    try:
+        for row_id, name, biz_name, raw in snapshot:
+            cols = _enrich_from_db(engine, name, json.loads(raw or "[]"))
+            models[name] = _to_model(name, biz_name, cols)
+    finally:
+        engine.dispose()
+
+    if table_name not in models:
+        raise KeyError(f"表 {table_name} 不存在")
+    target = models[table_name]
+    all_tables = list(models.values())
+
+    try:
+        final_cols, statements = build_migration(target, ops, all_tables, dialect)
+    except MigrationError as exc:
+        raise EditorError(str(exc)) from exc
+    except Exception as exc:  # 含 pydantic.ValidationError（非法列名等）
+        raise EditorError(f"字段变更校验失败：{exc}") from exc
+
+    return {
+        "table": table_name,
+        "dirty": bool(statements),
+        "diff": _diff_ops(ops),
+        "statements": statements,
+        "final_columns": [_column_public(c) for c in final_cols],
+    }
+
+
 def _column_public(c: ColumnSpec) -> dict:
     return {
         "name": c.name,
@@ -138,11 +220,12 @@ def get_blueprint(app, deployment_id: int) -> list[dict]:
 
 
 def alter_table(app, deployment_id: int, table_name: str, ops: list[dict]) -> dict:
-    """对单表应用一组列操作：校验→物理 DDL→回写蓝图。返回更新后的列蓝图。"""
+    """对单表应用一组列操作（diff 提案卡的「确认执行」）：校验→物理 DDL→回写蓝图。"""
     if not isinstance(ops, list) or not ops:
         raise EditorError("ops 必须是非空操作列表")
 
     deployment, snapshot = _load_specs(app, deployment_id)
+    _assert_editable(deployment)
     engine, dialect = _biz_engine(app, deployment)
 
     # 组装整库模型（跨表外键引用保护要用）

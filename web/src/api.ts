@@ -68,6 +68,8 @@ export interface Deployment {
   purpose: string;
   status: string;
   entry_path: string;
+  data_mode: "create" | "link";
+  seed_data: boolean;
   created_at: string;
 }
 
@@ -173,6 +175,24 @@ export interface TableBlueprint {
   name: string;
   biz_name: string;
   columns: FieldColumn[];
+}
+
+// ---------- M2-8 数据蓝图：结构变更 diff 提案 ----------
+export interface StructureDiff {
+  action: "add" | "drop" | "rename" | "change_type";
+  name: string;
+  old?: string;
+  biz_name?: string;
+  type?: string;
+  length?: number | null;
+}
+
+export interface StructureProposal {
+  table: string;
+  dirty: boolean;
+  diff: StructureDiff[];
+  statements: string[];
+  final_columns: FieldColumn[];
 }
 
 // ---------- 工作台运行时（M2-2） ----------
@@ -470,9 +490,14 @@ export const DeployApi = {
       .then((r) => r.data),
   blueprint: (id: number) =>
     http.get<TableBlueprint[]>(`/deployments/${id}/blueprint`).then((r) => ensureArray<TableBlueprint>(r.data, "字段蓝图")),
+  /** M2-8：结构变更 diff 提案（只算不执行；确认仍走 alterColumns 落地）。 */
+  proposeStructure: (id: number, table: string, ops: ColumnOp[]) =>
+    http
+      .post<StructureProposal>(`/deployments/${id}/structure/propose`, { table, ops })
+      .then((r) => r.data),
   alterColumns: (id: number, table: string, ops: ColumnOp[]) =>
     http
-      .post<{ name: string; columns: FieldColumn[] }>(
+      .post<{ name: string; columns: FieldColumn[]; statements?: string[] }>(
         `/deployments/${id}/tables/${encodeURIComponent(table)}/columns`,
         { ops },
       )

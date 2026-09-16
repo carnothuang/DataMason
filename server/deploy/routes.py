@@ -215,6 +215,32 @@ def deployment_blueprint(deployment_id: int):
         return jsonify({"error": str(exc)}), 400
 
 
+# ---------------- M2-8 数据蓝图：结构变更 diff 提案（生成即提案，确认后 ALTER） ----------------
+
+@bp.post("/deployments/<int:deployment_id>/structure/propose")
+def propose_structure(deployment_id: int):
+    """对单表一组字段操作生成 diff 提案：只算不执行（含方言化 ALTER 语句），
+    供蓝图页「diff 提案卡」审查；确认后仍走 alter_columns 落地。工程室=创建人独有（DR-14）。"""
+    _deployment_and_role(current_app, deployment_id)
+    _require_creator(deployment_id)
+    data = _body()
+    table_name = (data.get("table") or "").strip()
+    ops = data.get("ops")
+    if not table_name:
+        return jsonify({"error": "缺少 table"}), 400
+    if not isinstance(ops, list):
+        return jsonify({"error": "ops 必须是操作列表"}), 400
+    try:
+        return jsonify(editor.propose_table(
+            current_app, deployment_id, table_name, ops))
+    except editor.EditorError as exc:
+        return jsonify({"error": str(exc)}), 400
+    except KeyError as exc:
+        return jsonify({"error": str(exc)}), 404
+    except Exception as exc:  # noqa: BLE001
+        return jsonify({"error": f"{type(exc).__name__}: {exc}"}), 502
+
+
 @bp.post("/deployments/<int:deployment_id>/tables/<table_name>/columns")
 def alter_columns(deployment_id: int, table_name: str):
     """对单表应用一组字段操作：add/drop/rename/change_type；工程室=创建人独有（DR-14）。"""
