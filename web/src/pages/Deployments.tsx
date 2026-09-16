@@ -10,9 +10,9 @@ import {
   Tag,
   Typography,
 } from "antd";
-import { PlayCircleOutlined, PlusOutlined, ProjectOutlined, ReloadOutlined, ShareAltOutlined, TableOutlined, ThunderboltOutlined } from "@ant-design/icons";
+import { PlayCircleOutlined, PlusOutlined, ProjectOutlined, ReloadOutlined, ShareAltOutlined, TableOutlined, ThunderboltOutlined, DownloadOutlined } from "@ant-design/icons";
 import { useNavigate } from "react-router-dom";
-import { DeployApi, Deployment } from "../api";
+import { DeployApi, Deployment, downloadJson } from "../api";
 import DeployWizard from "./deploy/DeployWizard";
 import DataViewer from "./deploy/DataViewer";
 import BlueprintPage from "./deploy/BlueprintPage";
@@ -44,6 +44,7 @@ export default function Deployments() {
   const [openId, setOpenId] = useState<number | null>(null);
   const [blueprintId, setBlueprintId] = useState<number | null>(null);
   const [shareDep, setShareDep] = useState<Deployment | null>(null);
+  const [exportingId, setExportingId] = useState<number | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -90,6 +91,20 @@ export default function Deployments() {
       load();
     } catch (e) {
       message.error((e as Error).message);
+    }
+  };
+
+  // M3-6：导出配置包（含全量操作日志），可离线打开；停止态也可导出
+  const onExport = async (d: Deployment) => {
+    setExportingId(d.id);
+    try {
+      const pkg = await DeployApi.exportPackage(d.id);
+      downloadJson(`datamason-deploy-${d.id}.json`, pkg);
+      message.success("已导出配置包");
+    } catch (e) {
+      message.error((e as Error).message);
+    } finally {
+      setExportingId(null);
     }
   };
 
@@ -183,6 +198,16 @@ export default function Deployments() {
               onClick={() => setShareDep(d)}
             >
               分享
+            </Button>
+          )}
+          {(d.role === "creator" || d.role === "admin") && (
+            <Button
+              size="small"
+              icon={<DownloadOutlined />}
+              loading={exportingId === d.id}
+              onClick={() => onExport(d)}
+            >
+              导出
             </Button>
           )}
           {d.status === "running" && d.role === "creator" && (

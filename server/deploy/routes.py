@@ -109,6 +109,29 @@ def confirm():
 
 # ---------------- M3-2 界面与菜单：工程室（创建人独有，DR-14） ----------------
 
+# ---------------- M3-6 配置包导出（创建人/管理员，DR-14；停止态也可导出） ----------------
+
+@bp.get("/deployments/<int:deployment_id>/export")
+def deployment_export(deployment_id: int):
+    """导出配置包：部署元信息 + 表/页面/菜单/流程规格 + crud_configs + 全量 committed 日志。
+
+    JSON 附件下载，可离线打开；创建人/管理员可导出，操作员/非成员 403。
+    """
+    from server.deploy import export as export_service
+
+    _d, role = _deployment_and_role(current_app, deployment_id)
+    if role not in ("creator", "admin"):
+        return jsonify({"error": "没有导出权限（创建人/管理员可导出）"}), 403
+    try:
+        package = export_service.build_package(current_app, deployment_id)
+    except KeyError as exc:
+        return jsonify({"error": str(exc)}), 404
+    filename = f"datamason-deploy-{deployment_id}.json"
+    resp = jsonify(package)
+    resp.headers["Content-Disposition"] = f'attachment; filename="{filename}"'
+    return resp
+
+
 @bp.get("/deployments/<int:deployment_id>/interfaces")
 def deployment_interfaces(deployment_id: int):
     """工程室「界面与菜单」：菜单树（平铺）+ 页面卡 + 已授权菜单 id（前端打「需授权」标）。"""

@@ -109,6 +109,33 @@ export interface DeployResult {
   data_mode: "create" | "link";
 }
 
+// M3-6 配置包导出
+export interface DeploymentExport {
+  format: string;
+  version: number;
+  exported_at: string;
+  deployment: {
+    id: number;
+    biz_name: string;
+    purpose: string;
+    data_mode: string;
+    db_name: string;
+    status: string;
+    entry_path: string;
+    seed_data: boolean;
+    created_at: string;
+    owner: { id: number; username: string; display_name: string } | null;
+    connection: { name: string; dialect: string } | null;
+  };
+  table_specs: unknown[];
+  page_specs: unknown[];
+  deployment_menus: unknown[];
+  crud_configs: unknown[];
+  flow_specs: unknown[];
+  activity_logs: unknown[];
+  counts: Record<string, number>;
+}
+
 // ---------- 直连模式（M2-7，接已有的） ----------
 export interface LinkTableInventory {
   name: string;
@@ -702,6 +729,21 @@ export type ColumnOp =
   | { action: "change_type"; name: string; type: string; length?: number | null };
 
 // ---------- 工具 ----------
+/** M3-6：把 JSON 数据下载为文件（离线可打开）。 */
+export function downloadJson(filename: string, data: unknown): void {
+  const blob = new Blob([JSON.stringify(data, null, 2)], {
+    type: "application/json;charset=utf-8",
+  });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
 // 列表接口统一校验：后端未正确运行 / 被网关返回 HTML 或错误对象时，
 // 抛出可读错误交给页面 catch 提示，避免渲染层 .find/.map 直接白屏。
 function ensureArray<T>(data: unknown, what: string): T[] {
@@ -757,6 +799,9 @@ export const DeployApi = {
     http.post<DeployResult>(`/deployments/${id}/stop`).then((r) => r.data),
   start: (id: number) =>
     http.post<DeployResult>(`/deployments/${id}/start`).then((r) => r.data),
+  /** M3-6：导出配置包（部署元信息 + 表/页面/菜单/流程 + crud_configs + 全量日志）。 */
+  exportPackage: (id: number) =>
+    http.get<DeploymentExport>(`/deployments/${id}/export`).then((r) => r.data),
 };
 
 // ---------- 模型 ----------

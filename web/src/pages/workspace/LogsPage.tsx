@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
 import { App, Button, Modal, Select, Space, Spin, Table, Tag, Typography } from "antd";
 import type { ColumnsType } from "antd/es/table";
+import { DownloadOutlined } from "@ant-design/icons";
 import DatePicker from "antd/es/date-picker";
 import type { ActivityLog, LogFilters } from "../../api";
-import { LogsApi } from "../../api";
+import { DeployApi, downloadJson, LogsApi } from "../../api";
 import type { Dayjs } from "dayjs";
 
 const { Text } = Typography;
@@ -76,6 +77,7 @@ export default function LogsPage({ deploymentId, onViewRecord }: LogsPageProps) 
   const [actorId, setActorId] = useState<number | undefined>(undefined);
   const [tableName, setTableName] = useState<string | undefined>(undefined);
   const [range, setRange] = useState<[Dayjs, Dayjs] | null>(null);
+  const [exporting, setExporting] = useState(false);
 
   // 筛选下拉候选项：随已加载数据累积（接口不单独暴露候选人/表清单）
   const [people, setPeople] = useState<{ id: number; name: string }[]>([]);
@@ -120,6 +122,20 @@ export default function LogsPage({ deploymentId, onViewRecord }: LogsPageProps) 
   }, [deploymentId, page, action, actorId, tableName, range]);
 
   const resetPage = () => setPage(1);
+
+  // M3-6：导出整包（配置 + 全量日志）为可离线打开的 JSON
+  const onExport = async () => {
+    setExporting(true);
+    try {
+      const pkg = await DeployApi.exportPackage(deploymentId);
+      downloadJson(`datamason-deploy-${deploymentId}.json`, pkg);
+      message.success("已导出配置包（含全量操作日志）");
+    } catch (e) {
+      message.error((e as Error).message);
+    } finally {
+      setExporting(false);
+    }
+  };
 
   const personOptions = useMemo(
     () => people.map((p) => ({ label: p.name, value: p.id })),
@@ -221,7 +237,8 @@ export default function LogsPage({ deploymentId, onViewRecord }: LogsPageProps) 
 
   return (
     <Space direction="vertical" style={{ width: "100%" }} size="middle">
-      <Space wrap>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 8 }}>
+        <Space wrap>
         <span>
           <Text type="secondary">动作</Text>
           <Select
@@ -282,7 +299,11 @@ export default function LogsPage({ deploymentId, onViewRecord }: LogsPageProps) 
             }}
           />
         </span>
-      </Space>
+        </Space>
+        <Button icon={<DownloadOutlined />} loading={exporting} onClick={onExport}>
+          导出配置包
+        </Button>
+      </div>
       <Table<ActivityLog>
         rowKey={(lg) => lg.id}
         loading={loading}
