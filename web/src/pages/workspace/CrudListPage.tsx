@@ -17,6 +17,7 @@ import type { ColumnsType } from "antd/es/table";
 import type { CrudRowFilters, RowPage, TableMeta } from "../../api";
 import { CrudApi } from "../../api";
 import CrudForm from "./CrudForm";
+import { LogsModal } from "./LogsPage";
 
 const { Text } = Typography;
 
@@ -25,11 +26,22 @@ interface Props {
   table: string;
   tableBizName: string;
   role?: string;
+  /** M2-6 日志→记录聚焦：非空时按主键定点过滤并高亮，便于回看记录现状。 */
+  focusPk?: string | null;
+  focusNonce?: number;
 }
 
 /** M2-4 工作台 CRUD 列表页：元数据驱动（meta 渲染列），搜索/筛选/排序/分页/新增/编辑/删除。
- *  M2-5：操作员视角默认即「我的记录」（服务端强制，前端加提示），全量数据仅创建人/管理员可见。 */
-export default function CrudListPage({ deploymentId, table, tableBizName, role }: Props) {
+ *  M2-5：操作员视角默认即「我的记录」（服务端强制，前端加提示），全量数据仅创建人/管理员可见。
+ *  M2-6：行级「操作记录」弹窗（记录→日志）+ focusPk 定位（日志→记录）。 */
+export default function CrudListPage({
+  deploymentId,
+  table,
+  tableBizName,
+  role,
+  focusPk,
+  focusNonce,
+}: Props) {
   const { message } = App.useApp();
   const [meta, setMeta] = useState<TableMeta | null>(null);
   const [rows, setRows] = useState<RowPage | null>(null);
@@ -40,6 +52,8 @@ export default function CrudListPage({ deploymentId, table, tableBizName, role }
   const [filter, setFilter] = useState<{ col: string; value: string } | null>(null);
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState<Record<string, unknown> | null>(null);
+  const [focusedPk, setFocusedPk] = useState<string | null>(null);
+  const [logsRow, setLogsRow] = useState<Record<string, unknown> | null>(null);
   const [reloadTick, setReloadTick] = useState(0);
 
   const reload = () => setReloadTick((t) => t + 1);
@@ -54,6 +68,14 @@ export default function CrudListPage({ deploymentId, table, tableBizName, role }
     () => meta?.columns.find((c) => c.pk)?.name || "id",
     [meta],
   );
+
+  // 日志→记录定位：按主键定点过滤，高亮目标行（设计 4.7 双向跳转）
+  useEffect(() => {
+    if (!focusNonce || !meta || !pkName || !focusPk) return;
+    setFilter({ col: pkName, value: String(focusPk) });
+    setFocusedPk(String(focusPk));
+    setPage(1);
+  }, [focusNonce, meta, pkName, focusPk]);
 
   useEffect(() => {
     if (!meta) return;
@@ -99,12 +121,15 @@ export default function CrudListPage({ deploymentId, table, tableBizName, role }
     {
       title: "操作",
       key: "_ops",
-      width: 130,
+      width: 220,
       fixed: "right",
       render: (_: unknown, record: Record<string, unknown>) => (
         <Space size="small">
           <Button type="link" size="small" onClick={() => openEdit(record)}>
             编辑
+          </Button>
+          <Button type="link" size="small" onClick={() => setLogsRow(record)}>
+            操作记录
           </Button>
           <Popconfirm
             title="确认删除此行？"
@@ -161,6 +186,25 @@ export default function CrudListPage({ deploymentId, table, tableBizName, role }
           message="我的记录：这里只显示您录入的数据（全量数据归创建人与管理员）"
         />
       )}
+      {focusedPk && (
+        <Alert
+          type="success"
+          showIcon
+          style={{ marginBottom: 12 }}
+          message={`已从操作日志定位到记录 #${focusedPk}（下方按主键过滤）`}
+          action={
+            <Button
+              size="small"
+              onClick={() => {
+                setFocusedPk(null);
+                setFilter(null);
+              }}
+            >
+              恢复全部
+            </Button>
+          }
+        />
+      )}
       {!meta ? (
         <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="元数据加载中…" />
       ) : (
@@ -208,6 +252,11 @@ export default function CrudListPage({ deploymentId, table, tableBizName, role }
             columns={columns}
             size="middle"
             scroll={{ x: "max-content" }}
+            onRow={(r) =>
+              focusedPk && String(r[pkName]) === focusedPk
+                ? { style: { background: "#fff1f0" } }
+                : {}
+            }
             pagination={{
               current: page,
               pageSize: 20,
@@ -236,6 +285,16 @@ export default function CrudListPage({ deploymentId, table, tableBizName, role }
         onClose={() => setFormOpen(false)}
         onSaved={reload}
       />
+      {logsRow && (
+        <LogsModal
+          open={!!logsRow}
+          onClose={() => setLogsRow(null)}
+          deploymentId={deploymentId}
+          table={table}
+          pk={String(logsRow[pkName])}
+          tableBizName={tableBizName}
+        />
+      )}
     </Card>
   );
 }

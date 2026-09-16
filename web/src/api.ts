@@ -312,6 +312,46 @@ export const CrudApi = {
       .then((r) => r.data),
 };
 
+// ---------- 操作日志（M2-6） ----------
+export interface ActivityLog {
+  id: number;
+  occurred_at: string;
+  actor_user_id: number | null;
+  actor_display: string;
+  action: "create" | "update" | "delete" | "deploy" | "member" | "structure";
+  object_kind: string;
+  object_table: string;
+  object_pk: string;
+  object_label: string;
+  object_biz_name: string;
+  changes: Record<string, { old: unknown; new: unknown }>;
+}
+
+export interface LogsPage {
+  logs: ActivityLog[];
+  page: number;
+  page_size: number;
+  total: number;
+}
+
+export interface LogFilters {
+  action?: string;
+  actor_user_id?: number;
+  object_table?: string;
+  object_pk?: string;
+  from?: string;
+  to?: string;
+  page?: number;
+  page_size?: number;
+}
+
+export const LogsApi = {
+  list: (deploymentId: number, params: LogFilters = {}) =>
+    http
+      .get<LogsPage>(`/app/${deploymentId}/api/activity-logs`, { params })
+      .then((r) => r.data),
+};
+
 // ---------- 认证 ----------
 export interface CurrentUser {
   id: number;

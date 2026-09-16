@@ -4,11 +4,13 @@
 - PostgREST 风格 REST：/tables/{name}/rows，参数化查询，列白名单
 - M0-4：以 CrudRegistry 注册「engine + 表白名单」，挂 demo 蓝图前缀；
   M2-3：handler 函数化，供工作台按 /app/{deployment_id}/api 复用，
-  并叠加会话用户归属列注入（current_user_id）+ refs 外键下拉。
+  并叠加会话用户归属列注入（current_user_id）+ refs 外键下拉；
+  M2-6：写路径两阶段日志钩子（audit，DR-03）——业务写提交成功 → committed，
+  失败 → 丢弃 pending；UPDATE 只存变更字段、DELETE 存可读摘要。
 """
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from typing import Iterable
 
 from flask import Blueprint, abort, jsonify, request
@@ -268,7 +270,73 @@ def get_row(registry: CrudRegistry, name: str, pk: str) -> dict:
     return dict(row)
 
 
-def create_row(registry: CrudRegistry, name: str) -> dict:
+# ---------------- M2-6 日志辅助（两阶段，DR-03） ----------------
+
+def _jsonable(value):
+    """日志展示值：datetime → 'YYYY-MM-DD HH:MM:SS'（转 naive UTC，前端可直接展示）。"""
+    if isinstance(value, datetime):
+        if value.tzinfo is not None:
+            value = value.astimezone(timezone.utc).replace(tzinfo=None)
+        return value.isoformat(sep=" ")
+    if isinstance(value, date):
+        return value.isoformat()
+    return value
+
+
+def _same_value(a, b) -> bool:
+    """宽松相等：bool vs 0/1、int vs float、datetime 统一格式化后再比。"""
+    if a is None or b is None:
+        return a is b
+    ja, jb = _jsonable(a), _jsonable(b)
+    if isinstance(ja, bool) or isinstance(jb, bool):
+        return bool(ja) == bool(jb)
+    if isinstance(ja, (int, float)) and isinstance(jb, (int, float)):
+        return float(ja) == float(jb)
+    return ja == jb
+
+
+def _row_label(registry: "CrudRegistry", table: Table, pk_value) -> str:
+    """读取某行业务标签 → 日志 object_label 摘要（记录删除后仍读得懂）。"""
+    pk_col = _pk_column(table)
+    with registry.engine.connect() as conn:
+        row = conn.execute(
+            select(table).where(pk_col == pk_value)
+        ).mappings().first()
+    if row is None:
+        return f"#{pk_value}"
+    label_col = _label_column(table)
+    value = row[label_col] if label_col else None
+    if value is None:
+        return f"#{pk_value}"
+    text = str(value)
+    return text[:120] + "…" if len(text) > 120 else text
+
+
+def _label_from_row(table: Table, row: dict, pk_value) -> str:
+    """更新/删除前用已读出的旧行生成标签，避免二次读库。"""
+    label_col = _label_column(table)
+    value = row[label_col] if label_col else None
+    if value is None:
+        return f"#{pk_value}"
+    text = str(value)
+    return text[:120] + "…" if len(text) > 120 else text
+
+
+def _diff_changes(old_row: dict, new_values: dict) -> dict:
+    """变更字段集合（M2-6）：仅含实际变化、且排除系统归属列。"""
+    changes = {}
+    for key, new_value in new_values.items():
+        if key in _OWNERSHIP_COLS:
+            continue
+        old_value = old_row.get(key)
+        if not _same_value(old_value, new_value):
+            changes[key] = {"old": _jsonable(old_value), "new": _jsonable(new_value)}
+    return changes
+
+
+# ---------------- M2-3 业务写路径（M2-6：两阶段日志钩子） ----------------
+
+def create_row(registry: CrudRegistry, name: str, audit=None) -> dict:
     table = registry.table(name)
     payload = request.get_json(force=True) or {}
     values = {}
@@ -286,13 +354,26 @@ def create_row(registry: CrudRegistry, name: str) -> dict:
         values["updated_by"] = registry.current_user_id
     if "updated_at" in table.c:
         values["updated_at"] = now
-    with registry.engine.begin() as conn:
-        result = conn.execute(table.insert().values(**values))
-        pk = result.inserted_primary_key[0]
+    # 日志意图（①pending）：含待写入值，供启动对账按值反查主键
+    intent = {
+        k: {"old": None, "new": _jsonable(v)}
+        for k, v in values.items() if k not in _OWNERSHIP_COLS
+    }
+    log_id = audit.begin("create", table.name, changes=intent) if audit else None
+    try:
+        with registry.engine.begin() as conn:
+            result = conn.execute(table.insert().values(**values))
+            pk = result.inserted_primary_key[0]
+        if audit:
+            audit.commit(log_id, object_pk=str(pk), object_label=_row_label(registry, table, pk))
+    except Exception:
+        if audit and log_id is not None:
+            audit.abort(log_id)
+        raise
     return {"id": pk}
 
 
-def update_row(registry: CrudRegistry, name: str, pk: str) -> dict:
+def update_row(registry: CrudRegistry, name: str, pk: str, audit=None) -> dict:
     table = registry.table(name)
     pk_col = _pk_column(table)
     payload = request.get_json(force=True) or {}
@@ -310,27 +391,100 @@ def update_row(registry: CrudRegistry, name: str, pk: str) -> dict:
     owner = _owner_condition(registry, table)
     if owner is not None:
         cond.append(owner)
-    with registry.engine.begin() as conn:
-        result = conn.execute(
-            table.update().where(*cond).values(**values)
-        )
-    if result.rowcount == 0:
-        abort(404)
+    # ①：读旧行（含授权过滤）→ 变更字段 + 摘要标签
+    with registry.engine.connect() as conn:
+        old_row = conn.execute(select(table).where(*cond)).mappings().first()
+    if old_row is None:
+        abort(404)  # 目标不存在/不可见 → 不产生日志
+    changes = _diff_changes(dict(old_row), values)
+    log_id = audit.begin("update", table.name, object_pk=str(pk),
+                         object_label=_label_from_row(table, dict(old_row), pk),
+                         changes=changes) if audit else None
+    try:
+        with registry.engine.begin() as conn:
+            result = conn.execute(table.update().where(*cond).values(**values))
+        if result.rowcount == 0:
+            abort(404)
+        if audit and log_id is not None:
+            audit.commit(log_id)
+    except Exception:
+        if audit and log_id is not None:
+            audit.abort(log_id)
+        raise
     return {"updated": True}
 
 
-def delete_row(registry: CrudRegistry, name: str, pk: str) -> dict:
+def delete_row(registry: CrudRegistry, name: str, pk: str, audit=None) -> dict:
     table = registry.table(name)
     pk_col = _pk_column(table)
     cond = [pk_col == _coerce_value(pk_col, pk)]
     owner = _owner_condition(registry, table)
     if owner is not None:
         cond.append(owner)
-    with registry.engine.begin() as conn:
-        result = conn.execute(table.delete().where(*cond))
-    if result.rowcount == 0:
-        abort(404)
+    # ①：读旧行 → 摘要标签（记录删除后日志仍可辨认）
+    with registry.engine.connect() as conn:
+        old_row = conn.execute(select(table).where(*cond)).mappings().first()
+    if old_row is None:
+        abort(404)  # 目标不存在/不可见 → 不产生日志
+    log_id = audit.begin("delete", table.name, object_pk=str(pk),
+                         object_label=_label_from_row(table, dict(old_row), pk)) if audit else None
+    try:
+        with registry.engine.begin() as conn:
+            result = conn.execute(table.delete().where(*cond))
+        if result.rowcount == 0:
+            abort(404)
+        if audit and log_id is not None:
+            audit.commit(log_id)
+    except Exception:
+        if audit and log_id is not None:
+            audit.abort(log_id)
+        raise
     return {"deleted": True}
+
+
+def list_rows(registry: CrudRegistry, name: str, with_search: bool = True) -> dict:
+    table = registry.table(name)
+    page = max(int(request.args.get("page", 1)), 1)
+    page_size = min(max(int(request.args.get("page_size", 20)), 1), 200)
+
+    conditions = _filtered(table)
+    owner = _owner_condition(registry, table)
+    if owner is not None:
+        conditions.append(owner)
+    search = (request.args.get("search") or "").strip()
+    if search and with_search:
+        text_cols = [
+            c for c in table.columns
+            if _is_string_type(c) and not c.primary_key and c.name not in _OWNERSHIP_COLS
+        ]
+        if text_cols:
+            conditions.append(
+                or_(*[c.ilike(f"%{search}%") for c in text_cols])
+            )
+
+    stmt = select(table).where(*conditions)
+
+    sort = request.args.get("sort")
+    if sort:
+        if sort not in table.c:
+            abort(400, description=f"未知排序列: {sort}")
+        direction = desc if request.args.get("order", "asc") == "desc" else asc
+        stmt = stmt.order_by(direction(table.c[sort]))
+
+    with registry.engine.connect() as conn:
+        total = conn.execute(
+            select(func.count()).select_from(table).where(*conditions)
+        ).scalar_one()
+        rows = conn.execute(
+            stmt.limit(page_size).offset((page - 1) * page_size)
+        ).mappings().all()
+
+    return {
+        "data": [dict(r) for r in rows],
+        "page": page,
+        "page_size": page_size,
+        "total": total,
+    }
 
 
 def _label_column(table: Table):

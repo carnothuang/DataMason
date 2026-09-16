@@ -58,6 +58,11 @@ def create_app(config_object: object | None = None) -> Flask:
     _register_auth_guard(app)
     _register_spa(app)
 
+    # M2-6/DR-03：启动对账任务（后台线程收尾进程崩溃遗留的 pending 日志）
+    from server.audit.service import reconcile_pending_background
+
+    reconcile_pending_background(app)
+
     # 元数据驱动 CRUD 蓝图在 M0-4 引入；M0-1 仅健康检查 + 首次启动向导
 
     return app

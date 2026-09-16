@@ -1,4 +1,4 @@
-"""工作台运行时接口（M2-2 菜单树 + M2-3 CRUD + M2-5 按角色裁剪）。
+"""工作台运行时接口（M2-2 菜单树 + M2-3 CRUD + M2-5 按角色裁剪 + M2-6 操作日志）。
 
 - GET  /app/<id>          ：部署信息 + 菜单树 + 页面规格（M2-2）
   - M2-5：非成员 403；操作员只见被授权菜单与「我的记录」对应内容
@@ -7,7 +7,10 @@
   - /tables/<name>/rows    列表（参数化+白名单+分页/排序/过滤）
   - /tables/<name>/rows/<pk> 单行 GET/PUT/DELETE
   - /tables/<name>/refs/<fk_col> 外键下拉数据
-- 归属列写入身份取会话用户；成员/按人授权过滤（M2-5）。
+- GET /app/<id>/api/activity-logs：操作日志（M2-6）倒序分页 + 四维筛选；
+  creator/admin 全量，operator 强制只含自己的动作
+- 归属列写入身份取会话用户；成员/按人授权过滤（M2-5）；
+  写路径两阶段日志钩子 DR-03（M2-6）。
 """
 from __future__ import annotations
 
@@ -15,6 +18,7 @@ from werkzeug.exceptions import HTTPException
 
 from flask import Blueprint, current_app, jsonify, request, session
 
+from server.audit.service import AuditSession
 from server.crud import engine as crud_engine
 from server.crud import runtime
 from server.members import service as member_service
@@ -128,6 +132,14 @@ def _deployment_api(deployment_id: int):
     return registry, engine
 
 
+def _audit(deployment_id: int) -> AuditSession:
+    """构造两阶段日志会话（M2-6，DR-03）：actor=会话用户，source_ip=请求来源。"""
+    return AuditSession(
+        current_app, deployment_id,
+        _session_user_id(), request.remote_addr or "",
+    )
+
+
 @bp.get("/<int:deployment_id>/api/meta")
 def app_meta(deployment_id: int):
     registry, engine = _deployment_api(deployment_id)
@@ -174,11 +186,44 @@ def app_get_row(deployment_id: int, name: str, pk: str):
         engine.dispose()
 
 
+@bp.get("/<int:deployment_id>/api/activity-logs")
+def app_activity_logs(deployment_id: int):
+    """操作日志（M2-6）：倒序分页 + 时间/人/动作/对象四维筛选；记录↔日志双向跳转复用。"""
+    from server.audit import service as audit_service
+
+    Session = current_app.extensions["datamason_session_factory"]
+    with Session() as s:
+        d = s.get(Deployment, deployment_id)
+        if d is None:
+            return jsonify({"error": "部署不存在"}), 404
+        uid = _session_user_id()
+        role = member_service.assert_member(s, d, uid)  # 非成员 → 403
+    result = audit_service.list_logs(
+        current_app, deployment_id, role, uid,
+        actor_user_id=request.args.get("actor_user_id", type=int),
+        action=request.args.get("action"),
+        object_table=request.args.get("object_table"),
+        object_pk=request.args.get("object_pk"),
+        time_from=request.args.get("from"),
+        time_to=request.args.get("to"),
+        page=request.args.get("page", 1, type=int),
+        page_size=request.args.get("page_size", 20, type=int),
+    )
+    with Session() as s:
+        biz = {
+            t.name: t.biz_name
+            for t in s.query(TableSpec).filter_by(deployment_id=deployment_id).all()
+        }
+    for lg in result["logs"]:
+        lg["object_biz_name"] = biz.get(lg["object_table"]) or lg["object_table"]
+    return jsonify(result)
+
+
 @bp.post("/<int:deployment_id>/api/tables/<name>/rows")
 def app_create_row(deployment_id: int, name: str):
     registry, engine = _deployment_api(deployment_id)
     try:
-        return jsonify(crud_engine.create_row(registry, name)), 201
+        return jsonify(crud_engine.create_row(registry, name, audit=_audit(deployment_id))), 201
     finally:
         engine.dispose()
 
@@ -187,7 +232,7 @@ def app_create_row(deployment_id: int, name: str):
 def app_update_row(deployment_id: int, name: str, pk: str):
     registry, engine = _deployment_api(deployment_id)
     try:
-        return jsonify(crud_engine.update_row(registry, name, pk))
+        return jsonify(crud_engine.update_row(registry, name, pk, audit=_audit(deployment_id)))
     finally:
         engine.dispose()
 
@@ -196,7 +241,7 @@ def app_update_row(deployment_id: int, name: str, pk: str):
 def app_delete_row(deployment_id: int, name: str, pk: str):
     registry, engine = _deployment_api(deployment_id)
     try:
-        return jsonify(crud_engine.delete_row(registry, name, pk))
+        return jsonify(crud_engine.delete_row(registry, name, pk, audit=_audit(deployment_id)))
     finally:
         engine.dispose()
 

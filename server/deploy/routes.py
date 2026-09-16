@@ -5,6 +5,7 @@ from flask import Blueprint, abort, current_app, jsonify, request, session
 from werkzeug.exceptions import HTTPException
 
 from server.crud import runtime
+from server.audit.service import log_system
 from server.deploy import service
 from server.deploy.service import DeployError
 from server.deploy import editor
@@ -136,16 +137,30 @@ def alter_columns(deployment_id: int, table_name: str):
     data = _body()
     ops = data.get("ops")
     if not isinstance(ops, list) or not ops:
-        return jsonify({"error": "缺少 ops 操作列表"}), 400
+        return jsonify({"error": "ops 必须是非空操作列表"}), 400
     try:
         result = editor.alter_table(current_app, deployment_id, table_name, ops)
-        return jsonify(result), 200
-    except KeyError as exc:
-        return jsonify({"error": str(exc)}), 404
+        log_system(current_app, deployment_id, "structure", actor_user_id=_uid(),
+                   object_kind="table", object_table=table_name,
+                   object_pk=table_name,
+                   object_label=f"{table_name} 结构变更",
+                   changes={"ops": _ops_summary(ops)})
+        return jsonify(result)
     except editor.EditorError as exc:
         return jsonify({"error": str(exc)}), 400
+    except KeyError as exc:
+        return jsonify({"error": str(exc)}), 404
     except Exception as exc:  # noqa: BLE001
         return jsonify({"error": f"{type(exc).__name__}: {exc}"}), 502
+
+
+def _ops_summary(ops: list[dict]) -> list[dict]:
+    """结构变更的人话摘要：{动作, 字段}，给日志页直接展示。"""
+    return [
+        {"action": op.get("action", ""),
+         "name": op.get("name", "") or op.get("new_name", "")}
+        for op in ops
+    ]
 
 
 def _require_creator(deployment_id: int) -> None:

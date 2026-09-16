@@ -284,6 +284,18 @@ def confirm(app, spec_dict: dict, biz_name: str, seed_data: bool = True,
         d.entry_path = entry_path
         s.commit()
 
+    # ⑧ 系统动作日志（M2-6）：部署就绪（actor=触发用户，无请求上下文时=创建人）
+    from server.audit.service import log_system
+
+    log_system(
+        app, deployment_id, "deploy",
+        actor_user_id=_owner_actor_id(app, deployment_id),
+        object_kind="deployment", object_pk=str(deployment_id),
+        object_label=f"{biz_name} 部署就绪（创建模式 · {len(schema.tables)} 张表）",
+        changes={"data_mode": "create", "table_count": len(schema.tables),
+                 "seeded": seed_data},
+    )
+
     return {
         "deployment_id": deployment_id,
         "biz_name": biz_name,
@@ -292,6 +304,16 @@ def confirm(app, spec_dict: dict, biz_name: str, seed_data: bool = True,
         "table_count": len(schema.tables),
         "seeded": seed_data,
     }
+
+
+def _owner_actor_id(app, deployment_id: int) -> int:
+    """部署日志触发者：请求上下文优先取会话用户，否则取部署 owner。"""
+    uid = _session_user_id()
+    if uid is not None:
+        return uid
+    with _session(app) as s:
+        d = s.get(Deployment, deployment_id)
+        return d.owner_id if d is not None else 1
 
 
 def list_deployments(app) -> list[dict]:

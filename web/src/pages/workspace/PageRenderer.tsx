@@ -1,6 +1,7 @@
 import { Card, Empty, Typography } from "antd";
 import { WorkspacePage } from "../../api";
 import CrudListPage from "./CrudListPage";
+import type { RecordFocus } from "./Workspace";
 
 const { Text } = Typography;
 
@@ -8,11 +9,13 @@ interface Props {
   deploymentId: number;
   page: WorkspacePage | null;
   role?: string;
+  focus?: RecordFocus | null;
 }
 
 /** 按 page_spec 渲染内容区：crud_list → 元数据驱动 CRUD 列表（M2-4）；其余类型 v0 占位（M3 起补全）。
- *  M2-5：role=operator 时列表受「我的记录」过滤（服务端强制 created_by=自己，前端仅提示）。 */
-export default function PageRenderer({ deploymentId, page, role }: Props) {
+ *  M2-5：role=operator 时列表受「我的记录」过滤（服务端强制 created_by=自己，前端仅提示）。
+ *  M2-6：日志→记录「查看这条记录」聚焦跳转（focus 命中本页表时传给 CRUD 列表定位行）。 */
+export default function PageRenderer({ deploymentId, page, role, focus }: Props) {
   if (!page) {
     return (
       <Card>
@@ -31,6 +34,8 @@ export default function PageRenderer({ deploymentId, page, role }: Props) {
         table={page.table}
         tableBizName={page.table_biz_name || page.table}
         role={role}
+        focusPk={focus?.table === page.table ? focus.pk : null}
+        focusNonce={focus?.table === page.table ? focus.nonce : 0}
       />
     );
   }

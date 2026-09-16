@@ -4,12 +4,14 @@
   管理员仅可查看名单（DR-14：管理员=查看成员）；操作员无成员入口。
 - GET /deployments/<id>/members/candidates：可选候选账号（全局用户中未加入本部署的）。
 - 授权按人（DR-02）：menu_ids 写入 deployment_menu_grants(menu_id, user_id)。
+- M2-6：成员增删/角色/授权变更写 system 动作日志（action=member，DR-03）。
 """
 from __future__ import annotations
 
 from flask import Blueprint, abort, current_app, jsonify, request, session
 from werkzeug.exceptions import HTTPException
 
+from server.audit.service import log_system
 from server.members import service
 from server.members.service import PermissionDenied
 from server.models import (
@@ -20,11 +22,25 @@ from server.models import (
     User,
 )
 
+ROLE_LABEL = {"creator": "创建人", "admin": "管理员", "operator": "操作员"}
+
 bp = Blueprint("members", __name__)
 
 
 def _body() -> dict:
     return request.get_json(silent=True) or {}
+
+
+def _menu_labels(s, deployment_id: int, menu_ids: list[int]) -> list[str]:
+    if not menu_ids:
+        return []
+    rows = (
+        s.query(DeploymentMenu.label)
+        .filter(DeploymentMenu.deployment_id == deployment_id,
+                DeploymentMenu.id.in_(menu_ids))
+        .all()
+    )
+    return [r[0] for r in rows]
 
 
 @bp.errorhandler(HTTPException)
@@ -182,6 +198,11 @@ def add_member(deployment_id: int):
         if role == "operator":
             _set_grants(s, deployment_id, user.id, menu_ids)
         s.commit()
+        log_system(current_app, deployment_id, "member", actor_user_id=uid,
+                   object_kind="member", object_pk=str(user.id),
+                   object_label=f"{user.username} 加入（{ROLE_LABEL.get(role, role)}）",
+                   changes={"type": "add", "role": role,
+                            "grants": _menu_labels(s, deployment_id, menu_ids)})
         return jsonify({"ok": True}), 201
 
 
@@ -206,15 +227,26 @@ def update_member(deployment_id: int, user_id: int):
             abort(404, description="该成员不在本部署中")
 
         role = data.get("role")
+        old_role = row.role
         if role is not None:
             if role not in ("admin", "operator"):
                 abort(400, description="角色仅支持 admin/operator")
             row.role = role
 
+        changed: dict = {"type": "update"}
+        if role is not None:
+            changed["old_role"] = old_role
+            changed["new_role"] = row.role
         if row.role == "operator":
             menu_ids = _validate_menu_ids(s, deployment_id, data.get("menu_ids"))
+            changed["grants"] = _menu_labels(s, deployment_id, menu_ids)
             _set_grants(s, deployment_id, user_id, menu_ids)
         s.commit()
+        user = s.get(User, user_id)
+        log_system(current_app, deployment_id, "member", actor_user_id=uid,
+                   object_kind="member", object_pk=str(user_id),
+                   object_label=f"{(user.display_name or user.username) if user else user_id} 成员变更",
+                   changes=changed)
         return jsonify({"ok": True})
 
 
@@ -239,4 +271,9 @@ def remove_member(deployment_id: int, user_id: int):
         s.delete(row)
         s.query(DeploymentMenuGrant).filter_by(user_id=user_id).delete()
         s.commit()
+        user = s.get(User, user_id)
+        log_system(current_app, deployment_id, "member", actor_user_id=uid,
+                   object_kind="member", object_pk=str(user_id),
+                   object_label=f"{(user.display_name or user.username) if user else user_id} 移除成员",
+                   changes={"type": "remove"})
         return jsonify({"ok": True})
