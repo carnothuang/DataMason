@@ -1,7 +1,7 @@
 /** 数据关系 ER 图（M2-8，简版）：环形布局，外键指向画连线，节点标业务名。
  *  同一组件两种粗细：
  *  - 提案卡缩略图（compact）：小号，不带连线标签
- *  - 数据蓝图全域图（默认）：大号，连线标"来源列 → 目标表"
+ *  - 数据蓝图全域图（默认）：大号，连线用业务动词「属于」标注（外键子表属于被引用父表）
  *  输入就是提案卡 / 蓝图已有的 tables（含 is_fk/ref_table），不额外请求。 */
 interface ErNode {
   name: string;
@@ -41,7 +41,7 @@ export default function ErGraph({ tables, width = 320, height = 200, compact }: 
       const key = `${t.name}->${c.ref_table}`;
       if (seen.has(key)) continue;
       seen.add(key);
-      edges.push({ from: t.name, to: c.ref_table, label: compact ? "" : c.name });
+      edges.push({ from: t.name, to: c.ref_table, label: compact ? "" : "属于" });
     }
   }
 

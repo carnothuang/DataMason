@@ -101,6 +101,8 @@ export default function LogsPage({ deploymentId, onViewRecord }: LogsPageProps) 
         setTotal(res.total);
         setPeople((prev) => {
           const map = new Map(prev.map((p) => [p.id, p]));
+          // C5：后端给出全量候选，跨页也能筛
+          (res.filter_options?.actors || []).forEach((a) => map.set(a.id, a));
           res.logs.forEach((lg) => {
             if (lg.actor_user_id != null && lg.actor_display) {
               map.set(lg.actor_user_id, { id: lg.actor_user_id, name: lg.actor_display });
@@ -110,6 +112,9 @@ export default function LogsPage({ deploymentId, onViewRecord }: LogsPageProps) 
         });
         setTables((prev) => {
           const map = new Map(prev.map((t) => [t.name, t]));
+          (res.filter_options?.tables || []).forEach((n) => {
+            if (!map.has(n)) map.set(n, { name: n, biz: n });
+          });
           res.logs.forEach((lg) => {
             if (lg.object_table) {
               map.set(lg.object_table, {

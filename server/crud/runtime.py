@@ -95,8 +95,9 @@ def list_tables(app, deployment_id: int, user_id: int | None = None) -> list[dic
 
 def list_rows(app, deployment_id: int, table_name: str,
               page: int, page_size: int, sort: str | None,
-              order: str, filters: dict, user_id: int | None = None) -> dict:
-    from sqlalchemy import asc, desc
+              order: str, filters: dict, user_id: int | None = None,
+              search: str = "") -> dict:
+    from sqlalchemy import asc, desc, or_
 
     _d, registry, engine = _registry(app, deployment_id, user_id)
     try:
@@ -107,6 +108,16 @@ def list_rows(app, deployment_id: int, table_name: str,
                 conditions.append(table.c[key] == value)
         if registry.owner_only and "created_by" in table.c:
             conditions.append(table.c.created_by == registry.current_user_id)
+        if search:
+            text_cols = [
+                c for c in table.columns
+                if str(c.type).upper().startswith(
+                    ("VARCHAR", "CHAR", "TEXT", "STRING", "ENUM", "UUID"))
+                and not c.primary_key
+                and c.name not in ("created_by", "updated_by", "created_at", "updated_at")
+            ]
+            if text_cols:
+                conditions.append(or_(*[c.ilike(f"%{search}%") for c in text_cols]))
         stmt = select(table).where(*conditions)
         if sort and sort in table.c:
             direction = desc if order == "desc" else asc

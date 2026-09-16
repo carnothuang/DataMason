@@ -82,6 +82,23 @@ def create_app(config_object: object | None = None) -> Flask:
     return app
 
 
+def _is_initialized(app: Flask) -> bool:
+    """系统是否已初始化（存在至少一个用户）。结果缓存于 config，避免每请求查库。"""
+    if app.config.get("_dm_initialized"):
+        return True
+    try:
+        from server.models import User
+
+        Session = app.extensions["datamason_session_factory"]
+        with Session() as s:
+            if s.query(User).count() > 0:
+                app.config["_dm_initialized"] = True
+                return True
+    except Exception:  # noqa: BLE001 探测失败时不拦截，避免误伤
+        return True
+    return False
+
+
 def _register_auth_guard(app: Flask) -> None:
     """M2-1 统一鉴权：/api/* 需登录（白名单除外）；设置与账号管理需平台管理员。
 
@@ -120,6 +137,10 @@ def _register_auth_guard(app: Flask) -> None:
         # M3-5 访客公开页（DR-04）：匿名提交/读取公开表单，不走登录拦截
         if path.startswith("/api/v1/public/"):
             return None
+        # M0-1 首次启动拦截：系统尚未初始化（无任何用户）时，业务 API 一律引导到配置
+        if not _is_initialized(app):
+            return jsonify({"error": "系统尚未初始化，请先创建管理员账号",
+                            "needs_setup": True}), 409
         # M3-8 API key 通道（DR-11）：仅开放该部署的 CRUD REST（/app/{id}/api/tables/*、/api/meta）
         raw_key = _extract_api_key()
         if raw_key:

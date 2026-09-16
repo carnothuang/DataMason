@@ -287,6 +287,11 @@ def test_four_dimension_filters(app, client, admin):
     got_to = _logs(client, did, to=occ)
     assert not any(lg["occurred_at"] == occ for lg in got_to["logs"])
 
+    # C5：筛选候选（人与对象）来自全量日志，不随当前筛选收缩
+    opts = _logs(client, did)["filter_options"]
+    assert {"id": admin, "name": "老猫"} in opts["actors"]
+    assert "customers" in opts["tables"]
+
 
 def test_pending_not_listed(app, client, admin):
     did = _deploy(client)
@@ -425,3 +430,18 @@ def test_reconcile_update_matches_or_discards(app, client, admin):
     assert reconcile_pending(app) == 1
     with Session() as s:
         assert s.get(ActivityLog, lid2) is None
+
+
+def test_create_app_wires_reconcile_background(monkeypatch, tmp_path):
+    """E1：create_app 必须挂载启动对账后台线程（DR-03）。"""
+    import server.audit.service as audit_service
+    from server.app import create_app
+    from server.config import Config
+
+    called: dict = {}
+    monkeypatch.setattr(audit_service, "reconcile_pending_background",
+                        lambda app: called.setdefault("app", app))
+    cfg = Config(meta_db_uri=f"sqlite:///{(tmp_path / 'm.db').as_posix()}",
+                 data_root=str(tmp_path / "data"))
+    app = create_app(cfg)
+    assert called.get("app") is app

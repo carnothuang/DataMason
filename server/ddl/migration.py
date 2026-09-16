@@ -296,8 +296,3 @@ def build_migration(table: TableSpecModel, ops: list[dict],
     else:
         stmts = plan_server_sql(table, original, final, ops, dialect)
     return final, stmts
-
-
-def inject_ownership(table: TableSpecModel) -> list[ColumnSpec]:
-    """对外暴露：取含归属列的完整列蓝图（用于落库）。"""
-    return list(inject_ownership_columns(table).columns)

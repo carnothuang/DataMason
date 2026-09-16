@@ -233,6 +233,20 @@ def test_qa_execution_failure_recorded(app, env, fake_llm, monkeypatch):
         assert err is not None and "执行" in err.result_summary
 
 
+def test_validate_chart_structure():
+    """E2：图表规格纯函数离线单测（类型白名单 / x,y 必须是结果列 / 不同列）。"""
+    from server.qa.service import _validate_chart
+
+    cols = ["vip", "cnt", "name"]
+    assert _validate_chart({"type": "pie", "x": "vip", "y": "cnt"}, cols) == {
+        "type": "pie", "x": "vip", "y": "cnt"}
+    assert _validate_chart(None, cols) is None
+    assert _validate_chart({"type": "radar", "x": "vip", "y": "cnt"}, cols) is None
+    assert _validate_chart({"type": "bar", "x": "vip"}, cols) is None
+    assert _validate_chart({"type": "bar", "x": "vip", "y": "vip"}, cols) is None
+    assert _validate_chart({"type": "bar", "x": "ghost", "y": "cnt"}, cols) is None
+
+
 def test_qa_retry_on_invalid_sql_then_success(app, env, fake_llm):
     did = _deploy(env["client"], seed=True)
     fake_llm.sql_queue = ["SELECT * FROM no_such_table", "SELECT id FROM messages"]

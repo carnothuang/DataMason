@@ -174,8 +174,12 @@ export default function Deployments() {
             </Tag>
             {d.data_mode === "link" && <Tag color="orange">直连</Tag>}
             {d.entry_path && (
-              <Text code style={{ fontSize: 12 }}>
-                {d.entry_path}
+              <Text
+                code
+                copyable={{ text: `${window.location.origin}${d.entry_path}` }}
+                style={{ fontSize: 12 }}
+              >
+                {`${window.location.origin}${d.entry_path}`}
               </Text>
             )}
           </Space>

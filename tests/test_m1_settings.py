@@ -162,6 +162,29 @@ def test_redis_real_ping(app, client):
     assert result["version"]
 
 
+# ---------- 默认 LLM 客户端：设置页模型优先，环境变量回退（M0 路径） ----------
+
+def test_default_llm_client_env_fallback(app, client):
+    # 既无模型也无环境变量 → None
+    assert service.get_default_llm_client(app) is None
+
+    # 仅环境变量 → 回退构建（A2 修复）
+    app.config["DATAMASON_LLM_BASE_URL"] = "http://env.example/v1"
+    app.config["DATAMASON_LLM_API_KEY"] = "sk-env"
+    app.config["DATAMASON_LLM_MODEL"] = "env-model"
+    envc = service.get_default_llm_client(app)
+    assert envc is not None
+    assert envc.config.model == "env-model"
+
+    # 登记设置页模型后优先取模型
+    client.post("/api/v1/settings/models", json={
+        "name": "页内模型", "base_url": "http://db.example/v1",
+        "model_name": "db-model", "api_key": "sk-db",
+    })
+    dbc = service.get_default_llm_client(app)
+    assert dbc is not None and dbc.config.model == "db-model"
+
+
 # ---------- 真实模型 test（门控） ----------
 
 def test_real_llm_model_connection(app, client):

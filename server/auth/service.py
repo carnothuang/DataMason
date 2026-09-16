@@ -63,10 +63,11 @@ class SetupError(ValueError):
     """首次启动向导错误 → 400。"""
 
 
-def setup_admin(app, username: str, password: str, display_name: str = "") -> dict:
+def setup_admin(app, username: str, password: str, display_name: str = "",
+                llm: dict | None = None) -> dict:
     """M1 首次启动向导（界面版）：users 为空时按表单创建平台管理员。
 
-    与环境变量版互补：界面版允许在浏览器直接填写账号密码与显示名。
+    可选 llm={name,base_url,api_key,model_name}：同批登记默认模型（DR-10 向导含 LLM 端点）。
     幂等保护：已有用户则拒绝（避免越权建号）。
     """
     username = (username or "").strip()
@@ -90,4 +91,20 @@ def setup_admin(app, username: str, password: str, display_name: str = "") -> di
         )
         session.add(user)
         session.commit()
-        return {"id": user.id, "username": user.username}
+        uid = user.id
+
+    llm_configured = False
+    llm = llm or {}
+    if (llm.get("base_url") or "").strip() and (llm.get("api_key") or "").strip():
+        from server.settings import service as settings_service
+
+        m = settings_service.create_model(app, {
+            "name": (llm.get("name") or "首次启动配置").strip(),
+            "base_url": llm["base_url"].strip(),
+            "api_key": llm["api_key"],
+            "model_name": (llm.get("model_name") or "").strip(),
+            "temperature": 0,
+        })
+        settings_service.set_default_model(app, m["id"])
+        llm_configured = True
+    return {"id": uid, "username": username, "llm_configured": llm_configured}

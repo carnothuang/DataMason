@@ -203,6 +203,27 @@ def list_logs(app, deployment_id: int, role: str, uid: int, *,
             .offset((page - 1) * page_size).limit(page_size).all()
         )
         users = {u.id: u for u in s.query(User).all()}
+        # 四维筛选候选（不随当前筛选收缩，便于切换）：该部署出现过的操作人与业务对象
+        scope = s.query(ActivityLog).filter(
+            ActivityLog.deployment_id == deployment_id,
+            ActivityLog.status == "committed",
+        )
+        if role == "operator":
+            scope = scope.filter(ActivityLog.actor_user_id == uid)
+        actor_ids = [
+            a for (a,) in scope.with_entities(ActivityLog.actor_user_id).distinct().all()
+            if a is not None
+        ]
+        table_names = sorted({
+            t for (t,) in scope.with_entities(ActivityLog.object_table).distinct().all() if t
+        })
+        filter_options = {
+            "actors": [
+                {"id": a, "name": (users[a].display_name or users[a].username)}
+                for a in actor_ids if a in users
+            ],
+            "tables": table_names,
+        }
 
     def _display(row: ActivityLog) -> dict:
         user = users.get(row.actor_user_id)
@@ -228,6 +249,7 @@ def list_logs(app, deployment_id: int, role: str, uid: int, *,
         "page": page,
         "page_size": page_size,
         "total": total,
+        "filter_options": filter_options,
     }
 
 

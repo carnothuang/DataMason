@@ -105,9 +105,25 @@ def test_public_endpoints_still_open(app, client):
 
 
 def test_protected_endpoints_require_login(app, client):
+    # 系统已初始化（存在用户）后，未登录访问业务接口 → 401
+    with app.extensions["datamason_session_factory"]() as s:
+        s.add(User(username="seed", password_hash=hash_password("pw")))
+        s.commit()
     assert client.get("/api/v1/deployments").status_code == 401
     assert client.get("/api/v1/settings/models").status_code == 401
     assert client.get("/api/v1/auth/users").status_code == 401
+
+
+def test_business_blocked_before_setup(app, client):
+    """M0-1 启动拦截：未初始化（无用户）时业务 API 一律 409 引导配置；公共端点放行。"""
+    assert client.get("/api/v1/deployments").status_code == 409
+    assert client.post("/api/v1/deployments/preview",
+                       json={"description": "x"}).status_code == 409
+    body = client.get("/api/v1/deployments").get_json()
+    assert body.get("needs_setup") is True
+    # 公共端点不受影响
+    assert client.get("/api/v1/auth/setup-status").status_code == 200
+    assert client.get("/api/v1/health").status_code == 200
 
 
 def test_non_admin_forbidden_on_settings_and_users(app, client, admin, patch_llm):
@@ -233,4 +249,19 @@ def test_setup_status_llm_configured_reflects_settings_model(app, client, admin)
         "model_name": "m", "api_key": "sk-x",
     })
     assert created.status_code == 201, created.get_data(as_text=True)
+    assert client.get("/api/v1/auth/setup-status").get_json()["llm_configured"] is True
+
+
+def test_setup_with_llm_config(app, client):
+    """A5：首次启动界面版可一并登记默认 LLM 模型。"""
+    resp = client.post("/api/v1/auth/setup", json={
+        "username": "root", "password": "secret1",
+        "llm": {"base_url": "http://env.example/v1", "api_key": "sk-x",
+                "model_name": "m"},
+    })
+    assert resp.status_code == 201, resp.get_data(as_text=True)
+    assert resp.get_json()["llm_configured"] is True
+    from server.settings import service as settings_service
+
+    assert settings_service.has_configured_model(app) is True
     assert client.get("/api/v1/auth/setup-status").get_json()["llm_configured"] is True

@@ -138,6 +138,10 @@ def test_stop_then_start_lifecycle(app, env, patch_llm):
     assert env["client"].post(f"{api}/tables/messages/rows",
                               json={"visitor": "张三", "content": "停?"}).status_code == 409
     assert env["client"].get(f"{api}/activity-logs").status_code == 409
+    # 控制台数据浏览同样门控（与工作台一致）
+    assert env["client"].get(f"/api/v1/deployments/{did}/tables").status_code == 409
+    assert env["client"].get(
+        f"/api/v1/deployments/{did}/tables/messages/rows").status_code == 409
 
     # 再启动
     resp = env["client"].post(f"/api/v1/deployments/{did}/start")

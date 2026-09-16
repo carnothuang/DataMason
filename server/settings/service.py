@@ -320,20 +320,6 @@ def test_redis(app) -> dict:
         return {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
 
 
-def make_redis_client(app):
-    """供业务层按需取用；未启用返回 None。"""
-    import redis as redis_lib
-
-    cfg = _get_raw_redis(app)
-    if not cfg.get("enabled"):
-        return None
-    return redis_lib.Redis(
-        host=cfg["host"], port=int(cfg["port"]), db=int(cfg["db"]),
-        password=cfg["password"] or None, socket_connect_timeout=3,
-        protocol=2,  # 锁定 RESP2，兼容 Redis <6
-    )
-
-
 # ---------------- 默认 LLM 客户端（部署管线使用） ----------------
 
 def has_configured_model(app) -> bool:
@@ -343,7 +329,11 @@ def has_configured_model(app) -> bool:
 
 
 def get_default_llm_client(app):
-    """从 llm_models 取默认模型，构建网关客户端；无配置返回 None。"""
+    """构建默认 LLM 网关客户端。
+
+    优先取「设置页登记的默认模型（llm_models）」；无则回退 M0 环境变量
+    （DATAMASON_LLM_BASE_URL/API_KEY/MODEL，DR-10 环境变量版）。两者皆无返回 None。
+    """
     from server.llm.client import LlmConfig, OpenAiCompatibleClient
 
     cipher = _cipher(app)
@@ -351,15 +341,24 @@ def get_default_llm_client(app):
         m = s.query(LlmModel).filter_by(is_default=True).first()
         if m is None:
             m = s.query(LlmModel).order_by(LlmModel.id).first()
-        if m is None:
-            return None
-        cfg = LlmConfig(
-            base_url=m.base_url,
-            api_key=cipher.decrypt(m.api_key_cipher),
-            model=m.model_name or m.name,
-            temperature=m.temperature,
-        )
-    return OpenAiCompatibleClient(cfg)
+        if m is not None:
+            cfg = LlmConfig(
+                base_url=m.base_url,
+                api_key=cipher.decrypt(m.api_key_cipher),
+                model=m.model_name or m.name,
+                temperature=m.temperature,
+            )
+            return OpenAiCompatibleClient(cfg)
+
+    # 回退：环境变量配置（M0 路径，无设置页模型时生效）
+    base_url = (app.config.get("DATAMASON_LLM_BASE_URL") or "").strip()
+    api_key = (app.config.get("DATAMASON_LLM_API_KEY") or "").strip()
+    model = (app.config.get("DATAMASON_LLM_MODEL") or "").strip()
+    if base_url and api_key:
+        return OpenAiCompatibleClient(LlmConfig(
+            base_url=base_url, api_key=api_key, model=model or "default", temperature=0.0,
+        ))
+    return None
 
 
 def get_connection_engine_factory(app):

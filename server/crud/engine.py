@@ -442,6 +442,33 @@ def list_rows(registry: CrudRegistry, name: str, with_search: bool = True) -> di
     }
 
 
+def export_rows(registry: CrudRegistry, name: str, max_rows: int = 5000) -> tuple[list[str], list[dict]]:
+    """导出用：不分页取全部（上限 max_rows）匹配行，复用搜索/过滤/排序/归属过滤。"""
+    table = registry.table(name)
+    conditions = _filtered(table)
+    owner = _owner_condition(registry, table)
+    if owner is not None:
+        conditions.append(owner)
+    search = (request.args.get("search") or "").strip()
+    if search:
+        text_cols = [
+            c for c in table.columns
+            if _is_string_type(c) and not c.primary_key and c.name not in _OWNERSHIP_COLS
+        ]
+        if text_cols:
+            conditions.append(or_(*[c.ilike(f"%{search}%") for c in text_cols]))
+    stmt = select(table).where(*conditions)
+    sort = request.args.get("sort")
+    if sort:
+        if sort not in table.c:
+            abort(400, description=f"未知排序列: {sort}")
+        direction = desc if request.args.get("order", "asc") == "desc" else asc
+        stmt = stmt.order_by(direction(table.c[sort]))
+    with registry.engine.connect() as conn:
+        rows = conn.execute(stmt.limit(max_rows)).mappings().all()
+    return [c.name for c in table.columns], [dict(r) for r in rows]
+
+
 def _label_column(table: Table):
     """外键下拉的业务标签列：优先字符串型非主键/非归属列，再退到首列/主键。"""
     pk_name = None

@@ -508,36 +508,41 @@ DBX 不是底座，是**能力对照表**。以下每行都是「DBX 做了什�
 
 ---
 
-### 九、目录结构（独立 repo，隔离纪律）
+### 九、目录结构（独立 repo，隔离纪律；2026-09-16 按实际落地更新）
 
 ```
 DataMason-AI/
-├── server/                         # Python 3.12 + Flask
-│   ├── app.py                      #   应用工厂 + 蓝图注册（对齐 biz/README 的注册方式）+ 启动对账任务挂载（DR-03）
-│   ├── config.py                   #   配置 + 惰性建表钩子 + 首次启动向导初始化（DR-10）
-│   ├── models/                     #   元数据模型（§八，含 users/page_specs/flow_specs/deployment_menu_grants）
-│   ├── llm/                        #   LLM 网关：NL→结构 + NL→查询（移植 superset/llm/api.py 设计）
-│   ├── meta/                       #   元数据服务（deployment registry / table_spec / page_spec store）
-│   ├── dataaccess/                 #   自研数据层：connections 管理 · 多方言 executor · schema 反射 · 种子数据生成器（DR-08）
-│   ├── ddl/                        #   ddl_builder + 方言映射 + 校验回读 + 归属列注入（DR-05）
-│   ├── crud/                       #   动态 CRUD router（反射引擎 + 规格解释器 + 写路径日志钩子）
-│   ├── audit/                      #   操作日志（activity_logs 两阶段写入 + 启动对账，append-only）
-│   ├── deploy/                     #   部署管线（deploy_jobs + 状态持久化 + 孤儿清理）
-│   ├── auth/                       #   用户/会话/三层角色 + 首次启动向导
-│   ├── flow/                       #   流程规格 v0：向导式流程解释器（M3，DR-06）
-│   └── qa/                         #   P3：问数据（SQL 生成 + 视图卡 + 图表规格）
+├── server/                         # Python 3.13 + Flask（managed venv）
+│   ├── app.py                      #   应用工厂 + 蓝图注册 + 启动对账任务挂载（DR-03）+ 首次启动拦截
+│   ├── config.py                   #   配置（元数据库/数据根/环境变量 LLM）
+│   ├── models/                     #   元数据模型（§八 + app_settings/share_tokens/api_keys/seed_rows），惰性建表
+│   ├── llm/                        #   LLM 网关：NL→结构 + NL→只读查询（自研，零 superset 运行时依赖，DR-20）
+│   ├── dataaccess/                 #   自研数据层：connections · 多方言 executor · schema 反射 · 选表契约
+│   ├── ddl/                        #   table_spec + ddl_builder + 方言映射 + 归属列注入（DR-05）+ migration
+│   ├── crud/                       #   反射 CRUD 引擎（runtime 按部署解析白名单）+ 写路径日志钩子
+│   ├── audit/                      #   操作日志（两阶段写入 + 启动对账，DR-03）
+│   ├── deploy/                     #   部署管线（service/editor/link/export；不再单列 deploy_jobs.py）
+│   ├── settings/                   #   配置中心服务（多模型/连接/Redis；原 planned meta/ 职责并入此处）
+│   ├── auth/                       #   用户/会话/三层角色 + 首次启动向导（环境变量版 + 界面版，DR-10）
+│   ├── members/                    #   成员与按人授权（DR-02）
+│   ├── workspace/                  #   工作台运行时 + CRUD REST + 日志接口
+│   ├── flow/                       #   流程向导 v0（M3，DR-06）
+│   ├── share/ · public/            #   分享链接绑定身份 / 访客公开页（DR-04）
+│   ├── apiaccess/                  #   部署级 API key（DR-11）
+│   ├── qa/                         #   P3：问数据（只读 SQL + 视图卡 + 图表规格 + 钉住报表）
+│   └── ai/                         #   AI 生成历史治理（AiAssets 对齐）
 ├── web/                            # React 18 + TS + antd + Vite
-│   ├── src/
-│   │   ├── shell/                  #   部署清单首页 / 命令层 / 工程室-展厅 / 设置页（DR-10）/ 问数据
-│   │   ├── builder/                #   提案卡 / 数据蓝图 / 表编辑器
-│   │   ├── runtime/                #   工作台运行时 + 元数据驱动 CRUD 组件 + 操作日志页/记录操作记录 + 流程向导页（M3）
-│   │   └── shared/                 #   通用组件（视图卡 / ER 图 / 表格 / 表单引擎）
-├── requirements.txt                #   运行依赖（Flask/SQLAlchemy/httpx/pydantic/...）
-├── requirements-ai.txt             #   LLM 依赖（openai sdk 等，与核心分离）
-└── tests/                          #   pytest 离线（规格校验/DDL 构建/反射 CRUD/日志对账）+ E2E 脚本
+│   └── src/
+│       ├── pages/                  #   部署清单/设置/登录/首启向导/公开页/工作台…（不再用 shell|builder|runtime 分层）
+│       ├── pages/workspace/        #   运行态（CRUD 列表/表单/流程向导/报表/问数据/日志/成员/工程室）
+│       ├── pages/deploy/           #   部署向导/提案卡/蓝图/字段编辑/数据浏览
+│       └── components/             #   通用组件（ChartCard / ErGraph）
+├── requirements.txt                #   运行依赖（Flask/SQLAlchemy/httpx/pydantic/cryptography/PyMySQL/psycopg2/redis/sqlglot/waitress）
+├── scripts/                        #   冒烟与真实点验（smoke_mysql.py / smoke_pg.py / smoke_qa.py / e2e/）
+└── tests/                          #   pytest 离线（规格校验/DDL/反射 CRUD/日志对账/权限/生命周期/导出/问数据）
 ```
 
-**依赖纪律**：核心依赖与 AI 依赖分离（对齐 superset-lite 的 base/-ai 分离）；superset-lite 与 DBX 均为参考，**零运行时依赖**。
+**依赖纪律**：核心依赖与 AI 依赖不再分文件（同用 `requirements.txt`）；superset-lite 与 DBX 均为参考，**零运行时依赖**（DR-20）。
 
 ---
 

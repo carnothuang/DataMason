@@ -1,6 +1,6 @@
 ﻿"""配置中心路由：/api/v1/settings/*。
 
-M1 阶段认证未接入：仅在本机/局域网暴露。接入会话后这些端点要求平台管理员。
+M1 起：多模型 / 数据连接 / Redis 配置；M2-1 起全部要求平台管理员（app.py 鉴权层）。
 """
 from __future__ import annotations
 

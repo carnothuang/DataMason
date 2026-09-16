@@ -223,6 +223,27 @@ def app_list_rows(deployment_id: int, name: str):
         engine.dispose()
 
 
+@bp.get("/<int:deployment_id>/api/tables/<name>/rows.csv")
+def app_export_rows(deployment_id: int, name: str):
+    """导出 CSV（A6）：沿用列表的搜索/过滤/排序，UTF-8 BOM 便于 Excel 直开。"""
+    import csv
+    import io
+
+    registry, engine = _deployment_api(deployment_id)
+    try:
+        columns, rows = crud_engine.export_rows(registry, name)
+    finally:
+        engine.dispose()
+    buf = io.StringIO()
+    writer = csv.writer(buf)
+    writer.writerow(columns)
+    for r in rows:
+        writer.writerow(["" if r.get(c) is None else r.get(c) for c in columns])
+    resp = current_app.response_class("\ufeff" + buf.getvalue(), mimetype="text/csv")
+    resp.headers["Content-Disposition"] = f'attachment; filename="{name}.csv"'
+    return resp
+
+
 @bp.get("/<int:deployment_id>/api/tables/<name>/rows/<pk>")
 def app_get_row(deployment_id: int, name: str, pk: str):
     registry, engine = _deployment_api(deployment_id)

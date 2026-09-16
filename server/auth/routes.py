@@ -57,6 +57,8 @@ def setup_status():
 def bootstrap():
     """触发首次启动向导（从环境变量创建管理员）。幂等。"""
     result = bootstrap_admin(current_app)
+    if result.get("initialized"):
+        current_app.config["_dm_initialized"] = True
     return jsonify(result)
 
 
@@ -72,9 +74,11 @@ def setup():
             data.get("username"),
             data.get("password"),
             data.get("display_name") or "",
+            llm=data.get("llm"),
         )
     except SetupError as exc:
         return jsonify({"error": str(exc)}), 400
+    current_app.config["_dm_initialized"] = True
     return jsonify(result), 201
 
 

@@ -63,6 +63,7 @@ export default function DeployWizard({ open, onClose, onDeployed }: Props) {
   const [conns, setConns] = useState<Connection[]>([]);
   const [inventory, setInventory] = useState<LinkTableInventory[]>([]);
   const [connId, setConnId] = useState<number>();
+  const [targetConnId, setTargetConnId] = useState<number>();
   const [tables, setTables] = useState<string[]>([]);
   const [selecting, setSelecting] = useState(false);
 
@@ -106,6 +107,7 @@ export default function DeployWizard({ open, onClose, onDeployed }: Props) {
     setResult(null);
     setError("");
     setConnId(undefined);
+    setTargetConnId(undefined);
     setTables([]);
     setInventory([]);
   };
@@ -205,6 +207,7 @@ export default function DeployWizard({ open, onClose, onDeployed }: Props) {
         seed_data: values.seed,
         mode,
         connection_id: mode === "link" ? connId : undefined,
+        target_connection_id: mode === "create" ? targetConnId : undefined,
       });
       setResult(r);
       setPhase("done");
@@ -327,6 +330,24 @@ export default function DeployWizard({ open, onClose, onDeployed }: Props) {
           <Form.Item name="biz_name" label="系统名称" rules={[{ required: true }]}>
             <Input placeholder="给这套系统起个名" disabled={phase !== "input"} maxLength={24} />
           </Form.Item>
+
+          {!isLink && phase === "input" && (
+            <Form.Item
+              label="落库位置"
+              style={{ marginBottom: 8 }}
+              extra="默认在本机建独立 SQLite 库；也可选已登记的 MySQL/PostgreSQL 连接，系统会在其上新建独立库（不碰已有库）"
+            >
+              <Select
+                allowClear
+                placeholder="本机 SQLite（默认）"
+                value={targetConnId}
+                onChange={(v) => setTargetConnId(v)}
+                options={conns
+                  .filter((c) => c.dialect !== "sqlite")
+                  .map((c) => ({ value: c.id, label: `${c.name}（${c.dialect}）` }))}
+              />
+            </Form.Item>
+          )}
 
           {isLink && phase === "input" && (
             <>

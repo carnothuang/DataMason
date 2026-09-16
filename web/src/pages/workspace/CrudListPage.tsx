@@ -14,6 +14,7 @@ import {
   Typography,
 } from "antd";
 import type { ColumnsType } from "antd/es/table";
+import { ExportOutlined } from "@ant-design/icons";
 import type { CrudRowFilters, RowPage, TableMeta } from "../../api";
 import { CrudApi } from "../../api";
 import CrudForm from "./CrudForm";
@@ -278,6 +279,21 @@ export default function CrudListPage({
                 {filter.value ? ` = ${filter.value}` : ""}
               </Tag>
             )}
+            <Button
+              icon={<ExportOutlined />}
+              onClick={() => {
+                const params: CrudRowFilters = {};
+                if (search) params.search = search;
+                if (filter?.col && filter.value !== "") params[filter.col] = filter.value;
+                if (sort.field) {
+                  params.sort = sort.field;
+                  params.order = sort.order;
+                }
+                window.open(CrudApi.exportCsvUrl(deploymentId, table, params), "_blank");
+              }}
+            >
+              导出 CSV
+            </Button>
           </Space>
           <Table
             rowKey={(r) => String(r[pkName] ?? JSON.stringify(r))}

@@ -49,7 +49,7 @@ export default function ApiDocsPage({ deploymentId, canManageKeys }: Props) {
   const [freshKey, setFreshKey] = useState<string>("");
 
   const [table, setTable] = useState<string | undefined>(undefined);
-  const [useKey, setUseKey] = useState(false);
+  const [authMode, setAuthMode] = useState<"session" | "key" | "bearer">("session");
   const [keyInput, setKeyInput] = useState("");
   const [trying, setTrying] = useState(false);
   const [result, setResult] = useState("");
@@ -125,7 +125,10 @@ export default function ApiDocsPage({ deploymentId, canManageKeys }: Props) {
     setResult("");
     try {
       const headers: Record<string, string> = {};
-      if (useKey && keyInput.trim()) headers["X-API-Key"] = keyInput.trim();
+      if (keyInput.trim()) {
+        if (authMode === "key") headers["X-API-Key"] = keyInput.trim();
+        else if (authMode === "bearer") headers["Authorization"] = `Bearer ${keyInput.trim()}`;
+      }
       const r = await fetch(
         `/api/v1/app/${deploymentId}/api/tables/${encodeURIComponent(table)}/rows?page_size=3`,
         { headers },
@@ -316,15 +319,16 @@ export default function ApiDocsPage({ deploymentId, canManageKeys }: Props) {
               onChange={setTable}
             />
             <Select
-              style={{ width: 150 }}
-              value={useKey ? "key" : "session"}
-              onChange={(v) => setUseKey(v === "key")}
+              style={{ width: 160 }}
+              value={authMode}
+              onChange={(v) => setAuthMode(v)}
               options={[
                 { value: "session", label: "用当前登录态" },
-                { value: "key", label: "用 API 密钥" },
+                { value: "key", label: "X-API-Key" },
+                { value: "bearer", label: "Bearer 令牌" },
               ]}
             />
-            {useKey && (
+            {authMode !== "session" && (
               <Input
                 style={{ width: 320 }}
                 placeholder="粘贴 dm_ 密钥"
@@ -338,7 +342,7 @@ export default function ApiDocsPage({ deploymentId, canManageKeys }: Props) {
           </Space>
           <Text type="secondary" style={{ fontSize: 12 }}>
             调用 <Text code>GET .../tables/{"{table}"}/rows?page_size=3</Text>
-            ；「用 API 密钥」时以 X-API-Key 头认证（演示 key 通道）。
+            ；密钥通道支持 <Text code>X-API-Key</Text> 或 <Text code>Authorization: Bearer</Text> 两种头。
           </Text>
           {result && (
             <pre

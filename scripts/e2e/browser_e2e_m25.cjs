@@ -136,6 +136,8 @@ const opName = `小李客户${STAMP}`;
     const modal = page.locator(".ant-modal-content").last();
     await modal.waitFor();
     await modal.locator(".ant-select", { hasText: "选择账号" }).first().click();
+    // 持久库中用户多，先输入用户名过滤再选（避免虚拟列表不含新用户）
+    await modal.locator(".ant-select input").first().fill(OP_USER);
     await pickOption(page, `小李（${OP_USER}）`);
     const treeNode = modal.locator(".ant-tree-treenode", { hasText: "客户管理" }).first();
     await treeNode.waitFor({ timeout: 10000 });

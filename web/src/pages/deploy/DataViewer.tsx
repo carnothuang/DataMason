@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { App, Button, Empty, Segmented, Space, Table, Tag, Typography } from "antd";
+import { App, Button, Empty, Input, Segmented, Space, Table, Tag, Typography } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import { DeployApi, RowPage, TableInfo } from "../../api";
 
@@ -23,6 +23,7 @@ export default function DataViewer({ deploymentId, bizName, dataMode, onBack, on
   const [active, setActive] = useState<string>("");
   const [page, setPage] = useState(1);
   const [sort, setSort] = useState<{ field?: string; order?: "asc" | "desc" }>({});
+  const [search, setSearch] = useState<string | undefined>(undefined);
   const [rows, setRows] = useState<RowPage | null>(null);
   const [loading, setLoading] = useState(false);
 
@@ -43,11 +44,12 @@ export default function DataViewer({ deploymentId, bizName, dataMode, onBack, on
       page_size: 20,
       sort: sort.field,
       order: sort.order,
+      search,
     })
       .then(setRows)
       .catch((e) => message.error(e.message))
       .finally(() => setLoading(false));
-  }, [deploymentId, active, page, sort.field, sort.order]);
+  }, [deploymentId, active, page, sort.field, sort.order, search]);
 
   const columns: ColumnsType<Record<string, unknown>> = rows
     ? rows.columns
@@ -87,11 +89,21 @@ export default function DataViewer({ deploymentId, bizName, dataMode, onBack, on
                 setActive(String(v));
                 setPage(1);
                 setSort({});
+                setSearch(undefined);
               }}
               options={tables.map((t) => ({
                 label: t.biz_name || t.name,
                 value: t.name,
               }))}
+            />
+            <Input.Search
+              allowClear
+              placeholder="全局搜索"
+              style={{ width: 200 }}
+              onSearch={(v) => {
+                setSearch(v.trim() || undefined);
+                setPage(1);
+              }}
             />
             <Button
               size="small"

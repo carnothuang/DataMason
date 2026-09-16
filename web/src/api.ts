@@ -494,12 +494,17 @@ export const CrudApi = {
     http
       .get<RowPage>(`/app/${deploymentId}/api/tables/${encodeURIComponent(table)}/rows`, { params })
       .then((r) => r.data),
-  get: (deploymentId: number, table: string, pk: string | number) =>
-    http
-      .get<Record<string, unknown>>(
-        `/app/${deploymentId}/api/tables/${encodeURIComponent(table)}/rows/${pk}`,
-      )
-      .then((r) => r.data),
+  exportCsvUrl: (deploymentId: number, table: string, params: CrudRowFilters = {}) => {
+    const qs = new URLSearchParams(
+      Object.entries(params).reduce<Record<string, string>>((acc, [k, v]) => {
+        if (v !== undefined && v !== null && v !== "") acc[k] = String(v);
+        return acc;
+      }, {}),
+    ).toString();
+    return `/api/v1/app/${deploymentId}/api/tables/${encodeURIComponent(table)}/rows.csv${
+      qs ? `?${qs}` : ""
+    }`;
+  },
   create: (deploymentId: number, table: string, values: Record<string, unknown>) =>
     http
       .post<{ id: string | number }>(
@@ -559,6 +564,7 @@ export interface LogsPage {
   page: number;
   page_size: number;
   total: number;
+  filter_options?: { actors: { id: number; name: string }[]; tables: string[] };
 }
 
 export interface LogFilters {
@@ -884,7 +890,8 @@ export interface AuthApi {
     username: string;
     password: string;
     display_name?: string;
-  }) => Promise<{ id: number; username: string }>;
+    llm?: { name?: string; base_url?: string; api_key?: string; model_name?: string };
+  }) => Promise<{ id: number; username: string; llm_configured: boolean }>;
   listUsers: () => Promise<CurrentUser[]>;
   createUser: (payload: {
     username: string;
@@ -945,13 +952,14 @@ export const DeployApi = {
     seed_data: boolean;
     mode?: "create" | "link";
     connection_id?: number;
+    target_connection_id?: number;
   }) => http.post<DeployResult>("/deployments/confirm", payload).then((r) => r.data),
   tables: (id: number) =>
     http.get<TableInfo[]>(`/deployments/${id}/tables`).then((r) => ensureArray<TableInfo>(r.data, "数据表")),
   rows: (
     id: number,
     table: string,
-    params: { page?: number; page_size?: number; sort?: string; order?: string },
+    params: { page?: number; page_size?: number; sort?: string; order?: string; search?: string },
   ) =>
     http
       .get<RowPage>(`/deployments/${id}/tables/${encodeURIComponent(table)}/rows`, { params })
@@ -1086,7 +1094,8 @@ export const AuthApi: AuthApi = {
       "/auth/bootstrap",
     ).then((r) => r.data),
   setup: (payload) =>
-    http.post<{ id: number; username: string }>("/auth/setup", payload).then((r) => r.data),
+    http.post<{ id: number; username: string; llm_configured: boolean }>(
+      "/auth/setup", payload).then((r) => r.data),
   listUsers: () =>
     http.get<CurrentUser[]>("/auth/users").then((r) => ensureArray<CurrentUser>(r.data, "用户列表")),
   createUser: (payload) =>

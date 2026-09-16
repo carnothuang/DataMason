@@ -251,7 +251,7 @@ async function newLoggedInContext(browser, user, pass) {
     await page.locator("pre").filter({ hasText: '"total"' }).first().waitFor({ timeout: 15000 });
     // key 通道试调用
     await page.locator(".ant-select", { hasText: "用当前登录态" }).first().click();
-    await pickOption(page, "用 API 密钥");
+    await pickOption(page, "X-API-Key");
     await page.getByRole("button", { name: btn("试调用") }).click();
     await page.locator("pre").filter({ hasText: "HTTP 200" }).first().waitFor({ timeout: 15000 });
     log("⑤ API 文档试调用（会话+密钥）返回真实数据", elapsed());

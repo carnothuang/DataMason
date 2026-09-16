@@ -174,8 +174,24 @@ def test_confirm_without_seed(app, client, admin, patch_llm):
     biz.dispose()
 
 
+def test_export_rows_csv(app, client, admin, patch_llm):
+    """A6：工作台表格导出 CSV（沿用搜索/过滤，UTF-8 BOM）。"""
+    did = _deploy_one(client)
+    client.post(f"/api/v1/app/{did}/api/tables/messages/rows",
+                json={"visitor": "甲", "content": "你好"})
+    r = client.get(f"/api/v1/app/{did}/api/tables/messages/rows.csv")
+    assert r.status_code == 200, r.get_data(as_text=True)
+    assert r.headers["Content-Type"].startswith("text/csv")
+    text = r.get_data(as_text=True)
+    assert text.startswith("\ufeff") and "visitor" in text and "甲" in text
+
+
 def test_unauthenticated_deploy_rejected(app, client, patch_llm):
-    """M2-1：未登录访问业务接口一律 401。"""
+    """M2-1：系统已初始化但未登录 → 业务接口一律 401。"""
+    Session = app.extensions["datamason_session_factory"]
+    with Session() as s:
+        s.add(User(username="seed", password_hash=hash_password("pw")))
+        s.commit()
     preview = client.post("/api/v1/deployments/preview",
                           json={"description": "x"})
     assert preview.status_code == 401

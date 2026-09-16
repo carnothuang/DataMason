@@ -334,6 +334,7 @@ def test_link_confirm_reuses_connection_without_alter(app, env, ext_db):
         d = s.get(Deployment, did)
         assert d.data_mode == "link"
         assert d.connection_id == conn_id
+        assert d.db_name == Path(ext_db).name   # 存实际库名，非连接显示名
         assert d.seed_data is False          # 直连不种种子
         assert d.status == "running"
     assert not list((Path(app.config["DATA_ROOT"]) / "deployments").glob("*.db"))

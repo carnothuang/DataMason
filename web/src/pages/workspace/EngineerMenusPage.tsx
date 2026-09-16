@@ -27,10 +27,12 @@ import {
 } from "@ant-design/icons";
 import {
   CrudApi,
+  DashboardApi,
   EngineerApi,
   EngineerMenuItem,
   EngineerPageCard,
   EngineerInterfacesPayload,
+  FlowApi,
 } from "../../api";
 
 const { Text } = Typography;
@@ -58,6 +60,7 @@ interface PagePreview {
   rows?: Record<string, unknown>[];
   columns?: string[];
   formColumns?: { name: string; biz_name?: string }[];
+  flowSteps?: string[];
 }
 
 interface FlatNode {
@@ -231,13 +234,12 @@ export default function EngineerMenusPage({ deploymentId }: Props) {
       const results = await Promise.all(
         pages.map(async (p) => {
           const out: PagePreview = {};
-          if (!p.table) return [p.id, out] as const;
           try {
-            if (p.kind === "crud_list") {
+            if (p.kind === "crud_list" && p.table) {
               const page = await CrudApi.rows(deploymentId, p.table, { page: 1, page_size: 3 });
               out.rows = page.data;
               out.columns = page.columns;
-            } else if (p.kind === "public_form") {
+            } else if (p.kind === "public_form" && p.table) {
               const meta = await CrudApi.meta(deploymentId);
               const t = meta[p.table];
               if (t) {
@@ -246,6 +248,16 @@ export default function EngineerMenusPage({ deploymentId }: Props) {
                   .slice(0, 4)
                   .map((c) => ({ name: c.name, biz_name: c.biz_name }));
               }
+            } else if (p.kind === "dashboard") {
+              // C2：看板缩略卡直接重跑报表（真实数据）
+              const run = await DashboardApi.run(deploymentId, p.id);
+              out.rows = run.rows;
+              out.columns = run.columns;
+            } else if (p.kind === "flow" && p.flow_id) {
+              // C2：流程缩略卡渲染真实步骤条
+              const flows = await FlowApi.list(deploymentId);
+              const f = flows.find((x) => x.id === p.flow_id);
+              out.flowSteps = (f?.steps || []).map((s) => s.name);
             }
           } catch {
             /* 缩略图不阻塞拖拽 */
@@ -798,7 +810,7 @@ function PageCard({
         </Text>
       )}
       <div style={{ marginTop: 8, fontSize: 12 }}>
-        {page.kind === "crud_list" && preview?.rows && preview.columns ? (
+        {(page.kind === "crud_list" || page.kind === "dashboard") && preview?.rows && preview.columns ? (
           <Table
             size="small"
             rowKey={(_, i) => String(i)}
@@ -808,6 +820,20 @@ function PageCard({
             dataSource={preview.rows}
             locale={{ emptyText: "暂无数据" }}
           />
+        ) : page.kind === "flow" && preview?.flowSteps?.length ? (
+          <div style={{ display: "flex", flexDirection: "column", gap: 4, padding: "2px" }}>
+            {preview.flowSteps.slice(0, 4).map((name, i) => (
+              <div key={i} style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                <Tag color={i === 0 ? "processing" : "default"} style={{ marginRight: 0 }}>
+                  {i + 1}
+                </Tag>
+                <span style={{ color: "#595959" }}>{name}</span>
+              </div>
+            ))}
+            {preview.flowSteps.length > 4 && (
+              <span style={{ color: "#bfbfbf" }}>…共 {preview.flowSteps.length} 步</span>
+            )}
+          </div>
         ) : page.kind === "public_form" && preview?.formColumns ? (
           <div style={{ display: "flex", flexDirection: "column", gap: 6, padding: "4px 2px" }}>
             {preview.formColumns.map((c) => (
@@ -836,18 +862,14 @@ function PageCard({
               color: "#bfbfbf",
             }}
           >
-            {page.kind === "dashboard"
-              ? "看板预览"
-              : page.kind === "flow"
-                ? "流程向导（步骤条）"
-                : "预览不可用"}
+            预览不可用
           </div>
         )}
       </div>
       <div style={{ marginTop: 8, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-        <Tooltip title="完整页面编辑器在后续里程碑；当前支持改标题。">
+        <Tooltip title="修改页面标题（工作台菜单与页面标题同步；字段编辑在「数据蓝图」）。">
           <Button size="small" icon={<EditOutlined />} onClick={onAdjust}>
-            调整
+            改标题
           </Button>
         </Tooltip>
         {!preview?.rows && page.kind === "crud_list" && <CloseOutlined style={{ color: "#d9d9d9" }} />}

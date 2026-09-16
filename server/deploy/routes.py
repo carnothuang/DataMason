@@ -40,6 +40,22 @@ def _permission_error(exc: PermissionDenied):
     return jsonify({"error": str(exc)}), 403
 
 
+@bp.errorhandler(HTTPException)
+def _http_error(exc: HTTPException):
+    return jsonify({"error": exc.description}), exc.code
+
+
+def _assert_running(deployment_id: int) -> None:
+    """控制台数据浏览：停止态部署不可操作（与工作台/API 的 409 门控一致）。"""
+    Session = current_app.extensions["datamason_session_factory"]
+    with Session() as s:
+        d = s.get(Deployment, deployment_id)
+        if d is None:
+            abort(404, description="部署不存在")
+        if d.status != "running":
+            abort(409, description="部署已停止，数据暂不可操作；可在部署清单再启动")
+
+
 @bp.get("/deployments")
 def list_deployments():
     return jsonify(service.list_deployments(current_app))
@@ -126,6 +142,8 @@ def confirm():
             seed_data=seed_data, purpose=purpose,
             data_mode=mode, connection_id=_opt_int(data, "connection_id",
                                                     default=None),
+            target_connection_id=_opt_int(data, "target_connection_id",
+                                          default=None),
         )
         return jsonify(result), 201
     except service.DeployError as exc:
@@ -304,12 +322,13 @@ def _opt_int(data: dict, key: str, default: int | None):
 
 # ---------------- M1-3 按部署只读浏览 ----------------
 
-_RESERVED = {"page", "page_size", "sort", "order"}
+_RESERVED = {"page", "page_size", "sort", "order", "search"}
 
 
 @bp.get("/deployments/<int:deployment_id>/tables")
 def deployment_tables(deployment_id: int):
     _deployment_and_role(current_app, deployment_id)  # 成员校验（M2-5）
+    _assert_running(deployment_id)  # 停止态不可操作（M3-1 门控一致）
     try:
         return jsonify(runtime.list_tables(current_app, deployment_id, _uid()))
     except KeyError as exc:
@@ -319,6 +338,7 @@ def deployment_tables(deployment_id: int):
 @bp.get("/deployments/<int:deployment_id>/tables/<table_name>/rows")
 def deployment_rows(deployment_id: int, table_name: str):
     _deployment_and_role(current_app, deployment_id)  # 成员校验（M2-5）
+    _assert_running(deployment_id)  # 停止态不可操作
     page = max(int(request.args.get("page", 1)), 1)
     page_size = min(max(int(request.args.get("page_size", 20)), 1), 200)
     sort = request.args.get("sort")
@@ -328,6 +348,7 @@ def deployment_rows(deployment_id: int, table_name: str):
         return jsonify(runtime.list_rows(
             current_app, deployment_id, table_name,
             page, page_size, sort, order, filters, _uid(),
+            search=(request.args.get("search") or "").strip(),
         ))
     except KeyError as exc:
         return jsonify({"error": str(exc)}), 404

@@ -347,3 +347,15 @@ def test_rename_page_title_and_hidden_from_non_creator(app, env, patch_llm):
     adm = _login(app, "adm")
     assert adm.put(f"/api/v1/deployments/{did}/pages/{msg_page['id']}",
                    json={"title": "X"}).status_code == 403
+
+
+def test_entry_lookup_service_rejects_anonymous(app, env, patch_llm):
+    """服务层：无会话时不解析入口（B5：不泄露部署存在性）。"""
+    from server.deploy import service as deploy_service
+
+    did = _deploy(env["client"])
+    with app.test_request_context("/"):
+        assert deploy_service.resolve_entry_path(app, f"/app/{did}")["found"] is False
+    # 有会话（创建人）→ 正常解析
+    assert env["client"].get(
+        f"/api/v1/entry/lookup?path=/app/{did}").get_json()["found"] is True

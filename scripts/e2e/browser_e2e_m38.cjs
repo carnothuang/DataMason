@@ -100,7 +100,7 @@ async function pickOption(page, text) {
 
     // 试调用（API 密钥通道）
     await page.locator(".ant-select", { hasText: "用当前登录态" }).first().click();
-    await pickOption(page, "用 API 密钥");
+    await pickOption(page, "X-API-Key");
     await page.getByRole("button", { name: btn("试调用") }).click();
     await page.locator("pre").filter({ hasText: "HTTP 200" }).first().waitFor({ timeout: 15000 });
     const resultText = await page.locator("pre").last().innerText();

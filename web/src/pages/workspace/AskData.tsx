@@ -3,6 +3,7 @@ import { Alert, App, Button, Card, Collapse, Drawer, Empty, Input, List, Popconf
 import { PushpinOutlined, SendOutlined } from "@ant-design/icons";
 import { DashboardRun, QaAnswer, QaApi, QaPin } from "../../api";
 import ChartCard, { isRenderableChart } from "../../components/ChartCard";
+import { maskText, useDemo } from "./demo";
 
 const { Text, Paragraph } = Typography;
 
@@ -160,12 +161,14 @@ export default function AskData({ deploymentId, open, onClose, canPin, onPinned 
 }
 
 function RowsTable({ answer }: { answer: QaAnswer | DashboardRun }) {
+  const { masked } = useDemo();
   const columns = answer.columns.map((col) => ({
     title: col,
     dataIndex: col,
     key: col,
     ellipsis: true,
-    render: (value: unknown) => (value == null ? "" : String(value)),
+    render: (value: unknown) =>
+      value == null ? "" : String(masked ? maskText(value) : value),
   }));
   return (
     <Table

@@ -53,6 +53,66 @@ def _slugify(text_zh: str) -> str:
     return ascii_part[:24] if ascii_part else ""
 
 
+def _db_name_from_uri(uri: str | None) -> str:
+    """从连接串取实际库名（直连模式列表/导出展示用）。"""
+    if not uri:
+        return ""
+    if uri.startswith("sqlite"):
+        tail = uri.split("sqlite:///", 1)[-1] if "sqlite:///" in uri else uri
+        return Path(tail).name or tail
+    path = uri.rsplit("/", 1)[-1]
+    return path.split("?", 1)[0]
+
+
+def _split_scheme_host(uri: str) -> tuple[str, str]:
+    """拆 MySQL/PG 连接串为 (scheme, 'user:pw@host:port')，忽略库名。"""
+    scheme, rest = uri.split("://", 1)
+    host = rest.rsplit("/", 1)[0] if "/" in rest else rest
+    return scheme, host
+
+
+def _gen_db_name(biz_name: str) -> str:
+    slug = _slugify(biz_name) or "dm"
+    return (f"dm_{slug}_"
+            f"{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S')}_"
+            f"{secrets.token_hex(3)}")
+
+
+def create_target_database(app, host: Connection, biz_name: str) -> tuple[str, str, str]:
+    """在既有 MySQL/PG 服务器连接上新建独立库（A3：创建模式落 MySQL/PG）。
+
+    返回 (新库连接串, 库名, 方言)。SQLite 请走本地文件分支。
+    """
+    from server.dataaccess.manager import create_database_ddl
+
+    if host.dialect not in ("mysql", "postgresql"):
+        raise DeployError("创建模式目标库仅支持 MySQL/PostgreSQL（SQLite 走本地文件）")
+    base_uri = app.extensions["cipher"].decrypt(host.conn_uri)
+    scheme, hostpart = _split_scheme_host(base_uri)
+    db_name = _gen_db_name(biz_name)
+
+    if host.dialect == "mysql":
+        admin_uri = f"{scheme}://{hostpart}"
+        engine = create_engine(admin_uri, future=True)
+        try:
+            with engine.begin() as conn_db:
+                conn_db.execute(text(create_database_ddl("mysql", db_name)))
+        finally:
+            engine.dispose()
+        new_uri = f"{admin_uri}/{db_name}"
+    else:  # postgresql：连维护库 postgres（CREATE DATABASE 不能落事务）
+        admin_uri = f"{scheme}://{hostpart}/postgres"
+        engine = create_engine(admin_uri, future=True).execution_options(
+            isolation_level="AUTOCOMMIT")
+        try:
+            with engine.connect() as conn_db:
+                conn_db.execute(text(create_database_ddl("postgresql", db_name)))
+        finally:
+            engine.dispose()
+        new_uri = f"{scheme}://{hostpart}/{db_name}"
+    return new_uri, db_name, host.dialect
+
+
 def _owner_id(s) -> int:
     """部署归属：M2-1 起取当前会话用户（登录由 app.py 鉴权拦截层保证）。
 
@@ -149,10 +209,13 @@ def _derive_pages(schema, with_public_forms: bool = True) -> list[dict]:
 
 def confirm(app, spec_dict: dict, biz_name: str, seed_data: bool = True,
             purpose: str = "", data_mode: str = "create",
-            connection_id: int | None = None) -> dict:
+            connection_id: int | None = None,
+            target_connection_id: int | None = None) -> dict:
     """按提案预览时的 spec 确定性落库（不再调 LLM，保证所见即所建）。
 
-    data_mode="create"（默认）：自建 SQLite 独立库 + 建表 + 可选种子；
+    data_mode="create"（默认）：自建独立库 + 建表 + 可选种子；
+      默认落 SQLite 文件；给定 target_connection_id（MySQL/PG 服务器连接）时
+      在该服务器上新建独立库后落库（A3）。
     data_mode="link"（M2-7 直连）：复用已有连接的外部库，只登记元数据，
     不建库/不执行 DDL/不种种子（DR-05 绝不 ALTER 外部库）。
     """
@@ -171,6 +234,20 @@ def confirm(app, spec_dict: dict, biz_name: str, seed_data: bool = True,
             conn = s.get(Connection, connection_id)
             if conn is None:
                 raise DeployError(f"数据连接不存在（id={connection_id}）")
+            link_db_name = _db_name_from_uri(app.extensions["cipher"].decrypt(conn.conn_uri))
+            biz_dialect = conn.dialect
+        elif target_connection_id is not None:
+            # ①'' 创建模式（A3）：在既有 MySQL/PG 服务器连接上新建独立库
+            host = s.get(Connection, target_connection_id)
+            if host is None:
+                raise DeployError(f"目标服务器连接不存在（id={target_connection_id}）")
+            uri, rel_db, biz_dialect = create_target_database(app, host, biz_name)
+            conn = Connection(
+                name=f"[部署]{biz_name}", dialect=biz_dialect,
+                conn_uri=app.extensions["cipher"].encrypt(uri), status="ok",
+            )
+            s.add(conn)
+            s.flush()
         else:
             # ① 建独立 SQLite 物理库并登记 connections（B1：创建模式自动建连接）
             slug = _slugify(biz_name) or "dm"
@@ -182,6 +259,7 @@ def confirm(app, spec_dict: dict, biz_name: str, seed_data: bool = True,
             abs_db = Path(app.config["DATA_ROOT"]) / rel_db
             abs_db.parent.mkdir(parents=True, exist_ok=True)
             uri = f"sqlite:///{abs_db.as_posix()}"
+            biz_dialect = "sqlite"
 
             conn = Connection(
                 name=f"[部署]{biz_name}",
@@ -198,7 +276,7 @@ def confirm(app, spec_dict: dict, biz_name: str, seed_data: bool = True,
             purpose=purpose or biz_name,
             data_mode=data_mode,
             connection_id=conn.id,
-            db_name=conn.name if link_mode else rel_db,
+            db_name=link_db_name if link_mode else rel_db,
             status="deploying",
             entry_path="",
             owner_id=owner,
@@ -220,9 +298,9 @@ def confirm(app, spec_dict: dict, biz_name: str, seed_data: bool = True,
         biz_engine = get_connection_engine_factory(app)(connection_id)
         statements: list[str] = []
     else:
-        # ③ 物理建表（独立连接，避免元数据会话内跨库）
+        # ③ 物理建表（独立连接，避免元数据会话内跨库）；方言随目标库
         biz_engine = create_engine(uri, future=True)
-        statements = build_schema_ddl(schema, "sqlite")
+        statements = build_schema_ddl(schema, biz_dialect)
         execute_ddl(biz_engine, statements)
 
     # ④ 回读真实 schema（以数据库为准），写元数据
@@ -879,7 +957,9 @@ def resolve_entry_path(app, path: str) -> dict:
         d = s.query(Deployment).filter(Deployment.entry_path == path).first()
         if d is None:
             return {"found": False}
-        uid = _session_user_id() or d.owner_id
+        uid = _session_user_id()
+        if uid is None:
+            return {"found": False}  # 匿名不解析（不泄露部署存在性）
         role = member_service.get_role(s, d, uid)
         if role is None:
             return {"found": False}
