@@ -199,6 +199,7 @@ export default function Workspace({ deploymentId }: Props) {
               deploymentId={deploymentId}
               page={active}
               role={info?.role}
+              dataMode={info?.data_mode}
               focus={focus}
             />
           )}

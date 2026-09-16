@@ -102,9 +102,10 @@ def preview(app, description: str) -> dict:
     }
 
 
-def _derive_pages(schema) -> list[dict]:
+def _derive_pages(schema, with_public_forms: bool = True) -> list[dict]:
     """确定性派生页面清单（DR-07）：每张表一张 crud_list；
-    名字像留言/反馈/提交的表额外派生一张 public_form。"""
+    名字像留言/反馈/提交的表额外派生一张 public_form。
+    直连模式（M2-7）不开公开写表单：with_public_forms=False 外部库只做成员 CRUD。"""
     pages = []
     public_keywords = ("留言", "反馈", "消息", "message", "guestbook", "feedback")
     for t in schema.tables:
@@ -115,7 +116,7 @@ def _derive_pages(schema) -> list[dict]:
             "access": "member",
         })
         hint = f"{t.name} {t.biz_name}".lower()
-        if any(k.lower() in hint for k in public_keywords):
+        if with_public_forms and any(k.lower() in hint for k in public_keywords):
             pages.append({
                 "table": t.name,
                 "title": f"我要{t.biz_name or t.name}",
@@ -128,43 +129,58 @@ def _derive_pages(schema) -> list[dict]:
 # ---------------- 确认部署（落库） ----------------
 
 def confirm(app, spec_dict: dict, biz_name: str, seed_data: bool = True,
-            purpose: str = "") -> dict:
-    """按提案预览时的 spec 确定性落库（不再调 LLM，保证所见即所建）。"""
+            purpose: str = "", data_mode: str = "create",
+            connection_id: int | None = None) -> dict:
+    """按提案预览时的 spec 确定性落库（不再调 LLM，保证所见即所建）。
+
+    data_mode="create"（默认）：自建 SQLite 独立库 + 建表 + 可选种子；
+    data_mode="link"（M2-7 直连）：复用已有连接的外部库，只登记元数据，
+    不建库/不执行 DDL/不种种子（DR-05 绝不 ALTER 外部库）。
+    """
     from server.ddl.table_spec import SchemaSpec
 
+    link_mode = data_mode == "link"
     schema = SchemaSpec.model_validate(spec_dict)
 
     with _session(app) as s:
         owner = _owner_id(s)
 
-        # ① 建独立 SQLite 物理库并登记 connections（B1：创建模式自动建连接）
-        slug = _slugify(biz_name) or "dm"
-        unique = f"{slug}_{int(datetime.now(timezone.utc).timestamp()) % 100000}"
-        rel_db = f"deployments/{unique}.db"
-        abs_db = Path(app.config["DATA_ROOT"]) / rel_db
-        abs_db.parent.mkdir(parents=True, exist_ok=True)
-        uri = f"sqlite:///{abs_db.as_posix()}"
+        if link_mode:
+            # ①' 直连模式：复用已有连接（不新建），参考库由调用方保证存在
+            if connection_id is None:
+                raise DeployError("直连模式必须指定已有连接")
+            conn = s.get(Connection, connection_id)
+            if conn is None:
+                raise DeployError(f"数据连接不存在（id={connection_id}）")
+        else:
+            # ① 建独立 SQLite 物理库并登记 connections（B1：创建模式自动建连接）
+            slug = _slugify(biz_name) or "dm"
+            unique = f"{slug}_{int(datetime.now(timezone.utc).timestamp()) % 100000}"
+            rel_db = f"deployments/{unique}.db"
+            abs_db = Path(app.config["DATA_ROOT"]) / rel_db
+            abs_db.parent.mkdir(parents=True, exist_ok=True)
+            uri = f"sqlite:///{abs_db.as_posix()}"
 
-        conn = Connection(
-            name=f"[部署]{biz_name}",
-            dialect="sqlite",
-            conn_uri=app.extensions["cipher"].encrypt(uri),
-            status="ok",
-        )
-        s.add(conn)
-        s.flush()
+            conn = Connection(
+                name=f"[部署]{biz_name}",
+                dialect="sqlite",
+                conn_uri=app.extensions["cipher"].encrypt(uri),
+                status="ok",
+            )
+            s.add(conn)
+            s.flush()
 
         # ② 部署元数据行（先 deploying）
         deployment = Deployment(
             biz_name=biz_name,
             purpose=purpose or biz_name,
-            data_mode="create",
+            data_mode=data_mode,
             connection_id=conn.id,
-            db_name=rel_db,
+            db_name=conn.name if link_mode else rel_db,
             status="deploying",
             entry_path="",
             owner_id=owner,
-            seed_data=seed_data,
+            seed_data=seed_data and not link_mode,
         )
         s.add(deployment)
         s.flush()
@@ -175,21 +191,29 @@ def confirm(app, spec_dict: dict, biz_name: str, seed_data: bool = True,
         ))
         s.commit()  # 必须提交：后续新会话要按外键引用 connection/deployment
 
-    # ③ 物理建表（独立连接，避免元数据会话内跨库）
-    biz_engine = create_engine(uri, future=True)
-    statements = build_schema_ddl(schema, "sqlite")
-    execute_ddl(biz_engine, statements)
+    if link_mode:
+        # ③' 直连模式：解析外部库 engine（只读反射），不建表不执行 DDL
+        from server.settings.service import get_connection_engine_factory
+
+        biz_engine = get_connection_engine_factory(app)(connection_id)
+        statements: list[str] = []
+    else:
+        # ③ 物理建表（独立连接，避免元数据会话内跨库）
+        biz_engine = create_engine(uri, future=True)
+        statements = build_schema_ddl(schema, "sqlite")
+        execute_ddl(biz_engine, statements)
 
     # ④ 回读真实 schema（以数据库为准），写元数据
     insp = inspect(biz_engine)
     table_spec_ids: dict[str, int] = {}
 
-    def _rich_columns(table_model):
+    def _rich_columns(table_model, include_ownership: bool = True):
         """富化列蓝图（编辑器 M1-4 直接可用）：含主键/外键/归属/业务名标记。
 
-        以注入归属列后的规格为准，并用真实反射校准 nullable/类型字符串。
+        以注入归属列后的规格为准（link 模式不注入、以真实列准），
+        并用真实反射校准 nullable/类型字符串。
         """
-        full = inject_ownership_columns(table_model)
+        full = inject_ownership_columns(table_model) if include_ownership else table_model
         real_types: dict[str, str] = {}
         if table_model.name in insp.get_table_names():
             for rc in insp.get_columns(table_model.name):
@@ -214,13 +238,14 @@ def confirm(app, spec_dict: dict, biz_name: str, seed_data: bool = True,
 
     with _session(app) as s:
         for t in schema.tables:
-            rich_cols = _rich_columns(t)
+            rich_cols = _rich_columns(t, include_ownership=not link_mode)
             ts = TableSpec(
                 deployment_id=deployment_id,
                 name=t.name,
                 biz_name=t.biz_name,
                 columns_json=json.dumps(rich_cols, ensure_ascii=False),
-                ddl_sql="\n".join(stmt for stmt in statements if t.name in stmt),
+                ddl_sql=("\n".join(stmt for stmt in statements if t.name in stmt)
+                         if not link_mode else ""),
                 status="applied",
             )
             s.add(ts)
@@ -229,7 +254,7 @@ def confirm(app, spec_dict: dict, biz_name: str, seed_data: bool = True,
 
         # ⑤ 页面清单 + 菜单（ref_id → page_specs.id，闭环 B2）
         page_ids: dict[str, int] = {}
-        pages = _derive_pages(schema)
+        pages = _derive_pages(schema, with_public_forms=not link_mode)
         for p in pages:
             ps = PageSpec(
                 deployment_id=deployment_id,
@@ -259,8 +284,8 @@ def confirm(app, spec_dict: dict, biz_name: str, seed_data: bool = True,
             ))
         s.commit()
 
-    # ⑥ 演示种子（DR-08）
-    if seed_data:
+    # ⑥ 演示种子（DR-08；直连模式不种种子，外部库数据是真实数据）
+    if seed_data and not link_mode:
         seeds = generate_seed_rows(schema, rows_per_table=10)
         with biz_engine.begin() as conn_db:
             for table_name, rows in seeds.items():
@@ -291,9 +316,9 @@ def confirm(app, spec_dict: dict, biz_name: str, seed_data: bool = True,
         app, deployment_id, "deploy",
         actor_user_id=_owner_actor_id(app, deployment_id),
         object_kind="deployment", object_pk=str(deployment_id),
-        object_label=f"{biz_name} 部署就绪（创建模式 · {len(schema.tables)} 张表）",
-        changes={"data_mode": "create", "table_count": len(schema.tables),
-                 "seeded": seed_data},
+        object_label=f"{biz_name} 部署就绪（{'直连模式' if link_mode else '创建模式'} · {len(schema.tables)} 张表）",
+        changes={"data_mode": data_mode, "table_count": len(schema.tables),
+                 "seeded": seed_data and not link_mode},
     )
 
     return {
@@ -302,7 +327,8 @@ def confirm(app, spec_dict: dict, biz_name: str, seed_data: bool = True,
         "status": "running",
         "entry_path": entry_path,
         "table_count": len(schema.tables),
-        "seeded": seed_data,
+        "seeded": seed_data and not link_mode,
+        "data_mode": data_mode,
     }
 
 

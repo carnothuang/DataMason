@@ -159,6 +159,66 @@ def _seed_value(col, table_biz, ref_pk_map, rng):
     return f"{rng.choice(_WORD_POOL)}{table_biz}{rng.randint(1, 99)}"
 
 
+# ---------- 直连模式：反向生成结构后 AI 补业务标签（M2-7，可选） ----------
+
+ENRICH_SYSTEM_PROMPT = """你是数据库设计专家。下面给出用户的部署目标，以及从现有数据库反向生成的表结构（表名/列名/主外键）。
+请只输出一个 JSON 对象（不要任何解释或 markdown 代码块标记），补充中文业务名：
+{
+  "biz_notes": "这套系统是做什么的（一句话），基于目标与已有库结构",
+  "tables": [
+    {"name": "表名（原样保留），", "biz_name": "这张表的中文业务名"}
+  ]
+}
+硬性规则：
+1. tables 列表必须与原结构一一对应，不允许增删表；name 字段原样保留；
+2. biz_name 用通俗中文业务名（如 客户表/订单表）；
+3. 不要输出表结构、列定义等内容。"""
+
+
+def enrich_labels(
+    client: OpenAiCompatibleClient,
+    purpose: str,
+    schema_dict: dict,
+) -> tuple[SchemaSpec, dict]:
+    """反向生成的 spec + 部署目标 → 补中文业务名/biz_notes（可选增强）。
+
+    只改动 biz_name/biz_notes，结构字段原样保留并重新过 pydantic 强校验；
+    失败抛 LlmCallError，由直连预览层回退为确定性默认（表名即业务名）。
+    """
+    import json
+
+    from pydantic import ValidationError
+
+    user_prompt = (
+        f"部署目标：{purpose}\n"
+        "反向生成的结构：\n"
+        f"{json.dumps(schema_dict, ensure_ascii=False)}\n"
+        "请补充每张表的中文业务名。"
+    )
+    parsed, _usage = client.chat_json(ENRICH_SYSTEM_PROMPT, user_prompt)
+    if not isinstance(parsed, dict):
+        raise LlmCallError("补标签响应不是 JSON 对象")
+    tables = parsed.get("tables")
+    if not isinstance(tables, list):
+        raise LlmCallError("补标签响应缺少 tables 列表")
+
+    enriched = dict(schema_dict)
+    enriched["biz_notes"] = str(parsed.get("biz_notes") or schema_dict.get("biz_notes") or "")
+    by_name = {t["name"]: t for t in tables if isinstance(t, dict) and t.get("name")}
+    out_tables = []
+    for t in schema_dict.get("tables", []):
+        t = dict(t) if isinstance(t, dict) else t
+        label = by_name.get(t["name"], {}).get("biz_name")
+        t["biz_name"] = str(label).strip() if label else t.get("biz_name", "")
+        out_tables.append(t)
+    enriched["tables"] = out_tables
+    try:
+        schema = SchemaSpec.model_validate(enriched)
+    except ValidationError as exc:
+        raise LlmCallError(f"补标签后结构不合法：{_flatten_validation_error(exc)}") from exc
+    return schema, {"attempts": 1}
+
+
 def generate_seed_rows(spec: SchemaSpec, rows_per_table: int = 10, seed: int = 42) -> dict[str, list[dict]]:
     """按外键拓扑序为每表生成确定性数据。返回 {table_name: [row, ...]}。
 

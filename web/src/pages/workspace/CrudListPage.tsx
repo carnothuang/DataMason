@@ -26,6 +26,8 @@ interface Props {
   table: string;
   tableBizName: string;
   role?: string;
+  /** M2-7：直连模式标识（create/link），缺归属列时提示降级来源。 */
+  dataMode?: string;
   /** M2-6 日志→记录聚焦：非空时按主键定点过滤并高亮，便于回看记录现状。 */
   focusPk?: string | null;
   focusNonce?: number;
@@ -39,6 +41,7 @@ export default function CrudListPage({
   table,
   tableBizName,
   role,
+  dataMode,
   focusPk,
   focusNonce,
 }: Props) {
@@ -169,6 +172,12 @@ export default function CrudListPage({
 
   const filterCol = filter ? visibleCols.find((c) => c.name === filter.col) : null;
 
+  // M2-7 缺归属列降级明示：表缺 created_by 时「我的记录」服务端过滤不可用（全量可见）
+  const hasCreatedBy = useMemo(
+    () => !!meta?.columns.some((c) => c.name === "created_by"),
+    [meta],
+  );
+
   return (
     <Card
       title={tableBizName || table}
@@ -178,12 +187,24 @@ export default function CrudListPage({
         </Button>
       }
     >
-      {role === "operator" && (
+      {role === "operator" && hasCreatedBy && (
         <Alert
           type="info"
           showIcon
           style={{ marginBottom: 12 }}
           message="我的记录：这里只显示您录入的数据（全量数据归创建人与管理员）"
+        />
+      )}
+      {role === "operator" && !hasCreatedBy && (
+        <Alert
+          type="warning"
+          showIcon
+          style={{ marginBottom: 12 }}
+          message={
+            dataMode === "link"
+              ? "该表来自外部直连库且缺少归属列 created_by，「我的记录」降级不可用，此处展示全量数据（DataMason 绝不修改外部库结构）"
+              : "该表缺少归属列 created_by，「我的记录」不可用，此处展示全量数据"
+          }
         />
       )}
       {focusedPk && (

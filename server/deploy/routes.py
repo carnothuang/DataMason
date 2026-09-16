@@ -6,8 +6,9 @@ from werkzeug.exceptions import HTTPException
 
 from server.crud import runtime
 from server.audit.service import log_system
-from server.deploy import service
+from server.deploy import link, service
 from server.deploy.service import DeployError
+from server.deploy.link import LinkError
 from server.deploy import editor
 from server.members import service as member_service
 from server.members.service import PermissionDenied
@@ -64,6 +65,9 @@ def confirm():
     spec_json = data.get("spec_json")
     biz_name = (data.get("biz_name") or "").strip()
     purpose = (data.get("description") or "").strip()
+    mode = data.get("mode") or "create"
+    if mode not in ("create", "link"):
+        return jsonify({"error": f"未知数据模式: {mode}"}), 400
     if not spec_json or not biz_name:
         return jsonify({"error": "缺少 spec_json 或 biz_name"}), 400
     seed_data = bool(data.get("seed_data", True))
@@ -71,12 +75,94 @@ def confirm():
         result = service.confirm(
             current_app, spec_json, biz_name,
             seed_data=seed_data, purpose=purpose,
+            data_mode=mode, connection_id=_opt_int(data, "connection_id",
+                                                    default=None),
         )
         return jsonify(result), 201
     except service.DeployError as exc:
         return jsonify({"error": str(exc)}), 400
     except Exception as exc:  # noqa: BLE001
         return jsonify({"error": f"{type(exc).__name__}: {exc}"}), 502
+
+
+# ---------------- M2-7 直连模式（接已有的，DR-09/DR-18） ----------------
+
+@bp.get("/deployments/link/connections")
+def link_connections():
+    """可直连的连接清单：登录即可见（区别于 /settings 连接管理需平台管理员）。"""
+    from server.settings.service import list_connections
+
+    return jsonify(list_connections(current_app))
+
+
+@bp.post("/deployments/link/inventory")
+def link_inventory():
+    data = _body()
+    try:
+        conn_id = _require_conn_id(data)
+        return jsonify(link.inventorize(current_app, conn_id))
+    except (LinkError, DeployError, ValueError) as exc:
+        return jsonify({"error": str(exc)}), 400
+    except KeyError as exc:
+        return jsonify({"error": str(exc)}), 404
+    except Exception as exc:  # noqa: BLE001
+        return jsonify({"error": f"{type(exc).__name__}: {exc}"}), 502
+
+
+@bp.post("/deployments/link/select")
+def link_select():
+    """两段式选表：意图一句话 → 相关表推荐（schema 过大时 _select_relevant_tables）。"""
+    data = _body()
+    purpose = (data.get("purpose") or "").strip()
+    if not purpose:
+        return jsonify({"error": "请描述你要从已有数据验证什么（一句话）"}), 400
+    try:
+        conn_id = _require_conn_id(data)
+        return jsonify(link.select_recommend(current_app, conn_id, purpose))
+    except (LinkError, DeployError, ValueError) as exc:
+        return jsonify({"error": str(exc)}), 400
+    except KeyError as exc:
+        return jsonify({"error": str(exc)}), 404
+    except Exception as exc:  # noqa: BLE001
+        return jsonify({"error": f"{type(exc).__name__}: {exc}"}), 502
+
+
+@bp.post("/deployments/link/preview")
+def link_preview():
+    """直连提案：反向生成 table_spec +（可选）AI 补业务标签 → 复用提案形态。"""
+    data = _body()
+    try:
+        conn_id = _require_conn_id(data)
+        tables = data.get("tables") or []
+        purpose = (data.get("purpose") or "").strip()
+        enhance = bool(data.get("enhance", False))
+        return jsonify(link.preview(
+            current_app, conn_id, tables, purpose=purpose, enhance=enhance,
+        ))
+    except (LinkError, DeployError, ValueError) as exc:
+        return jsonify({"error": str(exc)}), 400
+    except KeyError as exc:
+        return jsonify({"error": str(exc)}), 404
+    except Exception as exc:  # noqa: BLE001
+        return jsonify({"error": f"{type(exc).__name__}: {exc}"}), 502
+
+
+def _require_conn_id(data: dict) -> int:
+    conn_id = _opt_int(data, "connection_id", default=0)
+    if not conn_id:
+        raise ValueError("缺少 connection_id")
+    return conn_id
+
+
+def _opt_int(data: dict, key: str, default: int | None):
+    """从 JSON body 取整数；兼容前端可能以字符串提交数字。"""
+    raw = data.get(key, default)
+    if raw is None or isinstance(raw, int):
+        return raw
+    try:
+        return int(str(raw))
+    except (TypeError, ValueError):
+        return default
 
 
 # ---------------- M1-3 按部署只读浏览 ----------------

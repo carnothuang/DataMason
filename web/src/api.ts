@@ -99,6 +99,47 @@ export interface DeployResult {
   entry_path: string;
   table_count: number;
   seeded: boolean;
+  data_mode: "create" | "link";
+}
+
+// ---------- 直连模式（M2-7，接已有的） ----------
+export interface LinkTableInventory {
+  name: string;
+  columns: string[];
+  column_count: number;
+  pk: string | null;
+  single_pk: boolean;
+  has_created_by: boolean;
+  ownership_columns: string[];
+  fk_targets: string[];
+}
+
+export interface LinkSelection {
+  triggered: boolean;
+  trigger_threshold: number;
+  max_tables: number;
+  total: number;
+  selection: string[];
+  no_pk: string[];
+}
+
+export interface LinkProposal extends Proposal {
+  data_mode: "link";
+  connection_id: number;
+  link: {
+    selected_tables: string[];
+    no_pk_tables: string[];
+    missing_tables: string[];
+    dropped_fks: {
+      table: string;
+      column: string;
+      ref_table: string;
+      ref_column: string;
+      reason: string;
+    }[];
+    ownership_missing: string[];
+    enrich_failed?: string;
+  };
 }
 
 // ---------- 工作台运行时（M2-2） ----------
@@ -157,6 +198,7 @@ export interface WorkspaceInfo {
   biz_name: string;
   status: string;
   entry_path: string;
+  data_mode: "create" | "link";
   role: "creator" | "admin" | "operator";
   menus: WorkspaceMenu[];
   pages: WorkspacePage[];
@@ -413,6 +455,8 @@ export const DeployApi = {
     biz_name: string;
     description: string;
     seed_data: boolean;
+    mode?: "create" | "link";
+    connection_id?: number;
   }) => http.post<DeployResult>("/deployments/confirm", payload).then((r) => r.data),
   tables: (id: number) =>
     http.get<TableInfo[]>(`/deployments/${id}/tables`).then((r) => ensureArray<TableInfo>(r.data, "数据表")),
@@ -450,6 +494,34 @@ export const ModelsApi = {
     http.post<{ ok: boolean; reply?: unknown; error?: string }>(
       `/settings/models/${id}/test`,
     ).then((r) => r.data),
+};
+
+// ---------- 直连模式（M2-7） ----------
+export const LinkApi = {
+  connections: () =>
+    http
+      .get<Connection[]>("/deployments/link/connections")
+      .then((r) => ensureArray<Connection>(r.data, "可直连连接列表")),
+  inventory: (connectionId: number) =>
+    http
+      .post<LinkTableInventory[]>("/deployments/link/inventory", { connection_id: connectionId })
+      .then((r) => ensureArray<LinkTableInventory>(r.data, "表清单")),
+  select: (connectionId: number, purpose: string) =>
+    http
+      .post<LinkSelection>("/deployments/link/select", {
+        connection_id: connectionId,
+        purpose,
+      })
+      .then((r) => r.data),
+  preview: (payload: {
+    connection_id: number;
+    tables: string[];
+    purpose?: string;
+    enhance?: boolean;
+  }) =>
+    http
+      .post<LinkProposal>("/deployments/link/preview", payload, { timeout: 120_000 })
+      .then((r) => r.data),
 };
 
 // ---------- 连接 ----------

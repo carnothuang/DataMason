@@ -96,6 +96,7 @@ def get_workspace(deployment_id: int):
             "deployment_id": deployment_id,
             "biz_name": d.biz_name,
             "status": d.status,
+            "data_mode": d.data_mode,
             "entry_path": d.entry_path,
             "role": role,
             "menus": _menu_tree(menus),
