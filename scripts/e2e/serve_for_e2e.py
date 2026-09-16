@@ -70,8 +70,19 @@ def _install_stub_llm(app) -> None:
 
     class _StubLlm:
         def chat_json(self, system_prompt: str, user_prompt: str):
-            # M4-1 问数据：只读 SQL / 一句话结论（桩无视问题，返回确定性查询）
+            # M4-1/M4-2 问数据：只读 SQL + 可选图表规格 + 一句话结论（桩无视问题，返回确定性查询）
             if "只读 SQL" in system_prompt:
+                if "分类" in user_prompt:
+                    return ({"sql": "SELECT vip, COUNT(*) AS cnt FROM customers GROUP BY vip",
+                             "title": "客户分布",
+                             "chart": {"type": "pie", "x": "vip", "y": "cnt"}},
+                            Usage(tokens_in=0, tokens_out=0, duration_ms=1))
+                if "非数值" in user_prompt:
+                    # 规格结构合法但 y 为非数值列：前端应退化为表格（降级不出错）
+                    return ({"sql": "SELECT id, name, remark FROM customers ORDER BY id",
+                             "title": "客户备注",
+                             "chart": {"type": "bar", "x": "name", "y": "remark"}},
+                            Usage(tokens_in=0, tokens_out=0, duration_ms=1))
                 return ({"sql": "SELECT id, name, vip FROM customers ORDER BY id",
                          "title": "客户列表"}, Usage(tokens_in=0, tokens_out=0, duration_ms=1))
             if "总结" in system_prompt:

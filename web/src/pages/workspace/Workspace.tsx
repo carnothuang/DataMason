@@ -8,6 +8,7 @@ import {
   ArrowLeftOutlined,
   CrownOutlined,
   FileSearchOutlined,
+  LineChartOutlined,
   NodeIndexOutlined,
   PlayCircleOutlined,
   TeamOutlined,
@@ -19,6 +20,7 @@ import LogsPage from "./LogsPage";
 import EngineerMenusPage from "./EngineerMenusPage";
 import EngineerFlowsPage from "./EngineerFlowsPage";
 import ApiDocsPage from "./ApiDocsPage";
+import AskData from "./AskData";
 import { DemoContext } from "./demo";
 
 const { Header, Sider, Content } = Layout;
@@ -40,7 +42,9 @@ export interface RecordFocus {
  *  M3-2：新增「界面与菜单」系统页（创建人独有 DR-14）——真实界面卡拖入导航树即拖即存。
  *  M3-4：新增「流程编排」系统页（创建人独有）。
  *  M3-3：顶栏「演示」一键进入展厅——全屏、隐藏构建痕迹（系统页/返回控制台/运行提示），
- *        只剩干净业务菜单 + 运行界面 + 数据；Ctrl/Cmd+Shift+D 退出；含「脱敏数据」展示层开关（不动库）。 */
+ *        只剩干净业务菜单 + 运行界面 + 数据；Ctrl/Cmd+Shift+D 退出；含「脱敏数据」展示层开关（不动库）。
+ *  M4-2：顶栏「问数据」（创建人/管理员）——抽屉里一句话问答出视图卡（结论 + 自绘 ECharts/表格 +
+ *        可展开 SQL）；操作员不显示入口，演示模式隐藏。 */
 export default function Workspace({ deploymentId }: Props) {
   const { message } = App.useApp();
   const navigate = useNavigate();
@@ -53,6 +57,7 @@ export default function Workspace({ deploymentId }: Props) {
   const [restarting, setRestarting] = useState(false);
   const [demo, setDemo] = useState(false);
   const [masked, setMasked] = useState(false);
+  const [askOpen, setAskOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
 
   const loadInfo = useCallback(() => {
@@ -346,6 +351,11 @@ export default function Workspace({ deploymentId }: Props) {
                             : (active?.title || "工作台")}
                 </Text>
                 <Space>
+                  {canSeeSystemPages && (
+                    <Button size="small" icon={<LineChartOutlined />} onClick={() => setAskOpen(true)}>
+                      问数据
+                    </Button>
+                  )}
                   <Button size="small" icon={<PlayCircleOutlined />} onClick={enterDemo}>
                     演示
                   </Button>
@@ -410,6 +420,7 @@ export default function Workspace({ deploymentId }: Props) {
             </Text>
           </div>
         )}
+        <AskData deploymentId={deploymentId} open={askOpen} onClose={() => setAskOpen(false)} />
       </div>
     </DemoContext.Provider>
   );

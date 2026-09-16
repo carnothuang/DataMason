@@ -55,11 +55,13 @@ class FakeLlm:
         self.title = "留言统计"
         self.conclusion = "共 10 条留言。"
         self.fail_conclusion = False
+        self.chart = None
 
     def chat_json(self, system_prompt, user_prompt):
         if "只读 SQL" in system_prompt:
             sql = self.sql_queue.pop(0) if self.sql_queue else "SELECT id, name, amount FROM messages"
-            return {"sql": sql, "title": self.title}, Usage(tokens_in=7, tokens_out=5, duration_ms=3)
+            return {"sql": sql, "title": self.title, "chart": self.chart}, Usage(
+                tokens_in=7, tokens_out=5, duration_ms=3)
         if "总结" in system_prompt:
             if self.fail_conclusion:
                 raise RuntimeError("结论生成失败")
@@ -238,6 +240,30 @@ def test_qa_conclusion_falls_back_deterministically(app, env, fake_llm):
     resp = _ask(env["client"], did)
     assert resp.status_code == 200, resp.get_data(as_text=True)
     assert resp.get_json()["conclusion"] == "共 10 行数据。"
+
+
+def test_qa_chart_spec_validated(app, env, fake_llm):
+    did = _deploy(env["client"], seed=True)
+
+    # 合法规格（x/y 均为结果列且不同）→ 原样返回
+    fake_llm.sql_queue = ["SELECT name, amount FROM messages"]
+    fake_llm.chart = {"type": "bar", "x": "name", "y": "amount"}
+    body = _ask(env["client"], did).get_json()
+    assert body["chart"] == {"type": "bar", "x": "name", "y": "amount"}, body["chart"]
+
+    # 非法规格：类型不在白名单 / x 不存在 / x==y → 归一为 null（前端退化为表格）
+    for bad in (
+        {"type": "radar", "x": "name", "y": "amount"},
+        {"type": "pie", "x": "nope", "y": "amount"},
+        {"type": "bar", "x": "name", "y": "name"},
+        {"type": "bar", "x": "name"},
+        "not-a-dict",
+    ):
+        fake_llm.sql_queue = ["SELECT name, amount FROM messages"]
+        fake_llm.chart = bad
+        resp = _ask(env["client"], did)
+        assert resp.status_code == 200, resp.get_data(as_text=True)
+        assert resp.get_json()["chart"] is None, (bad, resp.get_json()["chart"])
 
 
 def test_qa_permissions(app, env, fake_llm):

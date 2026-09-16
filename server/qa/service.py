@@ -48,15 +48,21 @@ _FORBIDDEN_FUNCS = {
 
 _DIALECT_MAP = {"postgresql": "postgres", "mysql": "mysql", "sqlite": "sqlite"}
 
-QA_SYSTEM_PROMPT = """你是数据分析助手，把用户的业务问题翻译成一条**只读 SQL 查询**。
+QA_SYSTEM_PROMPT = """你是数据分析助手，把用户的业务问题翻译成一条**只读 SQL 查询**，并给出可选的图表规格。
 只输出一个 JSON 对象，不要任何解释或 markdown 代码块标记：
-{"sql": "一条 SELECT 语句", "title": "报表标题（不超过 20 字）"}
+{"sql": "一条 SELECT 语句", "title": "报表标题（不超过 20 字）",
+ "chart": {"type": "bar|line|pie", "x": "维度列名", "y": "数值列名"}}
 硬性规则：
 1. 只能是单条 SELECT（或 SELECT 的 UNION/EXCEPT/INTERSECT）；禁止 INSERT/UPDATE/DELETE/DDL/PRAGMA 等任何写操作或多条语句；
 2. 只能查询下面列出的表，表名不要加库名/schema 前缀；
 3. 禁止使用 SQL 注释；字符串常量里的中文原样保留；
 4. 结果集不要过大，建议加合适的 WHERE 与 LIMIT（系统另有上限兜底）；
-5. 这是只读查询，不要尝试修改任何数据。"""
+5. 这是只读查询，不要尝试修改任何数据；
+6. chart 为可选提示：当结果像「一个维度 + 一个数值度量」时给 type/x/y（x/y 必须是该 SELECT
+   返回的列名）；否则把 type 设为 null（系统会退化为表格呈现）。"""
+
+CHART_TYPES = ("bar", "line", "pie")
+
 
 CONCLUSION_SYSTEM_PROMPT = """你是数据分析助手，用一句简洁的中文总结下面的查询结果。
 不要输出 SQL、markdown 或额外解释，只输出 JSON：{"conclusion": "一句话结论"}"""
@@ -221,7 +227,7 @@ def _execute(engine: Engine, inner_sql: str, dialect: str, max_rows: int = MAX_R
 # ---------------- LLM 生成（SELECT / 结论） ----------------
 
 def _generate_sql(client, dialect: str, schema_text: str, question: str,
-                  last_error: str = "") -> tuple[str, str, Usage]:
+                  last_error: str = "") -> tuple[str, str, object, Usage]:
     system = (
         f"{QA_SYSTEM_PROMPT}\n\n方言：{_to_sqlglot_dialect(dialect)}\n"
         f"可用表结构：\n{schema_text}"
@@ -236,7 +242,26 @@ def _generate_sql(client, dialect: str, schema_text: str, question: str,
     title = str(parsed.get("title") or "").strip()[:40] or question[:20]
     if not sql:
         raise QaError("模型未生成 SQL")
-    return sql, title, usage
+    return sql, title, parsed.get("chart"), usage
+
+
+def _validate_chart(chart_raw: object, columns: list[str]) -> dict | None:
+    """图表规格结构化校验：类型白名单 + x/y 必须是本次结果列名。
+
+    只做结构校验（不做数值化判断——那由前端在拿到真实行后决定是否降级为表格）。
+    """
+    if not isinstance(chart_raw, dict):
+        return None
+    ctype = str(chart_raw.get("type") or "").lower()
+    if ctype not in CHART_TYPES:
+        return None
+    x, y = chart_raw.get("x"), chart_raw.get("y")
+    if not isinstance(x, str) or not isinstance(y, str):
+        return None
+    if x not in columns or y not in columns or x == y:
+        return None
+    return {"type": ctype, "x": x, "y": y}
+
 
 
 def _conclusion(client, question: str, columns: list[str], rows: list[dict],
@@ -315,11 +340,12 @@ def ask(app, deployment_id: int, question: str, uid: int) -> dict:
         schema_text = build_schema_context(app, deployment_id, registry, engine)
         last_error = ""
         inner_sql = title = ""
+        chart_raw: object = None
         attempts = 0
         for attempt in range(MAX_RETRY + 1):
             attempts = attempt + 1
             try:
-                sql_raw, title, call_usage = _generate_sql(
+                sql_raw, title, chart_raw, call_usage = _generate_sql(
                     client, dialect, schema_text, question, last_error)
                 _add_usage(usage, call_usage)
                 inner_sql = enforce_readonly(sql_raw, registry.allowed_tables, dialect)
@@ -343,6 +369,7 @@ def ask(app, deployment_id: int, question: str, uid: int) -> dict:
             "rows": result["rows"],
             "row_count": len(result["rows"]),
             "conclusion": conclusion,
+            "chart": _validate_chart(chart_raw, result["columns"]),
             "attempts": attempts,
         }
     finally:

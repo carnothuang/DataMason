@@ -354,6 +354,34 @@ export const WorkspaceApi = {
     http.get<WorkspaceInfo>(`/app/${deploymentId}`).then((r) => r.data),
 };
 
+// ---------- 问数据（M4-1/M4-2，P3） ----------
+export interface QaChart {
+  type: "bar" | "line" | "pie";
+  x: string;
+  y: string;
+}
+
+export interface QaAnswer {
+  question: string;
+  title: string;
+  sql: string;
+  row_limit: number;
+  columns: string[];
+  rows: Record<string, unknown>[];
+  row_count: number;
+  conclusion: string;
+  chart: QaChart | null;
+  attempts: number;
+}
+
+export const QaApi = {
+  /** 问一句业务问题：只读 SELECT → 结论 + 行集 + 可选图表规格（服务端已过只读门/白名单）。 */
+  ask: (deploymentId: number, question: string) =>
+    http
+      .post<QaAnswer>(`/app/${deploymentId}/qa/ask`, { question }, { timeout: 120_000 })
+      .then((r) => r.data),
+};
+
 // ---------- 工作台业务 CRUD（M2-3/M2-4，挂 /app/{id}/api/） ----------
 export const CrudApi = {
   meta: (deploymentId: number) =>
