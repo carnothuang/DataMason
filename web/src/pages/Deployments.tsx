@@ -110,6 +110,26 @@ export default function Deployments() {
     }
   };
 
+  // DR-08：一键清空演示数据（只删种子行，不动用户真实数据）
+  const onClearSeed = (d: Deployment) => {
+    modal.confirm({
+      title: `清空「${d.biz_name}」的演示数据？`,
+      content: "只删除部署时自动生成的演示行，之后录入的数据不受影响。此操作不可撤销。",
+      okText: "清空演示数据",
+      okButtonProps: { danger: true },
+      cancelText: "取消",
+      onOk: async () => {
+        try {
+          const r = await DeployApi.clearSeed(d.id);
+          message.success(`已清空演示数据（${r.deleted} 行）`);
+          load();
+        } catch (e) {
+          message.error((e as Error).message);
+        }
+      },
+    });
+  };
+
   const current = rows.find((r) => r.id === openId);
   const blueprint = rows.find((r) => r.id === blueprintId);
   if (blueprint) {
@@ -210,6 +230,11 @@ export default function Deployments() {
               onClick={() => onExport(d)}
             >
               导出
+            </Button>
+          )}
+          {d.seed_data && (d.role === "creator" || d.role === "admin") && (
+            <Button size="small" onClick={() => onClearSeed(d)}>
+              清空演示
             </Button>
           )}
           {d.status === "running" && d.role === "creator" && (

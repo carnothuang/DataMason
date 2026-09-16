@@ -21,6 +21,7 @@ export const ACTION_META: Record<string, { label: string; color: string }> = {
   apikey: { label: "密钥", color: "geekblue" },
   stop: { label: "停止", color: "volcano" },
   start: { label: "启动", color: "lime" },
+  seed: { label: "演示数据", color: "cyan" },
 };
 
 function pad(n: number): string {

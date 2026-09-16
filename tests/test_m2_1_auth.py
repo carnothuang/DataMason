@@ -191,3 +191,46 @@ def test_owner_takes_session_user(app, client, admin, patch_llm):
     }).get_json()
     with app.extensions["datamason_session_factory"]() as s:
         assert s.get(Deployment, result["deployment_id"]).owner_id == admin
+
+
+# ---------------- M1 首次启动向导（界面版，DR-10）+ LLM 配置状态 ----------------
+
+
+def test_setup_creates_first_admin_and_rejects_when_initialized(app, client):
+    st = client.get("/api/v1/auth/setup-status").get_json()
+    assert st["needs_setup"] is True and st["user_count"] == 0
+
+    # 密码太短 → 400
+    assert client.post("/api/v1/auth/setup",
+                       json={"username": "root", "password": "123"}).status_code == 400
+
+    # 创建首个平台管理员
+    resp = client.post("/api/v1/auth/setup",
+                       json={"username": "root", "password": "secret1",
+                             "display_name": "老板"})
+    assert resp.status_code == 201, resp.get_data(as_text=True)
+    assert resp.get_json()["username"] == "root"
+
+    # 已初始化 → 再次 setup 400；needs_setup 变 False
+    assert client.post("/api/v1/auth/setup",
+                       json={"username": "other", "password": "secret1"}).status_code == 400
+    assert client.get("/api/v1/auth/setup-status").get_json()["needs_setup"] is False
+
+    # 新账号可登录且是平台管理员
+    me = client.post("/api/v1/auth/login",
+                     json={"username": "root", "password": "secret1"})
+    assert me.status_code == 200 and me.get_json()["is_platform_admin"] is True
+
+
+def test_setup_status_llm_configured_reflects_settings_model(app, client, admin):
+    # 无环境变量、无模型 → False
+    assert client.get("/api/v1/auth/setup-status").get_json()["llm_configured"] is False
+
+    # 设置页登记一个模型后 → True（修复：以前只读环境变量，此处置 False）
+    assert _login(client).status_code == 200
+    created = client.post("/api/v1/settings/models", json={
+        "name": "本地模型", "base_url": "http://127.0.0.1:9999/v1",
+        "model_name": "m", "api_key": "sk-x",
+    })
+    assert created.status_code == 201, created.get_data(as_text=True)
+    assert client.get("/api/v1/auth/setup-status").get_json()["llm_configured"] is True

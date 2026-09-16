@@ -76,12 +76,29 @@ def list_generations(app, *, kind: str | None = None, deployment_id: int | None 
                 Deployment.id.in_({r.deployment_id for r in rows if r.deployment_id})
             ).all()
         } if rows else {}
+        # 筛选下拉候选：库中出现过生成记录的部署（不受当前筛选影响，便于切换）
+        dep_pairs = (
+            s.query(AiGeneration.deployment_id)
+            .filter(AiGeneration.deployment_id > 0)
+            .distinct()
+            .all()
+        )
+        dep_ids = [did for (did,) in dep_pairs]
+        dep_names = {
+            d.id: d.biz_name
+            for d in s.query(Deployment).filter(Deployment.id.in_(dep_ids or [-1])).all()
+        }
+        deployments = sorted(
+            ({"id": did, "name": dep_names.get(did, f"部署 #{did}")} for did in dep_ids),
+            key=lambda x: x["id"],
+        )
         items = [_public(r, names) for r in rows]
     return {
         "items": items,
         "page": page,
         "page_size": page_size,
         "total": total,
+        "deployments": deployments,
         "stats": {
             "total": total,
             "tokens_in": int(sums[0] or 0),

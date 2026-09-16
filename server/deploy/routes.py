@@ -67,6 +67,20 @@ def deployment_start(deployment_id: int):
         return jsonify({"error": str(exc)}), 400
 
 
+# ---------------- DR-08 一键清空演示数据（创建人/管理员） ----------------
+
+@bp.post("/deployments/<int:deployment_id>/seed/clear")
+def deployment_seed_clear(deployment_id: int):
+    """清空演示种子行（按登记主键精确删除，只删种子、不动真实数据）。"""
+    _d, role = _deployment_and_role(current_app, deployment_id)
+    if role not in ("creator", "admin"):
+        return jsonify({"error": "没有清空演示数据的权限（创建人/管理员）"}), 403
+    try:
+        return jsonify(service.clear_seed_data(current_app, deployment_id, _uid()))
+    except service.DeployError as exc:
+        return jsonify({"error": str(exc)}), 400
+
+
 # ---------------- M3-7 销毁（创建人独有，DR-14） ----------------
 
 @bp.post("/deployments/<int:deployment_id>/destroy")

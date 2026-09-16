@@ -450,6 +450,7 @@ export interface AiGenerationsPage {
   page: number;
   page_size: number;
   total: number;
+  deployments: { id: number; name: string }[];
   stats: {
     total: number;
     tokens_in: number;
@@ -544,7 +545,7 @@ export interface ActivityLog {
   occurred_at: string;
   actor_user_id: number | null;
   actor_display: string;
-  action: "create" | "update" | "delete" | "deploy" | "member" | "structure" | "flow" | "apikey" | "stop" | "start";
+  action: "create" | "update" | "delete" | "deploy" | "member" | "structure" | "flow" | "apikey" | "stop" | "start" | "seed";
   object_kind: string;
   object_table: string;
   object_pk: string;
@@ -879,6 +880,11 @@ export interface AuthApi {
     user_count: number;
   }>;
   bootstrap: () => Promise<{ created?: string[]; skipped?: boolean; [k: string]: unknown }>;
+  setup: (payload: {
+    username: string;
+    password: string;
+    display_name?: string;
+  }) => Promise<{ id: number; username: string }>;
   listUsers: () => Promise<CurrentUser[]>;
   createUser: (payload: {
     username: string;
@@ -969,6 +975,13 @@ export const DeployApi = {
     http.post<DeployResult>(`/deployments/${id}/stop`).then((r) => r.data),
   start: (id: number) =>
     http.post<DeployResult>(`/deployments/${id}/start`).then((r) => r.data),
+  /** DR-08：一键清空演示数据（创建人/管理员）；只删种子行、不动真实数据。 */
+  clearSeed: (id: number) =>
+    http
+      .post<{ deployment_id: number; deleted: number; failed: number; tables: number; already_empty: boolean }>(
+        `/deployments/${id}/seed/clear`,
+      )
+      .then((r) => r.data),
   /** M3-6：导出配置包（部署元信息 + 表/页面/菜单/流程 + crud_configs + 全量日志）。 */
   exportPackage: (id: number) =>
     http.get<DeploymentExport>(`/deployments/${id}/export`).then((r) => r.data),
@@ -1072,6 +1085,8 @@ export const AuthApi: AuthApi = {
     http.post<{ created?: string[]; skipped?: boolean; [k: string]: unknown }>(
       "/auth/bootstrap",
     ).then((r) => r.data),
+  setup: (payload) =>
+    http.post<{ id: number; username: string }>("/auth/setup", payload).then((r) => r.data),
   listUsers: () =>
     http.get<CurrentUser[]>("/auth/users").then((r) => ensureArray<CurrentUser>(r.data, "用户列表")),
   createUser: (payload) =>

@@ -211,51 +211,6 @@ def _owner_condition(registry: "CrudRegistry", table: Table):
     return None
 
 
-def list_rows(registry: CrudRegistry, name: str, with_search: bool = True) -> dict:
-    table = registry.table(name)
-    page = max(int(request.args.get("page", 1)), 1)
-    page_size = min(max(int(request.args.get("page_size", 20)), 1), 200)
-
-    conditions = _filtered(table)
-    owner = _owner_condition(registry, table)
-    if owner is not None:
-        conditions.append(owner)
-    search = (request.args.get("search") or "").strip()
-    if search and with_search:
-        text_cols = [
-            c for c in table.columns
-            if _is_string_type(c) and not c.primary_key and c.name not in _OWNERSHIP_COLS
-        ]
-        if text_cols:
-            conditions.append(
-                or_(*[c.ilike(f"%{search}%") for c in text_cols])
-            )
-
-    stmt = select(table).where(*conditions)
-
-    sort = request.args.get("sort")
-    if sort:
-        if sort not in table.c:
-            abort(400, description=f"未知排序列: {sort}")
-        direction = desc if request.args.get("order", "asc") == "desc" else asc
-        stmt = stmt.order_by(direction(table.c[sort]))
-
-    with registry.engine.connect() as conn:
-        total = conn.execute(
-            select(func.count()).select_from(table).where(*conditions)
-        ).scalar_one()
-        rows = conn.execute(
-            stmt.limit(page_size).offset((page - 1) * page_size)
-        ).mappings().all()
-
-    return {
-        "data": [dict(r) for r in rows],
-        "page": page,
-        "page_size": page_size,
-        "total": total,
-    }
-
-
 def get_row(registry: CrudRegistry, name: str, pk: str) -> dict:
     table = registry.table(name)
     pk_col = _pk_column(table)

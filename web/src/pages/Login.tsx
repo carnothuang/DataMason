@@ -100,9 +100,19 @@ export default function Login() {
             </Button>
           </Form.Item>
           {needsSetup && (
-            <Button type="link" block onClick={onBootstrap} loading={loading === "bootstrap"}>
-              首次启动：从环境变量初始化管理员
-            </Button>
+            <>
+              <Button type="link" block onClick={() => window.location.assign("/setup")}>
+                首次启动：创建管理员账号
+              </Button>
+              <Button
+                type="link"
+                block
+                onClick={onBootstrap}
+                loading={loading === "bootstrap"}
+              >
+                或从环境变量初始化管理员
+              </Button>
+            </>
           )}
         </Form>
       </Card>

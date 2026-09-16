@@ -4,6 +4,8 @@
 table_specs / page_specs / crud_configs / deployment_menus /
 deployment_menu_grants / deployment_members / flow_specs /
 activity_logs / ai_generations / llm_models。
+后续里程碑新增：app_settings（M1 配置）/ deployment_share_tokens（M3-5）/
+deployment_api_keys（M3-8）/ deployment_seed_rows（DR-08）。
 关联闭环（防断档，见 §八 末尾闭环说明）：
 - deployment_menus.ref_id → page_specs.id
 - flow_specs.steps[].page_id → page_specs.id
@@ -195,6 +197,22 @@ class DeploymentApiKey(Base):
     created_by: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
     last_used_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+
+class DeploymentSeedRow(Base):
+    """演示种子行登记（DR-08「一键清空演示数据」）。
+
+    创建模式部署种子时逐行登记其主键，清空时按登记精确删除——不改业务表结构、
+    不依赖归属列，从而只删种子行、不动用户的真实数据。直连模式不种种子。
+    """
+
+    __tablename__ = "deployment_seed_rows"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    deployment_id: Mapped[int] = mapped_column(ForeignKey("deployments.id"), nullable=False)
+    table_name: Mapped[str] = mapped_column(String(128), nullable=False)
+    row_pk: Mapped[str] = mapped_column(String(128), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
 
 
 class FlowSpec(Base):

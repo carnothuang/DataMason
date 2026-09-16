@@ -3,6 +3,7 @@ import { Button, Card, Collapse, Empty, Space, Spin, Table, Typography } from "a
 import { ReloadOutlined } from "@ant-design/icons";
 import { DashboardApi, DashboardRun, WorkspacePage } from "../../api";
 import ChartCard, { isRenderableChart } from "../../components/ChartCard";
+import { maskText, useDemo } from "./demo";
 
 const { Text } = Typography;
 
@@ -12,8 +13,10 @@ interface Props {
 }
 
 /** M4-3 钉住报表（dashboard 页）运行态：进入即重跑存储的只读 SQL（数据为最新），
- *  图表规格可渲染则出图，否则退化为表格；「它怎么查的」按需披露 SQL。 */
+ *  图表规格可渲染则出图，否则退化为表格；「它怎么查的」按需披露 SQL。
+ *  M3-3 演示模式：脱敏开关对报表数据同样生效（只改展示层）。 */
 export default function DashboardPage({ deploymentId, page }: Props) {
+  const { masked } = useDemo();
   const [data, setData] = useState<DashboardRun | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -37,7 +40,8 @@ export default function DashboardPage({ deploymentId, page }: Props) {
     dataIndex: col,
     key: col,
     ellipsis: true,
-    render: (value: unknown) => (value == null ? "" : String(value)),
+    render: (value: unknown) =>
+      value == null ? "" : String(masked ? maskText(value) : value),
   }));
 
   return (

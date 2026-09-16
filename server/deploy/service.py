@@ -30,6 +30,7 @@ from server.models import (
     DeploymentMember,
     DeploymentMenu,
     DeploymentMenuGrant,
+    DeploymentSeedRow,
     DeploymentShareToken,
     FlowSpec,
     PageSpec,
@@ -309,8 +310,13 @@ def confirm(app, spec_dict: dict, biz_name: str, seed_data: bool = True,
         s.commit()
 
     # ⑥ 演示种子（DR-08；直连模式不种种子，外部库数据是真实数据）
+    seed_records: list[tuple[str, str]] = []
     if seed_data and not link_mode:
         seeds = generate_seed_rows(schema, rows_per_table=10)
+        pk_names = {
+            t.name: next((c.name for c in t.columns if c.is_pk), None)
+            for t in schema.tables
+        }
         with biz_engine.begin() as conn_db:
             for table_name, rows in seeds.items():
                 if not rows:
@@ -318,11 +324,21 @@ def confirm(app, spec_dict: dict, biz_name: str, seed_data: bool = True,
                 cols = list(rows[0].keys())
                 col_sql = ", ".join(cols)
                 ph = ", ".join(f":{c}" for c in cols)
+                pk_name = pk_names.get(table_name)
                 for row in rows:
                     conn_db.execute(
                         text(f"INSERT INTO {table_name} ({col_sql}) VALUES ({ph})"),
                         row,
                     )
+                    if pk_name and row.get(pk_name) is not None:
+                        seed_records.append((table_name, str(row[pk_name])))
+        # 登记种子行主键：供「一键清空演示数据」精确删除（DR-08）
+        if seed_records:
+            with _session(app) as s:
+                for table_name, pk in seed_records:
+                    s.add(DeploymentSeedRow(
+                        deployment_id=deployment_id, table_name=table_name, row_pk=pk))
+                s.commit()
     biz_engine.dispose()
 
     # ⑦ 注册入口 → running
@@ -412,6 +428,94 @@ def set_lifecycle(app, deployment_id: int, target: str, actor_user_id: int) -> d
     )
     return {"deployment_id": deployment_id, "biz_name": biz_name,
             "status": status, "entry_path": entry_path}
+
+
+# ---------------- DR-08 一键清空演示数据 ----------------
+
+def clear_seed_data(app, deployment_id: int, actor_user_id: int) -> dict:
+    """按登记主键删除演示种子行（只删种子、不动用户真实数据）。
+
+    - 创建模式专有；直连模式无种子 → 400。
+    - 逆登记序删除（子表先删，规避外键）；被用户数据引用的种子行跳过并计数。
+    - 全部清完则把 deployments.seed_data 置 False；系统动作 seed 埋点。
+    """
+    from server.audit.service import log_system
+
+    Session = app.extensions["datamason_session_factory"]
+    with Session() as s:
+        d = s.get(Deployment, deployment_id)
+        if d is None:
+            raise DeployError("部署不存在")
+        if d.data_mode == "link":
+            raise DeployError("直连模式没有演示数据可清空")
+        biz_name = d.biz_name
+        conn = s.get(Connection, d.connection_id) if d.connection_id else None
+        uri = app.extensions["cipher"].decrypt(conn.conn_uri) if conn is not None else None
+        # 主键列名：从 table_specs 蓝图取
+        pk_by_table: dict[str, str] = {}
+        for ts in s.query(TableSpec).filter_by(deployment_id=deployment_id).all():
+            for c in json.loads(ts.columns_json or "[]"):
+                if c.get("is_pk"):
+                    pk_by_table[ts.name] = c["name"]
+                    break
+        records = [
+            (r.id, r.table_name, r.row_pk)
+            for r in s.query(DeploymentSeedRow)
+            .filter_by(deployment_id=deployment_id)
+            .order_by(DeploymentSeedRow.id)
+            .all()
+        ]
+
+    if not records:
+        return {"deployment_id": deployment_id, "deleted": 0, "failed": 0,
+                "tables": 0, "already_empty": True}
+
+    assert uri is not None  # 创建模式必有连接
+    engine = create_engine(uri, future=True)
+    deleted = 0
+    failed = 0
+    deleted_ids: list[int] = []
+    try:
+        for rec_id, table_name, pk in reversed(records):
+            pk_col = pk_by_table.get(table_name)
+            if not pk_col:
+                continue
+            try:
+                with engine.begin() as conn_db:
+                    res = conn_db.execute(
+                        text(f'DELETE FROM "{table_name}" WHERE "{pk_col}" = :pk'),
+                        {"pk": pk},
+                    )
+                if (res.rowcount or 0) > 0:
+                    deleted += 1
+                    deleted_ids.append(rec_id)
+                else:
+                    deleted_ids.append(rec_id)  # 行已不存在，登记可清
+            except Exception:  # noqa: BLE001 被用户数据引用等，跳过该行
+                failed += 1
+    finally:
+        engine.dispose()
+
+    with Session() as s:
+        if deleted_ids:
+            s.query(DeploymentSeedRow).filter(
+                DeploymentSeedRow.id.in_(deleted_ids)
+            ).delete(synchronize_session=False)
+        if failed == 0:
+            d = s.get(Deployment, deployment_id)
+            if d is not None:
+                d.seed_data = False
+        s.commit()
+
+    log_system(
+        app, deployment_id, "seed",
+        actor_user_id=actor_user_id,
+        object_kind="deployment", object_pk=str(deployment_id),
+        object_label=f"{biz_name} 清空演示数据",
+        changes={"deleted": deleted, "failed": failed, "tables": len(pk_by_table)},
+    )
+    return {"deployment_id": deployment_id, "deleted": deleted, "failed": failed,
+            "tables": len(pk_by_table), "already_empty": False}
 
 
 # ---------------- M3-7 销毁（创建人独有，DR-14） ----------------

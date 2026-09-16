@@ -379,21 +379,24 @@ export default function EngineerMenusPage({ deploymentId }: Props) {
 
   const saveEntryPath = async () => {
     const p = entryPath.trim();
-    if (!p.startsWith("/")) {
-      message.error("入口路径必须以 / 开头，如 /guestbook");
-      return;
-    }
-    if (p.length > MAX_ENTRY_LEN) {
-      message.error(`入口路径不能超过 ${MAX_ENTRY_LEN} 字符`);
-      return;
-    }
-    if (!ENTRY_RE.test(p)) {
-      message.error("路径仅允许字母、数字、下划线、短横线与斜杠（每段以字母/数字开头）");
-      return;
-    }
-    if (ENTRY_RESERVED.some((r) => p === r || p.startsWith(`${r}/`)) || p.startsWith("/api/") || p === "/api") {
-      message.error("该路径为系统保留，请换一个（如 /guestbook）");
-      return;
+    // 留空 = 恢复默认入口 /app/{id}（DR-15）
+    if (p) {
+      if (!p.startsWith("/")) {
+        message.error("入口路径必须以 / 开头，如 /guestbook");
+        return;
+      }
+      if (p.length > MAX_ENTRY_LEN) {
+        message.error(`入口路径不能超过 ${MAX_ENTRY_LEN} 字符`);
+        return;
+      }
+      if (!ENTRY_RE.test(p)) {
+        message.error("路径仅允许字母、数字、下划线、短横线与斜杠（每段以字母/数字开头）");
+        return;
+      }
+      if (ENTRY_RESERVED.some((r) => p === r || p.startsWith(`${r}/`)) || p.startsWith("/api/") || p === "/api") {
+        message.error("该路径为系统保留，请换一个（如 /guestbook）");
+        return;
+      }
     }
     setSaving(true);
     try {

@@ -379,7 +379,7 @@ export default function DeployWizard({ open, onClose, onDeployed }: Props) {
 
           {!isLink && (
             <Form.Item name="seed" valuePropName="checked">
-              <Checkbox disabled={phase !== "input"}>就绪即带演示数据（可用工作台一键清空）</Checkbox>
+              <Checkbox disabled={phase !== "input"}>就绪即带演示数据（部署后可一键清空）</Checkbox>
             </Form.Item>
           )}
         </Form>

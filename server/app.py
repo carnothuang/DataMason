@@ -98,6 +98,7 @@ def _register_auth_guard(app: Flask) -> None:
         "/api/v1/auth/me",
         "/api/v1/auth/setup-status",
         "/api/v1/auth/bootstrap",
+        "/api/v1/auth/setup",
     }
     admin_prefixes = ("/api/v1/settings/", "/api/v1/auth/users")
 

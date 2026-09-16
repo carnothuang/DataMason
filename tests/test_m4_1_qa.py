@@ -215,6 +215,24 @@ def test_qa_readonly_gate_rejects_and_keeps_data(app, env, fake_llm):
         assert err is not None
 
 
+def test_qa_execution_failure_recorded(app, env, fake_llm, monkeypatch):
+    """生成成功但执行失败时也写 ai_generations（status=error），不留空档。"""
+    did = _deploy(env["client"], seed=True)
+    fake_llm.sql_queue = ["SELECT id, name FROM messages"]
+
+    def _boom(*_a, **_k):
+        raise RuntimeError("模拟执行失败")
+
+    monkeypatch.setattr("server.qa.service._execute", _boom)
+    resp = _ask(env["client"], did)
+    assert resp.status_code == 400
+    with _session(app) as s:
+        err = (s.query(AiGeneration)
+               .filter(AiGeneration.kind == "qa", AiGeneration.status == "error")
+               .order_by(AiGeneration.id.desc()).first())
+        assert err is not None and "执行" in err.result_summary
+
+
 def test_qa_retry_on_invalid_sql_then_success(app, env, fake_llm):
     did = _deploy(env["client"], seed=True)
     fake_llm.sql_queue = ["SELECT * FROM no_such_table", "SELECT id FROM messages"]

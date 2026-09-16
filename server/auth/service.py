@@ -57,3 +57,37 @@ def bootstrap_admin(app) -> dict:
         session.add(user)
         session.commit()
         return {"initialized": True, "reason": "admin_created"}
+
+
+class SetupError(ValueError):
+    """首次启动向导错误 → 400。"""
+
+
+def setup_admin(app, username: str, password: str, display_name: str = "") -> dict:
+    """M1 首次启动向导（界面版）：users 为空时按表单创建平台管理员。
+
+    与环境变量版互补：界面版允许在浏览器直接填写账号密码与显示名。
+    幂等保护：已有用户则拒绝（避免越权建号）。
+    """
+    username = (username or "").strip()
+    password = password or ""
+    if not username or not password:
+        raise SetupError("用户名和密码必填")
+    if len(password) < 6:
+        raise SetupError("密码至少 6 位")
+
+    Session = app.extensions["datamason_session_factory"]
+    from server.models import User
+
+    with Session() as session:
+        if session.query(User).count() > 0:
+            raise SetupError("系统已初始化，无需再次设置")
+        user = User(
+            username=username,
+            display_name=(display_name or "").strip() or username,
+            password_hash=hash_password(password),
+            is_platform_admin=True,
+        )
+        session.add(user)
+        session.commit()
+        return {"id": user.id, "username": user.username}

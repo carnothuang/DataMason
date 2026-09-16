@@ -113,31 +113,32 @@ export default function AiGenerationsTab() {
   const [loading, setLoading] = useState(false);
   const [kind, setKind] = useState<string | undefined>();
   const [status, setStatus] = useState<string | undefined>();
+  const [deploymentId, setDeploymentId] = useState<number | undefined>();
   const [page, setPage] = useState(1);
 
   const load = useCallback(
     (p = page) => {
       setLoading(true);
-      AiGenApi.list({ kind, status, page: p, page_size: 20 })
+      AiGenApi.list({ kind, status, deployment_id: deploymentId, page: p, page_size: 20 })
         .then(setData)
         .catch((e) => message.error((e as Error).message))
         .finally(() => setLoading(false));
     },
-    [kind, status, page, message],
+    [kind, status, deploymentId, page, message],
   );
 
   useEffect(() => {
     load(1);
     setPage(1);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [kind, status]);
+  }, [kind, status, deploymentId]);
 
   useEffect(() => {
     load(page);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [page]);
 
-  const cleanup = async (payload: { status?: string; older_than_days?: number }) => {
+  const cleanup = async (payload: { status?: string; older_than_days?: number; deployment_id?: number }) => {
     try {
       const r = await AiGenApi.cleanup(payload);
       message.success(`已清理 ${r.deleted} 条`);
@@ -161,6 +162,14 @@ export default function AiGenerationsTab() {
         />
         <Select
           allowClear
+          placeholder="全部部署"
+          style={{ width: 180 }}
+          value={deploymentId}
+          onChange={setDeploymentId}
+          options={(data?.deployments || []).map((d) => ({ value: d.id, label: d.name }))}
+        />
+        <Select
+          allowClear
           placeholder="全部状态"
           style={{ width: 120 }}
           value={status}
@@ -170,10 +179,10 @@ export default function AiGenerationsTab() {
             { value: "error", label: "失败" },
           ]}
         />
-        <Popconfirm title="清理所有失败记录？" onConfirm={() => cleanup({ status: "error" })}>
+        <Popconfirm title="清理所有失败记录？" onConfirm={() => cleanup({ status: "error", deployment_id: deploymentId })}>
           <Button icon={<ClearOutlined />}>清理失败记录</Button>
         </Popconfirm>
-        <Popconfirm title="清理 30 天前的记录？" onConfirm={() => cleanup({ older_than_days: 30 })}>
+        <Popconfirm title="清理 30 天前的记录？" onConfirm={() => cleanup({ older_than_days: 30, deployment_id: deploymentId })}>
           <Button icon={<ClearOutlined />}>清理 30 天前</Button>
         </Popconfirm>
       </Space>
@@ -184,6 +193,16 @@ export default function AiGenerationsTab() {
         <Statistic title="输出 token" value={stats?.tokens_out ?? 0} />
         <Statistic title="平均耗时(ms)" value={stats?.avg_duration_ms ?? 0} />
       </Space>
+
+      {Object.keys(stats?.by_kind || {}).length > 0 && (
+        <div style={{ marginBottom: 12 }}>
+          {Object.entries(stats?.by_kind || {}).map(([k, n]) => (
+            <Tag key={k} color={KIND_COLOR[k] || "default"} style={{ marginBottom: 4 }}>
+              {kindLabel(k)} {n}
+            </Tag>
+          ))}
+        </div>
+      )}
 
       <GenerationTable
         data={data}

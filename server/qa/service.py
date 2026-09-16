@@ -359,8 +359,13 @@ def ask(app, deployment_id: int, question: str, uid: int) -> dict:
                     _record_generation(app, deployment_id, "error", question, last_error, usage)
                     raise QaError(f"经过 {attempts} 次生成仍不可用：{last_error}") from exc
 
-        result = _execute(engine, inner_sql, dialect)
-        conclusion = _conclusion(client, question, result["columns"], result["rows"], usage)
+        try:
+            result = _execute(engine, inner_sql, dialect)
+            conclusion = _conclusion(client, question, result["columns"], result["rows"], usage)
+        except Exception as exc:  # noqa: BLE001 执行/总结失败也留痕（M4-4 各生成点 status）
+            _record_generation(app, deployment_id, "error", question,
+                               f"执行/总结失败：{exc}", usage)
+            raise
         _record_generation(
             app, deployment_id, "ok", question, f"{title}（{len(result['rows'])} 行）", usage)
         return {

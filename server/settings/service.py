@@ -336,6 +336,12 @@ def make_redis_client(app):
 
 # ---------------- 默认 LLM 客户端（部署管线使用） ----------------
 
+def has_configured_model(app) -> bool:
+    """是否存在可用于生成的 LLM 模型配置（设置页登记的 llm_models 任一）。"""
+    with _session(app) as s:
+        return s.query(LlmModel).count() > 0
+
+
 def get_default_llm_client(app):
     """从 llm_models 取默认模型，构建网关客户端；无配置返回 None。"""
     from server.llm.client import LlmConfig, OpenAiCompatibleClient

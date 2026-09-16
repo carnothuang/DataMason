@@ -36,14 +36,18 @@ def setup_status():
     """返回是否需要首次启动配置。needs_setup=True 时业务路由应被引导到配置。"""
     Session = current_app.extensions["datamason_session_factory"]
     from server.models import User
+    from server.settings import service as settings_service
 
     with Session() as session_db:
         user_count = session_db.query(User).count()
     needs_setup = user_count == 0
+    # LLM 配置来源：环境变量（M0）或设置页登记的模型（M1）——两者任一即视为已配置
+    llm_configured = bool(current_app.config.get("DATAMASON_LLM_BASE_URL")) or \
+        settings_service.has_configured_model(current_app)
     return jsonify(
         {
             "needs_setup": needs_setup,
-            "llm_configured": bool(current_app.config.get("DATAMASON_LLM_BASE_URL")),
+            "llm_configured": llm_configured,
             "user_count": user_count,
         }
     )
@@ -54,6 +58,24 @@ def bootstrap():
     """触发首次启动向导（从环境变量创建管理员）。幂等。"""
     result = bootstrap_admin(current_app)
     return jsonify(result)
+
+
+@bp.post("/setup")
+def setup():
+    """M1 首次启动向导（界面版）：表单创建首个平台管理员（仅 users 为空时）。"""
+    from server.auth.service import SetupError, setup_admin
+
+    data = request.get_json(silent=True) or {}
+    try:
+        result = setup_admin(
+            current_app,
+            data.get("username"),
+            data.get("password"),
+            data.get("display_name") or "",
+        )
+    except SetupError as exc:
+        return jsonify({"error": str(exc)}), 400
+    return jsonify(result), 201
 
 
 # ---------------- 登录 / 会话（M2-1） ----------------

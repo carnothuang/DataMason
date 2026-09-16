@@ -5,6 +5,7 @@ import { Routes, Route, Navigate, useNavigate, useLocation } from "react-router-
 import Deployments from "./pages/Deployments";
 import Settings from "./pages/Settings";
 import Login, { loadCachedUser } from "./pages/Login";
+import Setup from "./pages/Setup";
 import Workspace from "./pages/workspace/Workspace";
 import PublicPage from "./pages/PublicPage";
 import JoinPage from "./pages/JoinPage";
@@ -53,6 +54,13 @@ export default function App() {
     return <Login />;
   }
 
+  // M1 首次启动向导（界面版，DR-10）：单独渲染，不带侧栏
+  if (location.pathname === "/setup") {
+    if (bootChecking) return <SpinPage />;
+    if (user) return <Navigate to="/deployments" replace />;
+    return <Setup />;
+  }
+
   // M3-5 访客公开页（DR-04）：匿名可访问，无需登录，也不带任何菜单（只剩提交表单）
   const publicMatch = location.pathname.match(/^\/public\/(\d+)\/(\d+)\/?$/);
   if (publicMatch) {
@@ -86,6 +94,11 @@ export default function App() {
     // 用 location 携带来源路径（react-router v6 Navigate 不支持 state in `to`）
     const target = `/login?from=${encodeURIComponent(location.pathname)}`;
     return <Navigate to={target} replace />;
+  }
+
+  // M4 审计：设置页仅平台管理员可见（后端已 403，此处同步裁剪）
+  if (location.pathname.startsWith("/settings") && !user.is_platform_admin) {
+    return <Navigate to="/deployments" replace />;
   }
 
   // M3-2 自定义入口：非系统路由的路径 → 查 entry_path；找到渲染对应工作台（DR-15）
@@ -123,7 +136,9 @@ export default function App() {
           onClick={(e) => navigate(e.key === "settings" ? "/settings" : "/deployments")}
           items={[
             { key: "deployments", icon: <AppstoreOutlined />, label: "部署清单" },
-            { key: "settings", icon: <SettingOutlined />, label: "设置" },
+            ...(user.is_platform_admin
+              ? [{ key: "settings", icon: <SettingOutlined />, label: "设置" }]
+              : []),
           ]}
           style={{ borderInlineEnd: "none", flex: 1 }}
         />

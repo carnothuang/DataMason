@@ -15,8 +15,9 @@ from typing import Iterable
 from server.crud import engine as crud_engine
 from server.models import ActivityLog, Deployment, User
 
-# 已实现的系统动作（destroy 随 M3-7 销毁端点接入；flow 随 M3-4；apikey 随 M3-8）
-SYSTEM_ACTIONS = ("deploy", "member", "structure", "stop", "start", "flow", "apikey")
+# 已实现的系统动作（destroy 随 M3-7 销毁端点接入；flow 随 M3-4；apikey 随 M3-8；
+# seed 随 DR-08「一键清空演示数据」接入）
+SYSTEM_ACTIONS = ("deploy", "member", "structure", "stop", "start", "flow", "apikey", "seed")
 
 _OWNERSHIP_COLS = crud_engine._OWNERSHIP_COLS
 
