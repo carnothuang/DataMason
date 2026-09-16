@@ -16,7 +16,7 @@ from __future__ import annotations
 
 from werkzeug.exceptions import Conflict, HTTPException
 
-from flask import Blueprint, current_app, jsonify, request, session
+from flask import Blueprint, current_app, g, jsonify, request, session
 
 from server.audit.service import AuditSession
 from server.crud import engine as crud_engine
@@ -158,17 +158,28 @@ def _assert_running(deployment_id: int) -> None:
 
 
 def _deployment_api(deployment_id: int):
-    """按部署构建 registry + engine（会话用户注入归属列），调用方负责 dispose engine。
-    M3-1：非运行态直接 409（停止后入口不可操作）。"""
+    """按部署构建 registry + engine，调用方负责 dispose engine。
+    M3-1：非运行态直接 409（停止后入口不可操作）。
+    M3-8：API key 请求走服务身份（全表、归属列记系统 0），否则用会话用户（含成员/操作员过滤）。"""
     _assert_running(deployment_id)
-    _d, registry, engine = runtime._registry(
-        current_app, deployment_id, _session_user_id()
-    )
+    if getattr(g, "api_key", None) is not None:
+        _d, registry, engine = runtime.registry_for_service(current_app, deployment_id)
+    else:
+        _d, registry, engine = runtime._registry(
+            current_app, deployment_id, _session_user_id()
+        )
     return registry, engine
 
 
 def _audit(deployment_id: int) -> AuditSession:
-    """构造两阶段日志会话（M2-6，DR-03）：actor=会话用户，source_ip=请求来源。"""
+    """构造两阶段日志会话（M2-6，DR-03）：actor=会话用户，source_ip=请求来源。
+    M3-8：API key 请求无用户，actor 标记 key 名（actor_label）。"""
+    ctx = getattr(g, "api_key", None)
+    if ctx is not None:
+        return AuditSession(
+            current_app, deployment_id, None, request.remote_addr or "",
+            actor_label=f"API key「{ctx['name']}」",
+        )
     return AuditSession(
         current_app, deployment_id,
         _session_user_id(), request.remote_addr or "",

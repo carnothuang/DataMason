@@ -3,6 +3,7 @@ import { useNavigate, useSearchParams } from "react-router-dom";
 import { App, Button, Layout, Menu, Result, Space, Spin, Switch, Typography } from "antd";
 import type { MenuProps } from "antd";
 import {
+  ApiOutlined,
   AppstoreOutlined,
   ArrowLeftOutlined,
   CrownOutlined,
@@ -17,6 +18,7 @@ import MembersPage from "./MembersPage";
 import LogsPage from "./LogsPage";
 import EngineerMenusPage from "./EngineerMenusPage";
 import EngineerFlowsPage from "./EngineerFlowsPage";
+import ApiDocsPage from "./ApiDocsPage";
 import { DemoContext } from "./demo";
 
 const { Header, Sider, Content } = Layout;
@@ -46,7 +48,7 @@ export default function Workspace({ deploymentId }: Props) {
   const [info, setInfo] = useState<WorkspaceInfo | null>(null);
   const [error, setError] = useState("");
   const [activePage, setActivePage] = useState<number | null>(null);
-  const [systemPage, setSystemPage] = useState<"menus" | "flows" | "members" | "logs" | null>(null);
+  const [systemPage, setSystemPage] = useState<"menus" | "flows" | "members" | "logs" | "api" | null>(null);
   const [focus, setFocus] = useState<RecordFocus | null>(null);
   const [restarting, setRestarting] = useState(false);
   const [demo, setDemo] = useState(false);
@@ -157,11 +159,22 @@ export default function Workspace({ deploymentId }: Props) {
         icon: <FileSearchOutlined />,
         label: "操作日志",
       },
+      {
+        key: "sys:api",
+        icon: <ApiOutlined />,
+        label: "API 文档",
+      },
     ];
   }, [info, canSeeSystemPages, demo]);
 
   const onClick: MenuProps["onClick"] = ({ key }) => {
-    if (key === "sys:menus" || key === "sys:flows" || key === "sys:members" || key === "sys:logs") {
+    if (
+      key === "sys:menus" ||
+      key === "sys:flows" ||
+      key === "sys:members" ||
+      key === "sys:logs" ||
+      key === "sys:api"
+    ) {
       setFocus(null);
       setSystemPage(
         key === "sys:menus"
@@ -170,7 +183,9 @@ export default function Workspace({ deploymentId }: Props) {
             ? "flows"
             : key === "sys:members"
               ? "members"
-              : "logs",
+              : key === "sys:logs"
+                ? "logs"
+                : "api",
       );
       return;
     }
@@ -296,9 +311,11 @@ export default function Workspace({ deploymentId }: Props) {
                       ? ["sys:members"]
                       : systemPage === "logs"
                         ? ["sys:logs"]
-                        : activePage !== null
-                          ? [`page:${activePage}`]
-                          : []
+                        : systemPage === "api"
+                          ? ["sys:api"]
+                          : activePage !== null
+                            ? [`page:${activePage}`]
+                            : []
               }
               onClick={onClick}
             />
@@ -324,7 +341,9 @@ export default function Workspace({ deploymentId }: Props) {
                         ? "成员与权限"
                         : systemPage === "logs"
                           ? "操作日志"
-                          : (active?.title || "工作台")}
+                          : systemPage === "api"
+                            ? "API 文档"
+                            : (active?.title || "工作台")}
                 </Text>
                 <Space>
                   <Button size="small" icon={<PlayCircleOutlined />} onClick={enterDemo}>
@@ -345,6 +364,11 @@ export default function Workspace({ deploymentId }: Props) {
                 <MembersPage deploymentId={deploymentId} canEdit={canEditMembers} />
               ) : systemPage === "logs" && canSeeSystemPages ? (
                 <LogsPage deploymentId={deploymentId} onViewRecord={handleViewRecord} />
+              ) : systemPage === "api" && canSeeSystemPages ? (
+                <ApiDocsPage
+                  deploymentId={deploymentId}
+                  canManageKeys={info?.role === "creator"}
+                />
               ) : (
                 <PageRenderer
                   deploymentId={deploymentId}

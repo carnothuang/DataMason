@@ -413,7 +413,7 @@ export interface ActivityLog {
   occurred_at: string;
   actor_user_id: number | null;
   actor_display: string;
-  action: "create" | "update" | "delete" | "deploy" | "member" | "structure" | "flow";
+  action: "create" | "update" | "delete" | "deploy" | "member" | "structure" | "flow" | "apikey";
   object_kind: string;
   object_table: string;
   object_pk: string;
@@ -688,6 +688,45 @@ export const ShareApi = {
   accept: (token: string) =>
     http
       .post<ShareAcceptResult>(`/share/${encodeURIComponent(token)}/accept`)
+      .then((r) => r.data),
+};
+
+// ---------- M3-8 API 开放（DR-11） ----------
+export interface ApiKeyItem {
+  id: number;
+  name: string;
+  prefix: string;
+  masked: string;
+  status: string;
+  created_by: number;
+  created_by_display: string;
+  created_at: string;
+  last_used_at: string;
+}
+
+export interface ApiKeyCreated {
+  id: number;
+  name: string;
+  key: string;
+  prefix: string;
+  status: string;
+}
+
+export const ApiKeyApi = {
+  /** 密钥清单（掩码回读，创建人独有）。 */
+  list: (deploymentId: number) =>
+    http
+      .get<{ keys: ApiKeyItem[] }>(`/deployments/${deploymentId}/api-keys`)
+      .then((r) => r.data.keys),
+  /** 发放密钥：明文仅此响应回显一次。 */
+  create: (deploymentId: number, name: string) =>
+    http
+      .post<ApiKeyCreated>(`/deployments/${deploymentId}/api-keys`, { name })
+      .then((r) => r.data),
+  /** 吊销密钥：立即失效。 */
+  revoke: (deploymentId: number, keyId: number) =>
+    http
+      .delete<{ ok: boolean }>(`/deployments/${deploymentId}/api-keys/${keyId}`)
       .then((r) => r.data),
 };
 

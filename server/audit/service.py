@@ -15,8 +15,8 @@ from typing import Iterable
 from server.crud import engine as crud_engine
 from server.models import ActivityLog, Deployment, User
 
-# 已实现的系统动作（destroy 随 M3-7 销毁端点接入；flow 随 M3-4 流程向导）
-SYSTEM_ACTIONS = ("deploy", "member", "structure", "stop", "start", "flow")
+# 已实现的系统动作（destroy 随 M3-7 销毁端点接入；flow 随 M3-4；apikey 随 M3-8）
+SYSTEM_ACTIONS = ("deploy", "member", "structure", "stop", "start", "flow", "apikey")
 
 _OWNERSHIP_COLS = crud_engine._OWNERSHIP_COLS
 
@@ -67,11 +67,13 @@ class AuditSession:
       业务提交失败 → abort(log_id) → 删除 pending（业务报错、无日志）
     """
 
-    def __init__(self, app, deployment_id: int, actor_user_id: int, source_ip: str = ""):
+    def __init__(self, app, deployment_id: int, actor_user_id: int | None,
+                 source_ip: str = "", actor_label: str = ""):
         self.Session = app.extensions["datamason_session_factory"]
         self.deployment_id = deployment_id
         self.actor_user_id = actor_user_id
         self.source_ip = source_ip
+        self.actor_label = actor_label
 
     def begin(self, action: str, object_table: str, *,
               object_pk: str = "", object_label: str = "", changes: dict | None = None) -> int:
@@ -80,6 +82,7 @@ class AuditSession:
                 deployment_id=self.deployment_id,
                 occurred_at=_store_now(),
                 actor_user_id=self.actor_user_id,
+                actor_label=self.actor_label,
                 action=action,
                 status="pending",
                 object_kind="table",
@@ -118,10 +121,12 @@ class AuditSession:
 
 def log_system(app, deployment_id: int, action: str, *, actor_user_id: int | None = None,
                object_kind: str = "", object_table: str = "", object_pk: str = "",
-               object_label: str = "", changes: dict | None = None) -> int:
+               object_label: str = "", changes: dict | None = None,
+               actor_label: str = "") -> int:
     """系统动作单事务写入（同元数据库，天然原子）：deploy/member/structure。
 
     actor_user_id=None 表示系统（如后续定时任务），通常传触发用户。
+    actor_label：非会话身份的显示名（如 API key 名），优先于 actor_user_id 显示。
     """
     Session = app.extensions["datamason_session_factory"]
     with Session() as s:
@@ -129,6 +134,7 @@ def log_system(app, deployment_id: int, action: str, *, actor_user_id: int | Non
             deployment_id=deployment_id,
             occurred_at=_store_now(),
             actor_user_id=actor_user_id,
+            actor_label=actor_label,
             action=action,
             status="committed",
             object_kind=object_kind,
@@ -203,8 +209,11 @@ def list_logs(app, deployment_id: int, role: str, uid: int, *,
             "id": row.id,
             "occurred_at": jsonable(row.occurred_at),
             "actor_user_id": row.actor_user_id,
-            "actor_display": ((user.display_name or user.username) if user else
-                              ("系统" if row.actor_user_id is None else f"#{row.actor_user_id}")),
+            "actor_display": (
+                row.actor_label
+                or ((user.display_name or user.username) if user else
+                    ("系统" if row.actor_user_id is None else f"#{row.actor_user_id}"))
+            ),
             "action": row.action,
             "object_kind": row.object_kind,
             "object_table": row.object_table,

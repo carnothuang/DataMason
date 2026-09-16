@@ -51,6 +51,7 @@ def create_app(config_object: object | None = None) -> Flask:
     from server.flow.routes import bp as flow_bp
     from server.public.routes import bp as public_bp
     from server.share.routes import bp as share_bp
+    from server.apiaccess.routes import bp as apiaccess_bp
 
     app.register_blueprint(auth_bp, url_prefix="/api/v1/auth")
     app.register_blueprint(settings_bp, url_prefix="/api/v1/settings")
@@ -60,6 +61,7 @@ def create_app(config_object: object | None = None) -> Flask:
     app.register_blueprint(flow_bp, url_prefix="/api/v1")
     app.register_blueprint(share_bp, url_prefix="/api/v1")
     app.register_blueprint(public_bp, url_prefix="/api/v1/public")
+    app.register_blueprint(apiaccess_bp, url_prefix="/api/v1")
 
     _register_auth_guard(app)
     _register_spa(app)
@@ -81,7 +83,7 @@ def _register_auth_guard(app: Flask) -> None:
     - 白名单：健康检查 + 首启向导 + 登录/登出/me（me 未登录返回 401 而非拦截）。
     - SPA/静态资源（非 /api/）不拦截，由前端登录页引导。
     """
-    from flask import jsonify, request, session
+    from flask import g, jsonify, request, session
 
     public_paths = {
         "/api/v1/health",
@@ -93,6 +95,16 @@ def _register_auth_guard(app: Flask) -> None:
     }
     admin_prefixes = ("/api/v1/settings/", "/api/v1/auth/users")
 
+    def _extract_api_key() -> str | None:
+        """支持 `X-API-Key: dm_...` 或 `Authorization: Bearer dm_...`。"""
+        raw = (request.headers.get("X-API-Key") or "").strip()
+        if raw:
+            return raw
+        auth = (request.headers.get("Authorization") or "").strip()
+        if auth.lower().startswith("bearer "):
+            return auth[7:].strip()
+        return None
+
     @app.before_request
     def _auth_guard():
         path = request.path
@@ -100,6 +112,22 @@ def _register_auth_guard(app: Flask) -> None:
             return None
         # M3-5 访客公开页（DR-04）：匿名提交/读取公开表单，不走登录拦截
         if path.startswith("/api/v1/public/"):
+            return None
+        # M3-8 API key 通道（DR-11）：仅开放该部署的 CRUD REST（/app/{id}/api/tables/*、/api/meta）
+        raw_key = _extract_api_key()
+        if raw_key:
+            from server.apiaccess import service as apikey_service
+
+            ctx = apikey_service.authenticate(app, raw_key)
+            if ctx is None:
+                return jsonify({"error": "API key 无效或已吊销"}), 401
+            allowed = (
+                path.startswith(f"/api/v1/app/{ctx['deployment_id']}/api/tables/")
+                or path == f"/api/v1/app/{ctx['deployment_id']}/api/meta"
+            )
+            if not allowed:
+                return jsonify({"error": "API key 仅可用于该部署的数据接口"}), 403
+            g.api_key = ctx
             return None
         uid = session.get("user_id")
         if not uid:

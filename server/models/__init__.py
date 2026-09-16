@@ -176,6 +176,27 @@ class DeploymentShareToken(Base):
         return json.loads(self.menu_ids_json or "[]")
 
 
+class DeploymentApiKey(Base):
+    """部署级 API key（M3-8，DR-11）：把 CRUD REST 开放给外部系统。
+
+    - key 明文形如 `dm_<随机>`，仅创建时回显一次；落库为 Fernet 密文（key_cipher，复用 Cipher）。
+    - key_prefix 供掩码回读（如 `dm_ab12…`）；吊销即 status=revoked（立即 401）。
+    - key 管理=创建人独有（DR-14）；key 写操作在 activity_logs 以 actor_label 标记 key 名。
+    """
+
+    __tablename__ = "deployment_api_keys"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    deployment_id: Mapped[int] = mapped_column(ForeignKey("deployments.id"), nullable=False)
+    name: Mapped[str] = mapped_column(String(64), nullable=False)
+    key_cipher: Mapped[str] = mapped_column(Text, nullable=False)  # Fernet 密文
+    key_prefix: Mapped[str] = mapped_column(String(16), default="")  # 掩码回读前缀
+    status: Mapped[str] = mapped_column(String(16), default="active")  # active/revoked
+    created_by: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
+    last_used_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+
 class FlowSpec(Base):
     __tablename__ = "flow_specs"
 
@@ -208,6 +229,9 @@ class ActivityLog(Base):
     object_label: Mapped[str] = mapped_column(String(256), default="")
     changes_json: Mapped[str] = mapped_column(Text, default="{}")  # {字段: {old, new}}
     source_ip: Mapped[str] = mapped_column(String(64), default="")
+    # M3-8 API key 通道：非会话身份的操作者显示名（如「API key「订单同步」」）；
+    # 有值时优先于 actor_user_id 的显示（key 无 users.id）
+    actor_label: Mapped[str] = mapped_column(String(128), default="")
 
     @property
     def changes(self) -> dict:

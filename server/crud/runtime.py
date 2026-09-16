@@ -53,6 +53,26 @@ def _registry(app, deployment_id: int, current_user_id: int | None = None) -> tu
     return deployment, registry, engine
 
 
+def registry_for_service(app, deployment_id: int, actor_id: int = 0) -> tuple[Deployment, CrudRegistry, Engine]:
+    """服务身份（M3-8 API key）：不查成员，暴露该部署全部声明表；归属列记 actor_id（默认 0=系统）。
+
+    用于 API key 通道的 CRUD REST——key 是部署级服务凭证，行为等同管理员但不走用户会话。
+    """
+    Session = app.extensions["datamason_session_factory"]
+    with Session() as s:
+        deployment = s.get(Deployment, deployment_id)
+        if deployment is None:
+            raise KeyError("部署不存在")
+        table_names = [
+            t.name for t in s.query(TableSpec).filter_by(deployment_id=deployment_id).all()
+        ]
+    engine = _biz_engine(app, deployment)
+    registry = CrudRegistry(
+        engine, tables=table_names, current_user_id=actor_id, owner_only=False,
+    )
+    return deployment, registry, engine
+
+
 def list_tables(app, deployment_id: int, user_id: int | None = None) -> list[dict]:
     _d, registry, engine = _registry(app, deployment_id, user_id)
     try:

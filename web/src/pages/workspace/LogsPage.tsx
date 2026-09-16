@@ -18,6 +18,7 @@ export const ACTION_META: Record<string, { label: string; color: string }> = {
   member: { label: "成员", color: "purple" },
   structure: { label: "结构变更", color: "orange" },
   flow: { label: "流程", color: "cyan" },
+  apikey: { label: "密钥", color: "geekblue" },
 };
 
 function pad(n: number): string {
