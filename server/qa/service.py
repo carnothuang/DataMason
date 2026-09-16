@@ -25,7 +25,6 @@ from sqlglot.errors import ParseError
 from server.llm.client import LlmCallError, Usage
 from server.members import service as member_service
 from server.models import (
-    AiGeneration,
     Connection,
     Deployment,
     DeploymentMenu,
@@ -298,21 +297,15 @@ def _conclusion(client, question: str, columns: list[str], rows: list[dict],
     return f"共 {len(rows)} 行数据。"
 
 
-# ---------------- 埋点（ai_generations） ----------------
+# ---------------- 埋点（ai_generations，M4-4 统一治理） ----------------
 
-def _record_generation(app, status: str, prompt_summary: str,
+def _record_generation(app, deployment_id: int, status: str, prompt_summary: str,
                        result_summary: str, usage: Usage) -> None:
-    with _session(app) as s:
-        s.add(AiGeneration(
-            kind="qa",
-            status=status,
-            prompt_summary=prompt_summary[:1000],
-            result_summary=result_summary[:1000],
-            tokens_in=usage.tokens_in,
-            tokens_out=usage.tokens_out,
-            duration_ms=usage.duration_ms,
-        ))
-        s.commit()
+    from server.ai import service as ai_service
+
+    ai_service.record(
+        app, "qa", status, prompt_summary=prompt_summary,
+        result_summary=result_summary, usage=usage, deployment_id=deployment_id)
 
 
 # ---------------- 入口 ----------------
@@ -363,13 +356,13 @@ def ask(app, deployment_id: int, question: str, uid: int) -> dict:
             except (LlmCallError, QaError) as exc:
                 last_error = str(exc)
                 if attempt == MAX_RETRY:
-                    _record_generation(app, "error", question, last_error, usage)
+                    _record_generation(app, deployment_id, "error", question, last_error, usage)
                     raise QaError(f"经过 {attempts} 次生成仍不可用：{last_error}") from exc
 
         result = _execute(engine, inner_sql, dialect)
         conclusion = _conclusion(client, question, result["columns"], result["rows"], usage)
         _record_generation(
-            app, "ok", question, f"{title}（{len(result['rows'])} 行）", usage)
+            app, deployment_id, "ok", question, f"{title}（{len(result['rows'])} 行）", usage)
         return {
             "question": question,
             "title": title,

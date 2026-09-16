@@ -430,6 +430,61 @@ export const DashboardApi = {
       .then((r) => r.data),
 };
 
+// ---------- M4-4 AI 生成历史治理 ----------
+export interface AiGenerationItem {
+  id: number;
+  kind: string;
+  status: string;
+  prompt_summary: string;
+  result_summary: string;
+  tokens_in: number;
+  tokens_out: number;
+  duration_ms: number;
+  deployment_id: number;
+  deployment_name: string;
+  created_at: string;
+}
+
+export interface AiGenerationsPage {
+  items: AiGenerationItem[];
+  page: number;
+  page_size: number;
+  total: number;
+  stats: {
+    total: number;
+    tokens_in: number;
+    tokens_out: number;
+    avg_duration_ms: number;
+    by_kind: Record<string, number>;
+  };
+}
+
+export interface AiGenFilters {
+  kind?: string;
+  deployment_id?: number;
+  status?: string;
+  page?: number;
+  page_size?: number;
+}
+
+export const AiGenApi = {
+  /** 平台管理员：全量生成历史（筛选 + 统计）。 */
+  list: (params: AiGenFilters = {}) =>
+    http.get<AiGenerationsPage>("/settings/ai-generations", { params }).then((r) => r.data),
+  /** 平台管理员：清理（必须给条件）。 */
+  cleanup: (payload: { ids?: number[]; kind?: string; status?: string; deployment_id?: number; older_than_days?: number }) =>
+    http
+      .post<{ deleted: number }>("/settings/ai-generations/cleanup", payload)
+      .then((r) => r.data),
+  remove: (id: number) =>
+    http.delete<{ ok: boolean }>(`/settings/ai-generations/${id}`).then((r) => r.data),
+  /** 工程室：本部署生成历史（创建人/管理员）。 */
+  forDeployment: (deploymentId: number, params: AiGenFilters = {}) =>
+    http
+      .get<AiGenerationsPage>(`/deployments/${deploymentId}/ai-generations`, { params })
+      .then((r) => r.data),
+};
+
 // ---------- 工作台业务 CRUD（M2-3/M2-4，挂 /app/{id}/api/） ----------
 export const CrudApi = {
   meta: (deploymentId: number) =>

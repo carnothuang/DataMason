@@ -58,11 +58,14 @@ SYSTEM_PROMPT = """你是数据库设计专家。根据用户的一句话业务�
 def generate_schema(client: OpenAiCompatibleClient, description: str) -> tuple[SchemaSpec, dict]:
     """一句话 → 合法 SchemaSpec。失败回喂中文错误重试，超过上限抛出。
 
-    返回 (schema, meta)，meta 含重试次数与用量。
+    返回 (schema, meta)，meta 含重试次数与累计用量（M4-4 埋点用）。
     """
+    from server.llm.client import Usage
+
     user_prompt = f"业务描述：{description}\n请输出 table_spec JSON。"
     last_error = ""
     attempts = 0
+    usage = Usage()
 
     for attempt in range(MAX_RETRY + 1):
         attempts = attempt + 1
@@ -73,11 +76,14 @@ def generate_schema(client: OpenAiCompatibleClient, description: str) -> tuple[S
                 f"{user_prompt}\n\n上一次生成的结构不合法：{last_error}\n"
                 "请修正后重新输出完整 JSON。"
             )
-        parsed, _usage = client.chat_json(SYSTEM_PROMPT, prompt)
+        parsed, call_usage = client.chat_json(SYSTEM_PROMPT, prompt)
+        usage.tokens_in += call_usage.tokens_in or 0
+        usage.tokens_out += call_usage.tokens_out or 0
+        usage.duration_ms += call_usage.duration_ms or 0
         try:
             normalized = _normalize_ownership_columns(parsed)
             schema = SchemaSpec.model_validate(normalized)
-            return schema, {"attempts": attempts}
+            return schema, {"attempts": attempts, "usage": usage}
         except ValidationError as exc:
             last_error = _flatten_validation_error(exc)
     raise LlmCallError(f"经过 {attempts} 次生成仍不合法：{last_error}")
@@ -195,7 +201,7 @@ def enrich_labels(
         f"{json.dumps(schema_dict, ensure_ascii=False)}\n"
         "请补充每张表的中文业务名。"
     )
-    parsed, _usage = client.chat_json(ENRICH_SYSTEM_PROMPT, user_prompt)
+    parsed, usage = client.chat_json(ENRICH_SYSTEM_PROMPT, user_prompt)
     if not isinstance(parsed, dict):
         raise LlmCallError("补标签响应不是 JSON 对象")
     tables = parsed.get("tables")
@@ -216,7 +222,7 @@ def enrich_labels(
         schema = SchemaSpec.model_validate(enriched)
     except ValidationError as exc:
         raise LlmCallError(f"补标签后结构不合法：{_flatten_validation_error(exc)}") from exc
-    return schema, {"attempts": 1}
+    return schema, {"attempts": 1, "usage": usage}
 
 
 def generate_seed_rows(spec: SchemaSpec, rows_per_table: int = 10, seed: int = 42) -> dict[str, list[dict]]:

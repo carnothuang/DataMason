@@ -77,13 +77,24 @@ def _owner_id(s) -> int:
 # ---------------- 提案（预览，不落业务库） ----------------
 
 def preview(app, description: str) -> dict:
+    from server.ai import service as ai_service
     from server.settings.service import get_default_llm_client
 
     client = get_default_llm_client(app)
     if client is None:
         raise DeployError("尚未配置默认 LLM 模型，请先到「设置 → 模型管理」添加并测试")
 
-    schema, meta = generate_schema(client, description)
+    try:
+        schema, meta = generate_schema(client, description)
+    except Exception as exc:  # noqa: BLE001 失败也留一条历史（治理页可见）
+        ai_service.record(app, "deploy", "error", prompt_summary=description,
+                          result_summary=f"{type(exc).__name__}: {exc}")
+        raise
+    ai_service.record(
+        app, "deploy", "ok", prompt_summary=description,
+        result_summary=f"{schema.biz_notes or description}（{len(schema.tables)} 表，"
+                       f"attempts={meta['attempts']}）",
+        usage=meta.get("usage"))
     pages = _derive_pages(schema)
     return {
         "biz_notes": schema.biz_notes,
@@ -319,6 +330,16 @@ def confirm(app, spec_dict: dict, biz_name: str, seed_data: bool = True,
         d.status = "running"
         d.entry_path = entry_path
         s.commit()
+
+    # M4-4：种子数据生成也留一条 AI 生成历史（DR-08，确定性生成，无 token 消耗）
+    if seed_data and not link_mode:
+        from server.ai import service as ai_service
+
+        rows_total = sum(len(v) for v in seeds.values())
+        ai_service.record(
+            app, "seed", "ok", prompt_summary=f"{biz_name} 演示数据",
+            result_summary=f"{len(seeds)} 张表 · {rows_total} 行（确定性，DR-08）",
+            deployment_id=deployment_id)
 
     # ⑧ 系统动作日志（M2-6）：部署就绪（actor=触发用户，无请求上下文时=创建人）
     from server.audit.service import log_system

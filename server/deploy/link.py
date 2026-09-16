@@ -202,14 +202,25 @@ def preview(app, connection_id: int, table_names: list[str],
     attempts = 1
     enrich_failed = ""
     if enhance:
+        from server.ai import service as ai_service
+
         client = get_default_llm_client(app)
         if client is None:
             enrich_failed = "尚未配置默认 LLM 模型，业务标签留待后续补充"
+            ai_service.record(app, "crud", "error", prompt_summary=purpose or "直连补标签",
+                              result_summary=enrich_failed)
         else:
             try:
-                schema, _m = enrich_labels(client, purpose or "", schema.model_dump(mode="json"))
+                schema, enrich_meta = enrich_labels(client, purpose or "", schema.model_dump(mode="json"))
+                ai_service.record(
+                    app, "crud", "ok", prompt_summary=purpose or "直连补标签",
+                    result_summary=f"补业务标签 {len(schema.tables)} 表（直连模式）",
+                    usage=enrich_meta.get("usage"))
             except Exception as exc:  # noqa: BLE001 补标签为可选增强，失败回退确定性默认
                 enrich_failed = f"{type(exc).__name__}: {exc}"
+                ai_service.record(app, "crud", "error",
+                                  prompt_summary=purpose or "直连补标签",
+                                  result_summary=enrich_failed)
 
     from server.deploy.service import _derive_pages
 

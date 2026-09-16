@@ -11,6 +11,7 @@ import {
   LineChartOutlined,
   NodeIndexOutlined,
   PlayCircleOutlined,
+  RobotOutlined,
   TeamOutlined,
 } from "@ant-design/icons";
 import { DeployApi, WorkspaceApi, WorkspaceInfo, WorkspaceMenu, WorkspacePage } from "../../api";
@@ -21,6 +22,7 @@ import EngineerMenusPage from "./EngineerMenusPage";
 import EngineerFlowsPage from "./EngineerFlowsPage";
 import ApiDocsPage from "./ApiDocsPage";
 import AskData from "./AskData";
+import DeploymentGenerationsPage from "./DeploymentGenerationsPage";
 import { DemoContext } from "./demo";
 
 const { Header, Sider, Content } = Layout;
@@ -52,7 +54,7 @@ export default function Workspace({ deploymentId }: Props) {
   const [info, setInfo] = useState<WorkspaceInfo | null>(null);
   const [error, setError] = useState("");
   const [activePage, setActivePage] = useState<number | null>(null);
-  const [systemPage, setSystemPage] = useState<"menus" | "flows" | "members" | "logs" | "api" | null>(null);
+  const [systemPage, setSystemPage] = useState<"menus" | "flows" | "members" | "logs" | "api" | "ai" | null>(null);
   const [focus, setFocus] = useState<RecordFocus | null>(null);
   const [restarting, setRestarting] = useState(false);
   const [demo, setDemo] = useState(false);
@@ -176,6 +178,11 @@ export default function Workspace({ deploymentId }: Props) {
         icon: <ApiOutlined />,
         label: "API 文档",
       },
+      {
+        key: "sys:ai",
+        icon: <RobotOutlined />,
+        label: "AI 生成",
+      },
     ];
   }, [info, canSeeSystemPages, demo]);
 
@@ -185,7 +192,8 @@ export default function Workspace({ deploymentId }: Props) {
       key === "sys:flows" ||
       key === "sys:members" ||
       key === "sys:logs" ||
-      key === "sys:api"
+      key === "sys:api" ||
+      key === "sys:ai"
     ) {
       setFocus(null);
       setSystemPage(
@@ -197,7 +205,9 @@ export default function Workspace({ deploymentId }: Props) {
               ? "members"
               : key === "sys:logs"
                 ? "logs"
-                : "api",
+                : key === "sys:api"
+                  ? "api"
+                  : "ai",
       );
       return;
     }
@@ -321,13 +331,15 @@ export default function Workspace({ deploymentId }: Props) {
                     ? ["sys:flows"]
                     : systemPage === "members"
                       ? ["sys:members"]
-                      : systemPage === "logs"
-                        ? ["sys:logs"]
-                        : systemPage === "api"
-                          ? ["sys:api"]
-                          : activePage !== null
-                            ? [`page:${activePage}`]
-                            : []
+                        : systemPage === "logs"
+                          ? ["sys:logs"]
+                          : systemPage === "api"
+                            ? ["sys:api"]
+                            : systemPage === "ai"
+                              ? ["sys:ai"]
+                              : activePage !== null
+                                ? [`page:${activePage}`]
+                                : []
               }
               onClick={onClick}
             />
@@ -355,7 +367,9 @@ export default function Workspace({ deploymentId }: Props) {
                           ? "操作日志"
                           : systemPage === "api"
                             ? "API 文档"
-                            : (active?.title || "工作台")}
+                            : systemPage === "ai"
+                              ? "AI 生成"
+                              : (active?.title || "工作台")}
                 </Text>
                 <Space>
                   {canSeeSystemPages && (
@@ -386,6 +400,8 @@ export default function Workspace({ deploymentId }: Props) {
                   deploymentId={deploymentId}
                   canManageKeys={info?.role === "creator"}
                 />
+              ) : systemPage === "ai" && canSeeSystemPages ? (
+                <DeploymentGenerationsPage deploymentId={deploymentId} />
               ) : (
                 <PageRenderer
                   deploymentId={deploymentId}
