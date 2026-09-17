@@ -195,8 +195,20 @@ async function newLoggedInContext(browser, user, pass) {
     await page.locator(".ant-menu-item", { hasText: "入库流程" }).click();
     await page.getByText("当前步骤：", { exact: false }).first().waitFor({ timeout: 15000 });
     for (let i = 0; i < 3; i++) {
+      // 等待 advance 真实 HTTP 响应（不能用 ant-message toast：旧成功 toast 停留数秒，
+      // 会让后续点击被立即放行，三个请求并发抢游标导致 409 误报）
+      const respPromise = page.waitForResponse(
+        (r) => r.request().method() === "POST" && r.url().includes(`/flows/${flowResp.data.id}/advance`),
+        { timeout: 15000 },
+      );
       await page.getByRole("button", { name: btn("下一步") }).click();
-      await page.locator(".ant-message").getByText(/完成/).first().waitFor({ timeout: 15000 });
+      const resp = await respPromise;
+      if (resp.status() !== 200) {
+        throw new Error(`流程第 ${i + 1} 步推进失败 HTTP ${resp.status()} ${(await resp.text()).slice(0, 300)}`);
+      }
+      const body = await resp.json();
+      if (i === 2 && !body.done) throw new Error("第 3 步推进后 done 应为 true: " + JSON.stringify(body));
+      await page.waitForTimeout(300); // 等运行态重渲染
     }
     await page.getByText("流程已完成", { exact: false }).first().waitFor({ timeout: 15000 });
     const rows = (await api(page, `/app/${did}/api/tables/items/rows?page_size=50`)).data.data;
