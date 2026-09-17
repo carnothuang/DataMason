@@ -36,8 +36,7 @@ class Config:
         "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,"
         "application/vnd.ms-powerpoint,"
         "application/vnd.openxmlformats-officedocument.presentationml.presentation,"
-        "application/zip,application/vnd.rar,application/x-7z-compressed,"
-        "text/html"
+        "application/zip,application/vnd.rar,application/x-7z-compressed"
     )
     import_max_rows: int = 5000
     export_max_rows: int = 20000

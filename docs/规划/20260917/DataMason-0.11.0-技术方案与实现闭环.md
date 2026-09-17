@@ -201,7 +201,7 @@ DATA_ROOT/
 ### 4.4 生命周期闭环
 
 - **创建**：上传 → 写 `attachments` → 返回 token → 前端把 token 写进所属行的 FILE 字段（行新增/修改走既有 CRUD 写路径，于是**附件与行的关联也进 `activity_logs`** 的字段级 `changes`）。
-- **删除行**：CRUD delete 钩子里，按 `(deployment_id, table_name, row_pk)` 把附件置 `pending_gc`（`mark_orphans_pending`）；`cleanup_orphans()` 回收文件与元数据（幂等可重入）。
+- **删除行**（0.12.0 接线）：CRUD delete 钩子里，按 `(deployment_id, table_name, row_pk)` 把附件置 `pending_gc`（`mark_orphans_pending` 已提供，尚未接入写路径）；`cleanup_orphans()` 回收文件与元数据（幂等可重入）。
 - **替换字段**：update 时旧 token 变新 token，旧附件置 `pending_gc`。
 - **销毁部署**：`destroy_deployment` 级联删除 `attachments` 行并删除 `deployments/deployment_<id>.files/` 目录（DATA_ROOT 路径守卫，返回 `files_dir_removed`）。
 - **游离回收**：`cleanup_orphans()` 扫描 `pending_gc` 附件，删除磁盘文件并删元数据行（失败可重入，幂等）；启动自动接线为后续项。

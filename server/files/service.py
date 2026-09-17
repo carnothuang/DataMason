@@ -85,6 +85,12 @@ def save_upload(app, deployment_id: int, file_storage, *,
     if allowed and ext not in allowed:
         raise FileError(f"不支持的文件类型：{ext or '（无扩展名）'}")
 
+    # D-2/P3-1：先按扩展名绑定 MIME 并过白名单，再落盘，避免「先写盘后拒绝」留孤儿文件
+    mime = server_mime(filename)
+    allowed_mime = _allowed_mimes(app)
+    if allowed_mime and mime not in allowed_mime:
+        raise FileError(f"不支持的文件类型：{mime}")
+
     # 读取到内存并做大小校验（<= 单文件上限）
     data = file_storage.read()
     max_bytes = int(app.config.get("DM_UPLOAD_MAX_FILE_BYTES", 10 * 1024 * 1024))
@@ -99,10 +105,6 @@ def save_upload(app, deployment_id: int, file_storage, *,
     abs_path.parent.mkdir(parents=True, exist_ok=True)
     abs_path.write_bytes(data)
 
-    mime = server_mime(filename)
-    allowed_mime = _allowed_mimes(app)
-    if allowed_mime and mime not in allowed_mime:
-        raise FileError(f"不支持的文件类型：{mime}")
     with _session(app) as s:
         a = Attachment(
             deployment_id=deployment_id, table_name=table_name, row_pk=str(row_pk or ""),

@@ -237,3 +237,16 @@ def test_stopped_deployment_blocks_files(app, env, patch_llm):
     did = _deploy(c)
     assert c.post(f"/api/v1/deployments/{did}/stop").status_code == 200
     assert _upload(c, did, "a.txt").status_code == 409
+
+
+def test_mime_reject_happens_before_write(app, env, patch_llm):
+    """P3-1：MIME 白名单不通过时不得落盘（无孤儿文件）。"""
+    from pathlib import Path
+    c = env["client"]
+    did = _deploy(c)
+    app.config["DM_UPLOAD_ALLOWED_MIME"] = "image/png"  # 收紧：.txt 不在允许 MIME 内
+    resp = _upload(c, did, "a.txt", b"x")
+    assert resp.status_code == 400
+    files_dir = Path(app.config["DATA_ROOT"]) / "deployments" / f"deployment_{did}.files"
+    leftovers = list(files_dir.glob("*")) if files_dir.exists() else []
+    assert leftovers == []
