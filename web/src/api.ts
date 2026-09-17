@@ -511,6 +511,105 @@ export const AiGenApi = {
       .then((r) => r.data),
 };
 
+// ---------- 附件（0.11.0 M5-B1） ----------
+export interface AttachmentInfo {
+  id: number;
+  token: string;
+  filename: string;
+  mime: string;
+  size: number;
+  table_name: string;
+  row_pk: string;
+  field_name: string;
+  status: string;
+}
+
+export const FilesApi = {
+  upload: (
+    deploymentId: number,
+    file: File,
+    meta: { table?: string; row_pk?: string; field?: string } = {},
+  ) => {
+    const fd = new FormData();
+    fd.append("file", file);
+    if (meta.table) fd.append("table", meta.table);
+    if (meta.row_pk) fd.append("row_pk", String(meta.row_pk));
+    if (meta.field) fd.append("field", meta.field);
+    return http
+      .post<AttachmentInfo>(`/app/${deploymentId}/api/files`, fd, { timeout: 120000 })
+      .then((r) => r.data);
+  },
+  fileUrl: (deploymentId: number, token: string) =>
+    `/api/v1/app/${deploymentId}/api/files/${encodeURIComponent(token)}`,
+  previewUrl: (deploymentId: number, token: string) =>
+    `/api/v1/app/${deploymentId}/api/files/${encodeURIComponent(token)}/preview`,
+  remove: (deploymentId: number, token: string) =>
+    http.delete<{ deleted: boolean }>(`/app/${deploymentId}/api/files/${encodeURIComponent(token)}`).then((r) => r.data),
+};
+
+// ---------- 导入（0.11.0 M5-B3） ----------
+export interface ImportPreview {
+  upload_token: string;
+  headers: string[];
+  mapping: Record<string, number>;
+  columns: {
+    name: string; biz_name: string; type: string; nullable: boolean;
+    unique: boolean; is_fk: boolean; is_ownership: boolean; is_pk: boolean;
+  }[];
+  sample: Record<string, unknown>[];
+  total: number;
+  valid: number;
+  error_count: number;
+  errors: { row: number; column: string; message: string }[];
+}
+
+export const ImportApi = {
+  preview: (deploymentId: number, table: string, file: File) => {
+    const fd = new FormData();
+    fd.append("file", file);
+    return http
+      .post<ImportPreview>(
+        `/app/${deploymentId}/api/tables/${encodeURIComponent(table)}/import/preview`,
+        fd,
+        { timeout: 120000 },
+      )
+      .then((r) => r.data);
+  },
+  commit: (
+    deploymentId: number,
+    table: string,
+    upload_token: string,
+    mapping: Record<string, number>,
+    mode: "strict" | "skip_errors",
+  ) =>
+    http
+      .post<{ inserted: number; skipped: number; total: number }>(
+        `/app/${deploymentId}/api/tables/${encodeURIComponent(table)}/import/commit`,
+        { upload_token, mapping, mode },
+        { timeout: 120000 },
+      )
+      .then((r) => r.data),
+  templateUrl: (deploymentId: number, table: string) =>
+    `/api/v1/app/${deploymentId}/api/tables/${encodeURIComponent(table)}/import/template`,
+};
+
+function _exportUrl(
+  kind: "csv" | "xlsx",
+  deploymentId: number,
+  table: string,
+  params: CrudRowFilters = {},
+): string {
+  const qs = new URLSearchParams(
+    Object.entries(params).reduce<Record<string, string>>((acc, [k, v]) => {
+      if (v !== undefined && v !== null && v !== "") acc[k] = String(v);
+      return acc;
+    }, {}),
+  ).toString();
+  return `/api/v1/app/${deploymentId}/api/tables/${encodeURIComponent(table)}/rows.${kind}${
+    qs ? `?${qs}` : ""
+  }`;
+}
+
 // ---------- 工作台业务 CRUD（M2-3/M2-4，挂 /app/{id}/api/） ----------
 export const CrudApi = {
   meta: (deploymentId: number) =>
@@ -519,17 +618,10 @@ export const CrudApi = {
     http
       .get<RowPage>(`/app/${deploymentId}/api/tables/${encodeURIComponent(table)}/rows`, { params })
       .then((r) => r.data),
-  exportCsvUrl: (deploymentId: number, table: string, params: CrudRowFilters = {}) => {
-    const qs = new URLSearchParams(
-      Object.entries(params).reduce<Record<string, string>>((acc, [k, v]) => {
-        if (v !== undefined && v !== null && v !== "") acc[k] = String(v);
-        return acc;
-      }, {}),
-    ).toString();
-    return `/api/v1/app/${deploymentId}/api/tables/${encodeURIComponent(table)}/rows.csv${
-      qs ? `?${qs}` : ""
-    }`;
-  },
+  exportCsvUrl: (deploymentId: number, table: string, params: CrudRowFilters = {}) =>
+    _exportUrl("csv", deploymentId, table, params),
+  exportXlsxUrl: (deploymentId: number, table: string, params: CrudRowFilters = {}) =>
+    _exportUrl("xlsx", deploymentId, table, params),
   create: (deploymentId: number, table: string, values: Record<string, unknown>) =>
     http
       .post<{ id: string | number }>(

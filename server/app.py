@@ -51,6 +51,8 @@ def create_app(config_object: object | None = None) -> Flask:
     from server.flow.routes import bp as flow_bp
     from server.public.routes import bp as public_bp
     from server.share.routes import bp as share_bp
+    from server.files.routes import bp as files_bp
+    from server.imports.routes import bp as imports_bp
     from server.apiaccess.routes import bp as apiaccess_bp
     from server.qa.routes import bp as qa_bp, engineer_bp as qa_engineer_bp
     from server.ai.routes import settings_bp as ai_settings_bp, deploy_bp as ai_deploy_bp
@@ -67,6 +69,8 @@ def create_app(config_object: object | None = None) -> Flask:
     app.register_blueprint(flow_bp, url_prefix="/api/v1")
     app.register_blueprint(share_bp, url_prefix="/api/v1")
     app.register_blueprint(public_bp, url_prefix="/api/v1/public")
+    app.register_blueprint(files_bp, url_prefix="/api/v1/app")
+    app.register_blueprint(imports_bp, url_prefix="/api/v1/app")
     app.register_blueprint(apiaccess_bp, url_prefix="/api/v1")
 
     _register_auth_guard(app)

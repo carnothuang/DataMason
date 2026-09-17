@@ -20,6 +20,8 @@ import { CrudApi } from "../../api";
 import CrudForm from "./CrudForm";
 import { LogsModal } from "./LogsPage";
 import { maskText, useDemo } from "./demo";
+import FileChip from "../../components/FileChip";
+import ImportWizard from "./ImportWizard";
 
 const { Text } = Typography;
 
@@ -71,6 +73,7 @@ export default function CrudListPage({
   const [editing, setEditing] = useState<Record<string, unknown> | null>(null);
   const [focusedPk, setFocusedPk] = useState<string | null>(null);
   const [logsRow, setLogsRow] = useState<Record<string, unknown> | null>(null);
+  const [importOpen, setImportOpen] = useState(false);
   const [reloadTick, setReloadTick] = useState(0);
 
   const reload = () => setReloadTick((t) => t + 1);
@@ -133,7 +136,9 @@ export default function CrudListPage({
           ? (sort.order === "desc" ? "descend" : "ascend")
           : null,
       render: (v: unknown) =>
-        v === null || v === undefined ? (
+        c.type === "FILE" ? (
+          <FileChip deploymentId={deploymentId} value={v} masked={masked} />
+        ) : v === null || v === undefined ? (
           <Text type="secondary">—</Text>
         ) : (
           String(masked ? maskText(v) : v)
@@ -309,6 +314,26 @@ export default function CrudListPage({
                 导出 CSV
               </Button>
             )}
+            {can("export") && (
+              <Button
+                icon={<ExportOutlined />}
+                onClick={() => {
+                  const params: CrudRowFilters = {};
+                  if (search) params.search = search;
+                  if (filter?.col && filter.value !== "") params[filter.col] = filter.value;
+                  if (sort.field) {
+                    params.sort = sort.field;
+                    params.order = sort.order;
+                  }
+                  window.open(CrudApi.exportXlsxUrl(deploymentId, table, params), "_blank");
+                }}
+              >
+                导出 Excel
+              </Button>
+            )}
+            {can("import") && (
+              <Button onClick={() => setImportOpen(true)}>导入</Button>
+            )}
           </Space>
           <Table
             rowKey={(r) => String(r[pkName] ?? JSON.stringify(r))}
@@ -360,6 +385,14 @@ export default function CrudListPage({
           tableBizName={tableBizName}
         />
       )}
+      <ImportWizard
+        deploymentId={deploymentId}
+        table={table}
+        tableBizName={tableBizName}
+        open={importOpen}
+        onClose={() => setImportOpen(false)}
+        onImported={reload}
+      />
     </Card>
   );
 }

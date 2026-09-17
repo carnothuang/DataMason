@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { App, Button, Drawer, Form, Input, InputNumber, Select, Space } from "antd";
+import { App, Button, Drawer, Form, Input, InputNumber, Select, Space, Upload } from "antd";
+import { UploadOutlined } from "@ant-design/icons";
 import type { CrudRowFilters, MetaColumn, RefOption } from "../../api";
-import { CrudApi } from "../../api";
+import { CrudApi, FilesApi } from "../../api";
+import { parseFileValue } from "../../components/FileChip";
 
 export type CrudFormRecord = Record<string, unknown>;
 
@@ -166,6 +168,9 @@ export default function CrudForm({
 
   const renderWidget = (col: MetaColumn) => {
     const bt = baseType(col.type);
+    if (col.type === "FILE") {
+      return <FileField deploymentId={deploymentId} />;
+    }
     if (col.fk) {
       return <FkSelect deploymentId={deploymentId} table={table} col={col} initialValue={initial?.[col.name]} />;
     }
@@ -232,5 +237,65 @@ export default function CrudForm({
         })}
       </Form>
     </Drawer>
+  );
+}
+
+/** FILE 字段控件（0.11.0 M5-B2）：上传/多附件；值存 [{token,name}] 的 JSON 串。 */
+function FileField({
+  deploymentId,
+  value,
+  onChange,
+}: {
+  deploymentId: number;
+  value?: unknown;
+  onChange?: (v: unknown) => void;
+}) {
+  const { message } = App.useApp();
+  const [busy, setBusy] = useState(false);
+  const files = parseFileValue(value);
+
+  const push = (list: { token: string; name?: string }[]) =>
+    onChange?.(list.length ? JSON.stringify(list) : "");
+
+  const upload = async (f: File) => {
+    setBusy(true);
+    try {
+      const info = await FilesApi.upload(deploymentId, f);
+      push([...files, { token: info.token, name: info.filename }]);
+      message.success("已上传");
+    } catch (e) {
+      message.error((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const remove = async (token: string) => {
+    try {
+      await FilesApi.remove(deploymentId, token);
+    } catch {
+      /* 文件可能已不存在，忽略 */
+    }
+    push(files.filter((x) => x.token !== token));
+  };
+
+  return (
+    <Space direction="vertical" style={{ width: "100%" }}>
+      <Upload
+        maxCount={1}
+        showUploadList={false}
+        beforeUpload={(f) => { upload(f as File); return false; }}
+      >
+        <Button icon={<UploadOutlined />} loading={busy}>上传附件</Button>
+      </Upload>
+      {files.map((f) => (
+        <Space key={f.token} size={8}>
+          <a href={FilesApi.fileUrl(deploymentId, f.token)} target="_blank" rel="noreferrer">
+            {f.name || f.token.slice(0, 8)}
+          </a>
+          <Button size="small" type="link" danger onClick={() => remove(f.token)}>移除</Button>
+        </Space>
+      ))}
+    </Space>
   );
 }
