@@ -73,8 +73,9 @@ deployment_menu_grants            # 现有：复合 PK(menu_id, user_id)
 
 ### 2.4 配置项新增
 
-- `Config.max_content_length`（如 20MB）→ Flask `MAX_CONTENT_LENGTH`；单文件上限另设（如 10MB），在文件接口内二次校验。
-- `Config.upload_allowed_ext` / `upload_allowed_mime`：白名单。
+- `Config.max_content_length`（20MB）→ Flask `MAX_CONTENT_LENGTH`；单文件上限 `upload_max_file_bytes`（10MB），在文件接口内二次校验。
+- `Config.upload_allowed_ext` / `upload_allowed_mime`：扩展名与 MIME 双白名单。**服务端按扩展名强绑定 MIME**（忽略客户端 multipart 的 `Content-Type`），`is_inline` 仅放行安全白名单（png/jpeg/gif/webp/bmp/pdf/txt/csv），`text/html`、`image/svg+xml` 强制下载，预览响应附 `CSP: default-src 'none'; sandbox`。
+- `Config.import_max_rows`（5000）/ `export_max_rows`（20000）/ `import_tmp_ttl_seconds`（3600）。
 - `requirements.txt` 增 `openpyxl>=3.1`（导入导出 xlsx）。
 
 ---
@@ -168,11 +169,12 @@ deployment_menu_grants            # 现有：复合 PK(menu_id, user_id)
 ```
 DATA_ROOT/
 └─ deployments/
-   ├─ <stem>.db                 # 该部署业务库（创建模式）
-   └─ <stem>.files/             # 新增：该部署附件目录
+   ├─ deployment_<id>.db          # 该部署业务库（创建模式；文件名实现为 unique slug）
+   └─ deployment_<id>.files/      # 该部署附件目录
       └─ <token>.<ext>
 ```
-- `<stem>` = `deployments.db_name` 去掉 `.db` 后缀（`server/deploy/service.py:252-262` 生成的唯一名）。
+- 附件目录按 `deployments/deployment_<deployment_id>.files/`（实现口径，对直连模式同样适用）；
+  业务库文件名仍由 `server/deploy/service.py:252-262` 生成的唯一 slug 决定。
 - 隔离经**每部署目录** + **每请求部署校验**双重保证：文件接口先从 `attachments` 校验 token 属于该 `deployment_id`。
 
 ### 4.2 接口契约
@@ -199,10 +201,10 @@ DATA_ROOT/
 ### 4.4 生命周期闭环
 
 - **创建**：上传 → 写 `attachments` → 返回 token → 前端把 token 写进所属行的 FILE 字段（行新增/修改走既有 CRUD 写路径，于是**附件与行的关联也进 `activity_logs`** 的字段级 `changes`）。
-- **删除行**：CRUD delete 钩子里，按 `(deployment_id, table_name, row_pk)` 把附件置 `pending_gc`；后台/启动对账任务回收文件与行。
+- **删除行**：CRUD delete 钩子里，按 `(deployment_id, table_name, row_pk)` 把附件置 `pending_gc`（`mark_orphans_pending`）；`cleanup_orphans()` 回收文件与元数据（幂等可重入）。
 - **替换字段**：update 时旧 token 变新 token，旧附件置 `pending_gc`。
-- **销毁部署**：`destroy_deployment` 级联加一步"删除 `<stem>.files/` 目录"（路径守卫同上）。
-- **游离回收**：启动任务扫描 `pending_gc` 与"元数据行已不存在"的附件，删除磁盘文件并删元数据行（失败可重入，幂等）。
+- **销毁部署**：`destroy_deployment` 级联删除 `attachments` 行并删除 `deployments/deployment_<id>.files/` 目录（DATA_ROOT 路径守卫，返回 `files_dir_removed`）。
+- **游离回收**：`cleanup_orphans()` 扫描 `pending_gc` 附件，删除磁盘文件并删元数据行（失败可重入，幂等）；启动自动接线为后续项。
 
 ### 4.5 前端
 
@@ -218,7 +220,7 @@ DATA_ROOT/
 
 - CSV：标准库 `csv`（UTF-8 BOM 兼容、可选 GBK 探测）。
 - XLSX：`openpyxl`（只读 `read_only=True` 流式；写出用 `Workbook`）。
-- 上传文件落 `DATA_ROOT/tmp/import/<token>.*`，token 有 TTL，定期清理；不进入 `attachments`（导入文件是过程物）。
+- 上传文件落 `DATA_ROOT/tmp/import/<token>.*`；`import_tmp_ttl_seconds`（默认 3600）TTL 清理（预览时顺带清理过期文件）；不进入 `attachments`（导入文件是过程物）。
 
 ### 5.2 接口契约
 
@@ -240,8 +242,8 @@ DATA_ROOT/
 
 ### 5.4 导出增强
 
-- `rows.xlsx` 复用 `export_rows`（`server/crud/engine.py:445-469`）的筛选逻辑，改为 openpyxl 写出；列选择参数 `cols=a,b,c`。
-- 上限：从硬编码 5000 改为配置项；超限时明确返回"已导出前 N 行"或 400 提示分批。
+- `rows.xlsx` 复用 `export_rows`（`server/crud/engine.py`）的筛选逻辑，改为 openpyxl 写出；列选择参数 `cols=a,b,c`（未知列 400）。
+- 上限：配置项 `DM_EXPORT_MAX_ROWS`（默认 20000）；超出时响应头 `X-DM-Truncated: true`，前端可提示"已导出前 N 行"。
 - 权限与数据范围在取数前统一校验（操作员导出=自己行）。
 
 ---

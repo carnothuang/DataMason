@@ -155,7 +155,7 @@ def _coerce_value(column, raw):
 def _filtered(table):
     """根据查询参数构造 WHERE：仅允许表内列、全部参数化。"""
     conditions = []
-    reserved = {"page", "page_size", "sort", "order", "search"}
+    reserved = {"page", "page_size", "sort", "order", "search", "cols"}
     for key, value in request.args.items():
         if key in reserved:
             continue
@@ -474,8 +474,12 @@ def list_rows(registry: CrudRegistry, name: str, with_search: bool = True) -> di
     }
 
 
-def export_rows(registry: CrudRegistry, name: str, max_rows: int = 5000) -> tuple[list[str], list[dict]]:
-    """导出用：不分页取全部（上限 max_rows）匹配行，复用搜索/过滤/排序/归属过滤。"""
+def export_rows(registry: CrudRegistry, name: str, max_rows: int = 20000
+                ) -> tuple[list[str], list[dict], bool]:
+    """导出用：不分页取匹配行（上限 max_rows），复用搜索/过滤/排序/归属过滤。
+
+    返回 (列名, 行, 是否被截断)。`cols=a,b,c` 指定导出列（D-5）。
+    """
     table = registry.table(name)
     registry.require_action(name, "export")
     conditions = _filtered(table)
@@ -498,8 +502,19 @@ def export_rows(registry: CrudRegistry, name: str, max_rows: int = 5000) -> tupl
         direction = desc if request.args.get("order", "asc") == "desc" else asc
         stmt = stmt.order_by(direction(table.c[sort]))
     with registry.engine.connect() as conn:
-        rows = conn.execute(stmt.limit(max_rows)).mappings().all()
-    return [c.name for c in table.columns], [dict(r) for r in rows]
+        rows = conn.execute(stmt.limit(max_rows + 1)).mappings().all()
+    truncated = len(rows) > max_rows
+    rows = rows[:max_rows]
+    all_columns = [c.name for c in table.columns]
+    columns = all_columns
+    cols_arg = (request.args.get("cols") or "").strip()
+    if cols_arg:
+        requested = [c.strip() for c in cols_arg.split(",") if c.strip()]
+        unknown = [c for c in requested if c not in table.c]
+        if unknown:
+            abort(400, description=f"未知导出列: {', '.join(unknown)}")
+        columns = requested
+    return columns, [dict(r) for r in rows], truncated
 
 
 def _label_column(table: Table):

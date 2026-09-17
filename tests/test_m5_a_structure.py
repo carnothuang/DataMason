@@ -12,6 +12,7 @@ from server.auth.service import hash_password
 from server.models import (
     DeploymentMenu,
     DeploymentSeedRow,
+    FlowSpec,
     PageSpec,
     TableSpec,
     User,
@@ -200,8 +201,8 @@ def test_drop_table_blocked_when_referenced(app, env, patch_llm):
     info = c.post(f"{p}/tables/customers/drop/propose").get_json()
     assert info["blocked"] is True
     assert any(r["table"] == "orders" for r in info["referenced_by"])
-    # 确认执行同样被拒
-    resp = c.post(f"{p}/tables/customers/drop")
+    # 确认执行同样被拒（带正确 confirm，仍因被引用而 400）
+    resp = c.post(f"{p}/tables/customers/drop", json={"confirm": "customers"})
     assert resp.status_code == 400
 
 
@@ -220,7 +221,11 @@ def test_drop_table_cascade(app, env, patch_llm):
     assert info["blocked"] is False
     assert info["pages"], "应列出关联页面"
 
-    resp = c.post(f"{p}/tables/visits/drop")
+    # D-6：服务端二次确认，未带/错误 confirm 一律 400
+    assert c.post(f"{p}/tables/visits/drop").status_code == 400
+    assert c.post(f"{p}/tables/visits/drop", json={"confirm": "wrong"}).status_code == 400
+
+    resp = c.post(f"{p}/tables/visits/drop", json={"confirm": "visits"})
     assert resp.status_code == 200, resp.get_data(as_text=True)
     cascade = resp.get_json()["cascade"]
     assert cascade["pages"] >= 1 and cascade["menus"] >= 1 and cascade["seeds"] == 1
@@ -233,3 +238,105 @@ def test_drop_table_cascade(app, env, patch_llm):
     # 工作台 meta 不再含该表
     meta = c.get(f"/api/v1/app/{did}/api/meta").get_json()
     assert "visits" not in meta
+
+
+# ---------------- 独立验收补验 T-1/T-2/T-3 ----------------
+
+def test_link_mode_rejects_all_structure_ops(app, env, patch_llm):
+    """T-1：直连模式 propose/apply/drop 全部 400（DR-27 红线）。"""
+    c = env["client"]
+    did = _deploy(c)
+    Session = app.extensions["datamason_session_factory"]
+    from server.models import Deployment
+    with Session() as s:
+        d = s.get(Deployment, did)
+        d.data_mode = "link"
+        s.commit()
+    p = f"/api/v1/deployments/{did}"
+    assert c.post(f"{p}/tables/propose", json={"spec": VISITS}).status_code == 400
+    assert c.post(f"{p}/tables/apply", json={"spec": VISITS}).status_code == 400
+    assert c.post(f"{p}/tables/customers/drop/propose").status_code == 400
+    assert c.post(f"{p}/tables/customers/drop", json={"confirm": "customers"}).status_code == 400
+
+
+def test_drop_blocked_when_referenced_by_flow(app, env, patch_llm):
+    """T-2：表被流程步骤引用 → propose blocked，drop 400，元数据保留。"""
+    c = env["client"]
+    did = _deploy(c)
+    p = f"/api/v1/deployments/{did}"
+    Session = app.extensions["datamason_session_factory"]
+    with Session() as s:
+        page = (
+            s.query(PageSpec)
+            .join(TableSpec, PageSpec.table_id == TableSpec.id)
+            .filter(PageSpec.deployment_id == did, TableSpec.name == "customers")
+            .first()
+        )
+        s.add(FlowSpec(
+            deployment_id=did, name="回访流程",
+            steps_json=f'[{{"name":"回访","page_id":{page.id}}}]',
+            progress_json="{}", version=1,
+        ))
+        s.commit()
+
+    info = c.post(f"{p}/tables/customers/drop/propose").get_json()
+    assert info["blocked"] is True
+    assert "回访流程" in info["flows"]
+    assert c.post(f"{p}/tables/customers/drop", json={"confirm": "customers"}).status_code == 400
+    with Session() as s:
+        assert s.query(TableSpec).filter_by(deployment_id=did, name="customers").first() is not None
+
+
+def test_propose_statements_equal_apply(app, env, patch_llm):
+    """T-3：增表提案语句与执行语句逐字符一致（含归属列注入）。"""
+    c = env["client"]
+    did = _deploy(c)
+    p = f"/api/v1/deployments/{did}"
+    prop = c.post(f"{p}/tables/propose", json={"spec": VISITS}).get_json()
+    applied = c.post(f"{p}/tables/apply", json={"spec": VISITS}).get_json()
+    assert prop["statements"] == applied["statements"]
+
+
+def test_link_mode_structure_ops_leave_external_db_untouched(app, env, patch_llm, tmp_path):
+    """T-1/T-3 强化：真直连外部库上所有结构操作 400，DDL/行数快照零变化。"""
+    import sqlite3
+
+    from server.models import Connection
+    ext = str(tmp_path / "ext.db")
+    con = sqlite3.connect(ext)
+    con.executescript(
+        "CREATE TABLE customers (id INTEGER PRIMARY KEY AUTOINCREMENT, name VARCHAR(50) NOT NULL);"
+        "INSERT INTO customers (name) VALUES ('甲');"
+    )
+    con.commit()
+    con.close()
+
+    def snapshot():
+        conn = sqlite3.connect(ext)
+        ddl = conn.execute(
+            "SELECT name, sql FROM sqlite_master WHERE type IN ('table','index') "
+            "AND name NOT LIKE 'sqlite_%' ORDER BY name"
+        ).fetchall()
+        rows = conn.execute("SELECT COUNT(*) FROM customers").fetchone()[0]
+        conn.close()
+        return ddl, rows
+
+    c = env["client"]
+    conn_id = c.post("/api/v1/settings/connections", json={
+        "dialect": "sqlite", "name": "M5外部库", "db_path": ext,
+    }).get_json()["id"]
+    preview = c.post("/api/v1/deployments/link/preview", json={
+        "connection_id": conn_id, "tables": ["customers"], "purpose": "只读",
+    }).get_json()
+    did = c.post("/api/v1/deployments/confirm", json={
+        "spec_json": preview["spec_json"], "biz_name": "M5直连", "mode": "link",
+        "connection_id": conn_id, "seed_data": False,
+    }).get_json()["deployment_id"]
+
+    before = snapshot()
+    p = f"/api/v1/deployments/{did}"
+    assert c.post(f"{p}/tables/propose", json={"spec": VISITS}).status_code == 400
+    assert c.post(f"{p}/tables/apply", json={"spec": VISITS}).status_code == 400
+    assert c.post(f"{p}/tables/customers/drop/propose").status_code == 400
+    assert c.post(f"{p}/tables/customers/drop", json={"confirm": "customers"}).status_code == 400
+    assert snapshot() == before  # 外部库 DDL 与行数零变化

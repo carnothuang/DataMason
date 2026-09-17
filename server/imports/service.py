@@ -186,6 +186,29 @@ def _validate(app, deployment_id: int, table_name: str, columns: list[dict],
     return errors
 
 
+def _required_columns(columns: list[dict]) -> list[str]:
+    """必填列（非归属/非 FILE/非主键且不可空）。"""
+    return [
+        c["name"] for c in columns
+        if not c.get("is_ownership") and not c.get("is_pk")
+        and c.get("type") != "FILE" and not c.get("nullable", True)
+    ]
+
+
+def _cleanup_tmp(app) -> None:
+    """D-5：清理过期的导入临时文件（TTL 可配，默认 1 小时）。"""
+    import time
+
+    ttl = int(app.config.get("DM_IMPORT_TMP_TTL_SECONDS", 3600))
+    now = time.time()
+    try:
+        for p in _tmp_dir(app).glob("*"):
+            if p.is_file() and now - p.stat().st_mtime > ttl:
+                p.unlink(missing_ok=True)
+    except OSError:
+        pass
+
+
 def preview_import(app, deployment_id: int, table_name: str, file_storage,
                    uid: int) -> dict:
     if file_storage is None or not getattr(file_storage, "filename", ""):
@@ -202,6 +225,10 @@ def preview_import(app, deployment_id: int, table_name: str, file_storage,
     columns = ts.columns
     mapping = _auto_mapping(headers, columns)
 
+    # D-4：必填列未映射 → 预览阶段直接阻断（提案式：不让人看到全绿后才失败）
+    missing_required = [name for name in _required_columns(columns) if name not in mapping]
+
+    _cleanup_tmp(app)
     # 落临时文件，commit 时按 token 复用
     token = secrets.token_urlsafe(16).replace("-", "").replace("_", "")[:24]
     ext = Path(file_storage.filename).suffix.lower()
@@ -215,6 +242,11 @@ def preview_import(app, deployment_id: int, table_name: str, file_storage,
         errors = _validate(app, deployment_id, table_name, columns, mapping, body, registry)
     finally:
         engine.dispose()
+    if missing_required:
+        errors = [
+            {"row": 0, "column": name, "message": "必填列未映射（请在列映射中指定）"}
+            for name in missing_required
+        ] + errors
 
     sample = [
         {c: _cell(row, mapping.get(c)) for c in mapping}
@@ -234,8 +266,10 @@ def preview_import(app, deployment_id: int, table_name: str, file_storage,
         ],
         "sample": sample,
         "total": len(body),
-        "valid": len(body) - len(error_rows),
+        "valid": 0 if missing_required else len(body) - len(error_rows),
         "error_count": len(errors),
+        "blocking": missing_required,
+        "can_commit": not missing_required,
         "errors": errors[:200],
     }
 
@@ -258,6 +292,9 @@ def commit_import(app, deployment_id: int, table_name: str, upload_token: str,
     ts = _table_spec(app, deployment_id, table_name)
     columns = ts.columns
     mapping = {k: int(v) for k, v in mapping.items() if v is not None and str(v) != ""}
+    missing_required = [name for name in _required_columns(columns) if name not in mapping]
+    if missing_required:
+        raise ImportError_("必填列未映射：" + "、".join(missing_required))
 
     _d, registry, engine = crud_runtime._registry(app, deployment_id, uid)
     inserted = 0

@@ -12,13 +12,40 @@ from pathlib import Path
 
 from server.models import Attachment, Deployment, User
 
-# 可内嵌预览的类型前缀（其余一律 attachment 下载）
-INLINE_MIME_PREFIXES = ("image/", "text/")
-INLINE_MIME_EXACT = ("application/pdf",)
+# 可内嵌预览的类型白名单（D-2）：仅这些 MIME 允许 inline；绝不含 html/svg/xml。
+INLINE_MIME_EXACT = frozenset({
+    "image/png", "image/jpeg", "image/gif", "image/webp", "image/bmp",
+    "application/pdf", "text/plain", "text/csv",
+})
+
+# 服务端扩展名 → MIME 强绑定（D-2）：忽略客户端 multipart 的 Content-Type，
+# 防止 text/html、image/svg+xml 等可执行类型被伪装成安全类型后 inline。
+EXT_MIME = {
+    ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
+    ".gif": "image/gif", ".webp": "image/webp", ".bmp": "image/bmp",
+    ".pdf": "application/pdf", ".txt": "text/plain", ".csv": "text/csv",
+    ".json": "application/json", ".log": "text/plain", ".md": "text/plain",
+    ".doc": "application/msword",
+    ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    ".xls": "application/vnd.ms-excel",
+    ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    ".ppt": "application/vnd.ms-powerpoint",
+    ".pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+    ".zip": "application/zip", ".rar": "application/vnd.rar",
+    ".7z": "application/x-7z-compressed",
+    # 明确不 inline 的危险类型（保留上传但强制下载）
+    ".svg": "image/svg+xml", ".html": "text/html", ".htm": "text/html",
+}
 
 
 class FileError(RuntimeError):
     pass
+
+
+def server_mime(filename: str) -> str:
+    """按扩展名确定 MIME（不信任客户端 Content-Type）。未知类型 → 二进制流。"""
+    ext = Path(filename).suffix.lower()
+    return EXT_MIME.get(ext) or mimetypes.guess_type(filename)[0] or "application/octet-stream"
 
 
 def _session(app):
@@ -72,7 +99,10 @@ def save_upload(app, deployment_id: int, file_storage, *,
     abs_path.parent.mkdir(parents=True, exist_ok=True)
     abs_path.write_bytes(data)
 
-    mime = file_storage.mimetype or mimetypes.guess_type(filename)[0] or "application/octet-stream"
+    mime = server_mime(filename)
+    allowed_mime = _allowed_mimes(app)
+    if allowed_mime and mime not in allowed_mime:
+        raise FileError(f"不支持的文件类型：{mime}")
     with _session(app) as s:
         a = Attachment(
             deployment_id=deployment_id, table_name=table_name, row_pk=str(row_pk or ""),
@@ -109,8 +139,13 @@ def abs_path(app, attachment: Attachment) -> Path:
 
 
 def is_inline(mime: str) -> bool:
-    m = (mime or "").lower()
-    return m in INLINE_MIME_EXACT or m.startswith(INLINE_MIME_PREFIXES)
+    """仅安全白名单允许内嵌（D-2）；html/svg/xml 等一律下载。"""
+    return (mime or "").lower() in INLINE_MIME_EXACT
+
+
+def _allowed_mimes(app) -> set[str]:
+    raw = app.config.get("DM_UPLOAD_ALLOWED_MIME", "") or ""
+    return {m.strip().lower() for m in raw.split(",") if m.strip()}
 
 
 def remove_attachment(app, deployment_id: int, token: str) -> bool:

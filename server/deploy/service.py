@@ -23,6 +23,7 @@ from server.llm.structure import generate_schema, generate_seed_rows
 from server.models import (
     ActivityLog,
     AiGeneration,
+    Attachment,
     Connection,
     CrudConfig,
     Deployment,
@@ -655,6 +656,7 @@ def destroy_deployment(app, deployment_id: int, actor_user_id: int) -> dict:
         s.query(DeploymentMember).filter_by(deployment_id=deployment_id).delete(synchronize_session=False)
         s.query(ActivityLog).filter_by(deployment_id=deployment_id).delete(synchronize_session=False)
         s.query(AiGeneration).filter_by(deployment_id=deployment_id).delete(synchronize_session=False)
+        s.query(Attachment).filter_by(deployment_id=deployment_id).delete(synchronize_session=False)
         s.query(CrudConfig).filter_by(deployment_id=deployment_id).delete(synchronize_session=False)
         s.query(PageSpec).filter_by(deployment_id=deployment_id).delete(synchronize_session=False)
         s.query(FlowSpec).filter_by(deployment_id=deployment_id).delete(synchronize_session=False)
@@ -674,12 +676,26 @@ def destroy_deployment(app, deployment_id: int, actor_user_id: int) -> dict:
             file_removed = True
         except OSError:
             file_removed = False
+    # 0.11.0 D-1：删除该部署附件目录（每部署独立；仅限 DATA_ROOT 内，防误删）
+    files_dir_removed = False
+    deploy_dir = data_root / "deployments"
+    target_dir = (deploy_dir / f"deployment_{deployment_id}.files").resolve()
+    if deploy_dir in target_dir.parents:
+        try:
+            if target_dir.exists():
+                import shutil
+
+                shutil.rmtree(target_dir)
+                files_dir_removed = True
+        except OSError:
+            files_dir_removed = False
     return {
         "deployment_id": deployment_id,
         "biz_name": biz_name,
         "data_mode": data_mode,
         "destroyed": True,
         "db_file_removed": file_removed,
+        "files_dir_removed": files_dir_removed,
         "external_preserved": data_mode != "create",
     }
 

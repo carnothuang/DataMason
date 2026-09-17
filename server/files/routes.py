@@ -6,7 +6,7 @@
 from __future__ import annotations
 
 from flask import Blueprint, current_app, jsonify, request, send_file, session
-from werkzeug.exceptions import HTTPException
+from werkzeug.exceptions import Conflict, HTTPException
 
 from server.crud import engine as crud_engine
 from server.crud import runtime as crud_runtime
@@ -29,6 +29,7 @@ def _deployment_id() -> int:
 def _assert_access(attachment) -> str:
     """成员校验 + 操作员按行可见性；返回角色。"""
     deployment_id = _deployment_id()
+    _assert_running(deployment_id)
     Session = current_app.extensions["datamason_session_factory"]
     with Session() as s:
         from server.models import Deployment
@@ -53,8 +54,22 @@ def _assert_access(attachment) -> str:
     return role
 
 
+def _assert_running(deployment_id: int) -> None:
+    """D-3：停止态部署的文件写入/读取与工作台一致禁用（409）。"""
+    from server.models import Deployment
+
+    Session = current_app.extensions["datamason_session_factory"]
+    with Session() as s:
+        d = s.get(Deployment, deployment_id)
+        if d is None:
+            raise KeyError("部署不存在")
+        if d.status != "running":
+            raise Conflict(description="部署已停止，文件/导入操作不可用；可在部署清单再启动")
+
+
 def _assert_member() -> str:
     deployment_id = _deployment_id()
+    _assert_running(deployment_id)
     Session = current_app.extensions["datamason_session_factory"]
     with Session() as s:
         from server.models import Deployment
@@ -110,6 +125,8 @@ def preview_file(deployment_id: int, token: str):
     resp = send_file(path, mimetype=a.mime or "application/octet-stream",
                      as_attachment=False, download_name=a.filename or a.token)
     resp.headers["X-Content-Type-Options"] = "nosniff"
+    # D-2：即使扩展名/类型判定失误，也用 CSP sandbox 阻断脚本与同源能力
+    resp.headers["Content-Security-Policy"] = "default-src 'none'; sandbox"
     return resp
 
 

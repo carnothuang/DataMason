@@ -8,7 +8,7 @@ import io
 
 from flask import Blueprint, current_app, jsonify, request, send_file, session
 from openpyxl import Workbook
-from werkzeug.exceptions import HTTPException
+from werkzeug.exceptions import Conflict, HTTPException
 
 from server.crud import engine as crud_engine
 from server.crud import runtime as crud_runtime
@@ -31,6 +31,9 @@ def _guard(deployment_id: int, table_name: str, action: str) -> None:
         d = s.get(Deployment, deployment_id)
         if d is None:
             raise KeyError("部署不存在")
+        if d.status != "running":
+            # D-3：与工作台一致，停止态禁用导入/导出
+            raise Conflict(description="部署已停止，导入/导出不可用；可在部署清单再启动")
         uid = _uid()
         member_service.assert_member(s, d, uid)
         member_service.assert_action(s, d, uid, table_name, action)
@@ -79,9 +82,11 @@ def import_template(deployment_id: int, name: str):
 @bp.get("/<int:deployment_id>/api/tables/<name>/rows.xlsx")
 def export_xlsx(deployment_id: int, name: str):
     """XLSX 导出（与 CSV 同筛选；受 export 动作与数据范围约束）。"""
+    _guard(deployment_id, name, "export")
     registry, engine = crud_runtime._registry(current_app, deployment_id, _uid())[1:]
     try:
-        columns, rows = crud_engine.export_rows(registry, name)
+        columns, rows, truncated = crud_engine.export_rows(
+            registry, name, int(current_app.config.get("DM_EXPORT_MAX_ROWS", 20000)))
     finally:
         engine.dispose()
     wb = Workbook()
@@ -97,6 +102,7 @@ def export_xlsx(deployment_id: int, name: str):
         mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     )
     resp.headers["Content-Disposition"] = f'attachment; filename="{name}.xlsx"'
+    resp.headers["X-DM-Truncated"] = "true" if truncated else "false"
     return resp
 
 

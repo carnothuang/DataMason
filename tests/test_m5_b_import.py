@@ -143,3 +143,56 @@ def test_import_template_and_xlsx_export(app, env, patch_llm):
     data = [[c.value for c in r] for r in wb2.active.iter_rows()]
     assert "name" in data[0]
     assert any("王五" in [str(x) for x in r] for r in data[1:])
+
+
+# ---------------- 独立验收 D-3/D-4/D-5 ----------------
+
+def test_required_unmapped_blocked_at_preview(app, env, patch_llm):
+    """D-4：必填列未映射 → 预览 can_commit=false 并列出 blocking；提交被拒。"""
+    c = env["client"]
+    did = _deploy(c)
+    base = f"/api/v1/app/{did}/api/tables/customers"
+    pv = _preview(c, did, "customers", ["无关列", "值"])
+    info = pv.get_json()
+    assert info["can_commit"] is False
+    assert "name" in info["blocking"]
+    assert info["valid"] == 0
+    commit = c.post(f"{base}/import/commit", json={
+        "upload_token": info["upload_token"], "mapping": {}, "mode": "strict",
+    })
+    assert commit.status_code == 400
+
+
+def test_stopped_deployment_blocks_import_and_export(app, env, patch_llm):
+    """D-3：停止态导入/导出 409。"""
+    c = env["client"]
+    did = _deploy(c)
+    base = f"/api/v1/app/{did}/api/tables/customers"
+    assert c.post(f"/api/v1/deployments/{did}/stop").status_code == 200
+    assert _preview(c, did, "customers", ["客户名", "x"]).status_code == 409
+    assert c.get(f"{base}/rows.xlsx").status_code == 409
+
+
+def test_export_columns_and_truncation(app, env, patch_llm):
+    """D-5：cols 选择导出列；超上限置 X-DM-Truncated。"""
+    c = env["client"]
+    did = _deploy(c)
+    base = f"/api/v1/app/{did}/api/tables/customers"
+    c.post(f"{base}/rows", json={"name": "甲", "age": 1})
+    c.post(f"{base}/rows", json={"name": "乙", "age": 2})
+
+    xls = c.get(f"{base}/rows.xlsx?cols=name")
+    assert xls.status_code == 200
+    wb = load_workbook(io.BytesIO(xls.data))
+    header = [cell.value for cell in wb.active[1]]
+    assert header == ["name"]
+    # 未知导出列 400
+    assert c.get(f"{base}/rows.xlsx?cols=nope").status_code == 400
+
+    # 上限可配置 + 截断提示
+    app.config["DM_EXPORT_MAX_ROWS"] = 1
+    csv = c.get(f"{base}/rows.csv?cols=name")
+    assert csv.status_code == 200
+    assert csv.headers.get("X-DM-Truncated") == "true"
+    body = csv.data.decode("utf-8-sig").strip().splitlines()
+    assert len(body) == 2  # 表头 + 1 行

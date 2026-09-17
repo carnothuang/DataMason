@@ -185,7 +185,7 @@ async function login(page, user = E2E_USER, pass = E2E_PASS) {
     await ctx2.close();
 
     // ---------- A 结构演化：删表 ----------
-    const drop = await api(page, `/deployments/${did}/tables/${table}/drop`, { method: "POST" });
+    const drop = await api(page, `/deployments/${did}/tables/${table}/drop`, { method: "POST", body: { confirm: table } });
     check(drop.status === 200, `删表执行 200（实际 ${drop.status}）`);
     const metaAfter = await api(page, `/app/${did}/api/meta`);
     check(!(metaAfter.data && metaAfter.data[table]), "meta 不再含已删表");

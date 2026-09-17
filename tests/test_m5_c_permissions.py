@@ -249,3 +249,19 @@ def test_api_key_service_identity_bypasses_action_perms(app, env, patch_llm):
     pk = resp.get_json()["id"]
     assert c.delete(f"{_api(did)}/rows/{pk}", headers=headers).status_code == 200
     assert c.get(f"{_api(did)}/rows.csv", headers=headers).status_code == 200
+
+
+def test_operator_without_grants_sees_nothing(app, env, patch_llm):
+    """T-7：无任何授权的操作员不得访问任何表（空表白名单不回退为全量反射）。"""
+    from server.models import DeploymentMember
+    c = env["client"]
+    did = _deploy(c)
+    uid = _mk_user(app, "noop", display="无授权")
+    Session = app.extensions["datamason_session_factory"]
+    with Session() as s:
+        s.add(DeploymentMember(deployment_id=did, user_id=uid, role="operator"))
+        s.commit()
+    op = _login(app, "noop")
+    meta = op.get(f"/api/v1/app/{did}/api/meta").get_json()
+    assert meta == {} or "customers" not in meta
+    assert op.get(f"{_api(did)}/rows").status_code == 404

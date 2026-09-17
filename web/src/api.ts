@@ -1165,6 +1165,7 @@ export const DeployApi = {
     http
       .post<{ dropped: boolean; table: string; cascade: Record<string, number> }>(
         `/deployments/${id}/tables/${encodeURIComponent(table)}/drop`,
+        { confirm: table },
       )
       .then((r) => r.data),
   /** M3-1：生命周期 停止/再启动（创建人独有） */

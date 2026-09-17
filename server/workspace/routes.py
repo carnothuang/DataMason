@@ -261,7 +261,8 @@ def app_export_rows(deployment_id: int, name: str):
 
     registry, engine = _deployment_api(deployment_id)
     try:
-        columns, rows = crud_engine.export_rows(registry, name)
+        columns, rows, truncated = crud_engine.export_rows(
+            registry, name, int(current_app.config.get("DM_EXPORT_MAX_ROWS", 20000)))
     finally:
         engine.dispose()
     buf = io.StringIO()
@@ -271,6 +272,7 @@ def app_export_rows(deployment_id: int, name: str):
         writer.writerow(["" if r.get(c) is None else r.get(c) for c in columns])
     resp = current_app.response_class("\ufeff" + buf.getvalue(), mimetype="text/csv")
     resp.headers["Content-Disposition"] = f'attachment; filename="{name}.csv"'
+    resp.headers["X-DM-Truncated"] = "true" if truncated else "false"
     return resp
 
 

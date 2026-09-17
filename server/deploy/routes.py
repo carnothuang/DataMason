@@ -481,9 +481,15 @@ def propose_drop_table(deployment_id: int, table_name: str):
 
 @bp.post("/deployments/<int:deployment_id>/tables/<table_name>/drop")
 def confirm_drop_table(deployment_id: int, table_name: str):
-    """删表确认执行：守卫（被引用/被流程引用则拒绝）→ 级联清元数据 → 物理 DROP。创建人独有。"""
+    """删表确认执行：守卫（被引用/被流程引用则拒绝）→ 级联清元数据 → 物理 DROP。创建人独有。
+
+    D-6：服务端二次确认——请求体须带 `{"confirm": "<表名>"}` 且完全一致，否则 400。
+    """
     _deployment_and_role(current_app, deployment_id)
     _require_creator(deployment_id)
+    confirm = (_body().get("confirm") or "").strip()
+    if confirm != table_name:
+        return jsonify({"error": "请提供与表名一致的 confirm 以确认删除"}), 400
     try:
         return jsonify(structure_service.drop_table(current_app, deployment_id, table_name, _uid()))
     except StructureError as exc:

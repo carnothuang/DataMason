@@ -74,6 +74,7 @@ export default function CrudListPage({
   const [focusedPk, setFocusedPk] = useState<string | null>(null);
   const [logsRow, setLogsRow] = useState<Record<string, unknown> | null>(null);
   const [importOpen, setImportOpen] = useState(false);
+  const [exportCols, setExportCols] = useState<string[]>([]);
   const [reloadTick, setReloadTick] = useState(0);
 
   const reload = () => setReloadTick((t) => t + 1);
@@ -298,6 +299,17 @@ export default function CrudListPage({
               </Tag>
             )}
             {can("export") && (
+              <Select
+                mode="multiple"
+                allowClear
+                placeholder="导出列（默认全部）"
+                style={{ minWidth: 180 }}
+                value={exportCols}
+                options={visibleCols.map((c) => ({ value: c.name, label: c.biz_name || c.name }))}
+                onChange={(v) => setExportCols(v as string[])}
+              />
+            )}
+            {can("export") && (
               <Button
                 icon={<ExportOutlined />}
                 onClick={() => {
@@ -308,6 +320,7 @@ export default function CrudListPage({
                     params.sort = sort.field;
                     params.order = sort.order;
                   }
+                  if (exportCols.length) params.cols = exportCols.join(",");
                   window.open(CrudApi.exportCsvUrl(deploymentId, table, params), "_blank");
                 }}
               >
@@ -325,6 +338,7 @@ export default function CrudListPage({
                     params.sort = sort.field;
                     params.order = sort.order;
                   }
+                  if (exportCols.length) params.cols = exportCols.join(",");
                   window.open(CrudApi.exportXlsxUrl(deploymentId, table, params), "_blank");
                 }}
               >

@@ -27,7 +27,21 @@ class Config:
         ".png,.jpg,.jpeg,.gif,.webp,.bmp,.svg,.pdf,.txt,.csv,.json,.log,.md,"
         ".doc,.docx,.xls,.xlsx,.ppt,.pptx,.zip,.rar,.7z"
     )
+    upload_allowed_mime: str = (
+        "image/png,image/jpeg,image/gif,image/webp,image/bmp,image/svg+xml,"
+        "application/pdf,text/plain,text/csv,application/json,"
+        "application/msword,"
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document,"
+        "application/vnd.ms-excel,"
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,"
+        "application/vnd.ms-powerpoint,"
+        "application/vnd.openxmlformats-officedocument.presentationml.presentation,"
+        "application/zip,application/vnd.rar,application/x-7z-compressed,"
+        "text/html"
+    )
     import_max_rows: int = 5000
+    export_max_rows: int = 20000
+    import_tmp_ttl_seconds: int = 3600
     extra: dict = field(default_factory=dict)
 
     def as_flask_config(self) -> dict:
@@ -39,7 +53,10 @@ class Config:
             "MAX_CONTENT_LENGTH": self.max_content_length,
             "DM_UPLOAD_MAX_FILE_BYTES": self.upload_max_file_bytes,
             "DM_UPLOAD_ALLOWED_EXT": self.upload_allowed_ext,
+            "DM_UPLOAD_ALLOWED_MIME": self.upload_allowed_mime,
             "DM_IMPORT_MAX_ROWS": self.import_max_rows,
+            "DM_EXPORT_MAX_ROWS": self.export_max_rows,
+            "DM_IMPORT_TMP_TTL_SECONDS": self.import_tmp_ttl_seconds,
             "DATAMASON_ADMIN_USERNAME": self.admin_username,
             "DATAMASON_ADMIN_PASSWORD": self.admin_password,
             "DATAMASON_LLM_BASE_URL": self.llm_base_url,
