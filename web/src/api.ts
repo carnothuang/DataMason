@@ -244,6 +244,9 @@ export interface WorkspacePage {
   flow_id: number | null;
   table: string | null;
   table_biz_name: string | null;
+  // 0.11.0 M5-C3（DR-30）：该页允许的动作与数据范围，前端据此裁剪按钮
+  actions?: string[];
+  data_scope?: string;
 }
 
 export interface WorkspaceInfo {
@@ -257,13 +260,21 @@ export interface WorkspaceInfo {
   pages: WorkspacePage[];
 }
 
-// ---------- 成员与权限（M2-5） ----------
+// ---------- 成员与权限（M2-5 / 0.11.0 M5-C） ----------
+export type ActionKey = "view" | "create" | "update" | "delete" | "export" | "import";
+
+export interface MenuGrantDetail {
+  actions: Partial<Record<ActionKey, boolean>>;
+  data_scope: "" | "all" | "own";
+}
+
 export interface DeploymentMember {
   user_id: number;
   username: string;
   display_name: string;
   role: "creator" | "admin" | "operator";
   menu_ids: number[];
+  grants?: Record<string, MenuGrantDetail>;
   is_self: boolean;
 }
 
@@ -283,7 +294,13 @@ export const MembersApi = {
       .then((r) => ensureArray<CurrentUser>(r.data, "候选成员")),
   add: (
     deploymentId: number,
-    payload: { username: string; role: "admin" | "operator"; menu_ids?: number[] },
+    payload: {
+      username: string;
+      role: "admin" | "operator";
+      menu_ids?: number[];
+      actions?: Record<string, Partial<Record<ActionKey, boolean>>>;
+      data_scope?: Record<string, "" | "all" | "own">;
+    },
   ) =>
     http
       .post<{ ok: boolean }>(`/deployments/${deploymentId}/members`, payload)
@@ -291,7 +308,12 @@ export const MembersApi = {
   update: (
     deploymentId: number,
     userId: number,
-    payload: { role?: "admin" | "operator"; menu_ids?: number[] },
+    payload: {
+      role?: "admin" | "operator";
+      menu_ids?: number[];
+      actions?: Record<string, Partial<Record<ActionKey, boolean>>>;
+      data_scope?: Record<string, "" | "all" | "own">;
+    },
   ) =>
     http
       .put<{ ok: boolean }>(`/deployments/${deploymentId}/members/${userId}`, payload)
@@ -322,6 +344,9 @@ export interface MetaColumn {
 
 export interface TableMeta {
   columns: MetaColumn[];
+  // 0.11.0 M5-C3：该表允许的动作与数据范围（会话用户；API key 通道不下发）
+  actions?: string[];
+  data_scope?: string;
 }
 
 export interface RefOption {

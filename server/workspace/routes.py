@@ -105,6 +105,36 @@ def get_workspace(deployment_id: int):
             t.id: t
             for t in s.query(TableSpec).filter_by(deployment_id=deployment_id).all()
         }
+        # M5-C3（DR-30）：向每个页面下发其背后表的允许动作与数据范围，前端据此裁剪按钮
+        access_map = (
+            member_service.table_access_map(s, d, uid) if role == "operator" else None
+        )
+
+        def _page_access(table_name: str | None) -> tuple[list[str], str]:
+            if role in ("creator", "admin"):
+                return sorted(member_service.ACTION_KEYS), "all"
+            if access_map and table_name and table_name in access_map:
+                info = access_map[table_name]
+                return sorted(info["actions"]), info["data_scope"]
+            return [], "own"
+
+        pages_payload = []
+        for p in pages:
+            tname = tables[p.table_id].name if (p.table_id and p.table_id in tables) else None
+            actions, scope = _page_access(tname)
+            pages_payload.append({
+                "id": p.id,
+                "kind": p.kind,
+                "access": p.access,
+                "title": p.title,
+                "flow_id": p.flow_id,
+                "table": tname,
+                "table_biz_name": tables[p.table_id].biz_name
+                if (p.table_id and p.table_id in tables)
+                else None,
+                "actions": actions,
+                "data_scope": scope,
+            })
         payload = {
             "deployment_id": deployment_id,
             "biz_name": d.biz_name,
@@ -113,22 +143,7 @@ def get_workspace(deployment_id: int):
             "entry_path": d.entry_path,
             "role": role,
             "menus": _menu_tree(menus),
-            "pages": [
-                {
-                    "id": p.id,
-                    "kind": p.kind,
-                    "access": p.access,
-                    "title": p.title,
-                    "flow_id": p.flow_id,
-                    "table": tables[p.table_id].name
-                    if (p.table_id and p.table_id in tables)
-                    else None,
-                    "table_biz_name": tables[p.table_id].biz_name
-                    if (p.table_id and p.table_id in tables)
-                    else None,
-                }
-                for p in pages
-            ],
+            "pages": pages_payload,
         }
     return jsonify(payload)
 
@@ -211,6 +226,21 @@ def app_meta(deployment_id: int):
                 c["type"] = sc["type"]
             if c["length"] is None:
                 c["length"] = sc.get("length")
+    # M5-C3：按表下发允许动作与数据范围（会话用户；API key 服务身份不限制）
+    if getattr(g, "api_key", None) is None:
+        with Session() as s:
+            d = s.get(Deployment, deployment_id)
+            role = member_service.get_role(s, d, _session_user_id()) if d else None
+            if role in ("creator", "admin"):
+                for info in raw.values():
+                    info["actions"] = sorted(member_service.ACTION_KEYS)
+                    info["data_scope"] = "all"
+            elif role == "operator" and d is not None:
+                access = member_service.table_access_map(s, d, _session_user_id())
+                for table_name, info in raw.items():
+                    a = access.get(table_name)
+                    info["actions"] = sorted(a["actions"]) if a else []
+                    info["data_scope"] = a["data_scope"] if a else "own"
     return jsonify(raw)
 
 

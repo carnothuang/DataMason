@@ -33,6 +33,8 @@ def _registry(app, deployment_id: int, current_user_id: int | None = None) -> tu
             raise KeyError("部署不存在")
         uid = current_user_id
         role = None
+        action_map = None
+        scope_map = None
         if uid is not None:
             role = member_service.assert_member(s, deployment, uid)
         table_names = [
@@ -40,15 +42,20 @@ def _registry(app, deployment_id: int, current_user_id: int | None = None) -> tu
             .filter_by(deployment_id=deployment_id).all()
         ]
         if uid is not None and role == "operator":
-            # 操作员只能操作被授权菜单背后的表（DR-02），其余一律不可见
-            table_names = member_service.allowed_table_names(s, deployment, uid)
+            # 操作员只能操作被授权菜单背后的表（DR-02），且按表细化为动作集合/数据范围（M5-C）
+            access = member_service.table_access_map(s, deployment, uid)
+            table_names = [n for n in table_names if n in access]
+            action_map = {n: set(v["actions"]) for n, v in access.items()}
+            scope_map = {n: v["data_scope"] for n, v in access.items()}
     engine = _biz_engine(app, deployment)
     # 仅暴露该部署声明过的表（白名单）；归属列写入身份由会话注入（M2-3）；
-    # 操作员「我的记录」强制 owner_only（M2-5，DR-05）
+    # 操作员「我的记录」强制 owner_only（M2-5，DR-05）；M5-C 起由 action_map/scope_map 细化
     registry = CrudRegistry(
         engine, tables=table_names,
         current_user_id=uid or 1,
         owner_only=(uid is not None and role == "operator"),
+        action_map=action_map,
+        scope_map=scope_map,
     )
     return deployment, registry, engine
 
@@ -106,7 +113,7 @@ def list_rows(app, deployment_id: int, table_name: str,
         for key, value in filters.items():
             if key in table.c and value != "":
                 conditions.append(table.c[key] == value)
-        if registry.owner_only and "created_by" in table.c:
+        if registry.owner_only_for(table_name) and "created_by" in table.c:
             conditions.append(table.c.created_by == registry.current_user_id)
         if search:
             text_cols = [

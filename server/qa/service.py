@@ -558,7 +558,9 @@ def run_dashboard(app, deployment_id: int, page_id: int, uid: int) -> dict:
     sql = layout.get("sql") or ""
     if not sql:
         raise QaError("报表 SQL 为空，无法运行")
-    _d, registry, engine = crud_runtime._registry(app, deployment_id, uid)
+    # 报表是只读聚合视图：白名单取该部署全部声明表（已在上方做菜单授权校验）；
+    # 不用会话 registry，避免操作员的表级白名单把报表引用的表挡在门外。
+    _d, registry, engine = crud_runtime.registry_for_service(app, deployment_id, uid)
     try:
         inner = enforce_readonly(sql, registry.allowed_tables, dialect)
         result = _execute(engine, inner, dialect)

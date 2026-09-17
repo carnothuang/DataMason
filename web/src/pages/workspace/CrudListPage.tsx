@@ -30,6 +30,11 @@ interface Props {
   role?: string;
   /** M2-7：直连模式标识（create/link），缺归属列时提示降级来源。 */
   dataMode?: string;
+  /** 0.11.0 M5-C：该页允许的动作（view/create/update/delete/export/import）；
+   *  undefined = 不限制（兼容旧链路/服务身份）。 */
+  actions?: string[];
+  /** 0.11.0 M5-C：数据范围（all/own），own 时服务端只返回本人记录。 */
+  dataScope?: string;
   /** M2-6 日志→记录聚焦：非空时按主键定点过滤并高亮，便于回看记录现状。 */
   focusPk?: string | null;
   focusNonce?: number;
@@ -37,13 +42,16 @@ interface Props {
 
 /** M2-4 工作台 CRUD 列表页：元数据驱动（meta 渲染列），搜索/筛选/排序/分页/新增/编辑/删除。
  *  M2-5：操作员视角默认即「我的记录」（服务端强制，前端加提示），全量数据仅创建人/管理员可见。
- *  M2-6：行级「操作记录」弹窗（记录→日志）+ focusPk 定位（日志→记录）。 */
+ *  M2-6：行级「操作记录」弹窗（记录→日志）+ focusPk 定位（日志→记录）。
+ *  M5-C：按 actions/dataScope 裁剪新增/编辑/删除/导出，只读时服务端仍强制。 */
 export default function CrudListPage({
   deploymentId,
   table,
   tableBizName,
   role,
   dataMode,
+  actions,
+  dataScope,
   focusPk,
   focusNonce,
 }: Props) {
@@ -51,6 +59,7 @@ export default function CrudListPage({
   const { demo, masked } = useDemo();
   // M3-3 演示脱敏：只改展示层；脱敏时禁写，避免把脱敏值回写库
   const readOnlyMask = demo && masked;
+  const can = (action: string) => !actions || actions.includes(action);
   const [meta, setMeta] = useState<TableMeta | null>(null);
   const [rows, setRows] = useState<RowPage | null>(null);
   const [loading, setLoading] = useState(false);
@@ -140,23 +149,27 @@ export default function CrudListPage({
           <Tag>演示脱敏 · 只读</Tag>
         ) : (
           <Space size="small">
-            <Button type="link" size="small" onClick={() => openEdit(record)}>
-              编辑
-            </Button>
+            {can("update") && (
+              <Button type="link" size="small" onClick={() => openEdit(record)}>
+                编辑
+              </Button>
+            )}
             <Button type="link" size="small" onClick={() => setLogsRow(record)}>
               操作记录
             </Button>
-            <Popconfirm
-              title="确认删除此行？"
-              description="删除后不可恢复"
-              okText="删除"
-              okButtonProps={{ danger: true }}
-              onConfirm={() => doDelete(record)}
-            >
-              <Button type="link" size="small" danger>
-                删除
-              </Button>
-            </Popconfirm>
+            {can("delete") && (
+              <Popconfirm
+                title="确认删除此行？"
+                description="删除后不可恢复"
+                okText="删除"
+                okButtonProps={{ danger: true }}
+                onConfirm={() => doDelete(record)}
+              >
+                <Button type="link" size="small" danger>
+                  删除
+                </Button>
+              </Popconfirm>
+            )}
           </Space>
         ),
     },
@@ -194,14 +207,14 @@ export default function CrudListPage({
     <Card
       title={tableBizName || table}
       extra={
-        !readOnlyMask ? (
+        !readOnlyMask && can("create") ? (
           <Button type="primary" onClick={openCreate}>
             新增
           </Button>
         ) : null
       }
     >
-      {!demo && role === "operator" && hasCreatedBy && (
+      {!demo && role === "operator" && dataScope !== "all" && hasCreatedBy && (
         <Alert
           type="info"
           showIcon
@@ -209,7 +222,7 @@ export default function CrudListPage({
           message="我的记录：这里只显示您录入的数据（全量数据归创建人与管理员）"
         />
       )}
-      {!demo && role === "operator" && !hasCreatedBy && (
+      {!demo && role === "operator" && dataScope !== "all" && !hasCreatedBy && (
         <Alert
           type="warning"
           showIcon
@@ -279,21 +292,23 @@ export default function CrudListPage({
                 {filter.value ? ` = ${filter.value}` : ""}
               </Tag>
             )}
-            <Button
-              icon={<ExportOutlined />}
-              onClick={() => {
-                const params: CrudRowFilters = {};
-                if (search) params.search = search;
-                if (filter?.col && filter.value !== "") params[filter.col] = filter.value;
-                if (sort.field) {
-                  params.sort = sort.field;
-                  params.order = sort.order;
-                }
-                window.open(CrudApi.exportCsvUrl(deploymentId, table, params), "_blank");
-              }}
-            >
-              导出 CSV
-            </Button>
+            {can("export") && (
+              <Button
+                icon={<ExportOutlined />}
+                onClick={() => {
+                  const params: CrudRowFilters = {};
+                  if (search) params.search = search;
+                  if (filter?.col && filter.value !== "") params[filter.col] = filter.value;
+                  if (sort.field) {
+                    params.sort = sort.field;
+                    params.order = sort.order;
+                  }
+                  window.open(CrudApi.exportCsvUrl(deploymentId, table, params), "_blank");
+                }}
+              >
+                导出 CSV
+              </Button>
+            )}
           </Space>
           <Table
             rowKey={(r) => String(r[pkName] ?? JSON.stringify(r))}

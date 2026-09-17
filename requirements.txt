@@ -15,6 +15,9 @@ redis>=5.0
 # 问数据只读门（M4-1）：SQL 解析/白名单/单语句校验（非 superset 包，自研栈依赖）
 sqlglot>=26.0
 
+# 0.11.0 M5-B3：CSV/XLSX 导入导出（DR-32，纯 Python 无重依赖）
+openpyxl>=3.1
+
 # 测试
 pytest>=8.0
 

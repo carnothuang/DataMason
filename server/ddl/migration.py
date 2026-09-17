@@ -30,7 +30,9 @@ from server.ddl.ddl_builder import (
 )
 from server.ddl.table_spec import ColumnSpec, TableSpecModel
 
-LOGICAL_TYPES = ("INTEGER", "BIGINT", "VARCHAR", "TEXT", "BOOLEAN", "DATETIME", "DECIMAL")
+LOGICAL_TYPES = (
+    "INTEGER", "BIGINT", "VARCHAR", "TEXT", "BOOLEAN", "DATETIME", "DECIMAL", "FILE"
+)
 
 
 class MigrationError(ValueError):

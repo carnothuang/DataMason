@@ -48,18 +48,44 @@ class CrudRegistry:
         tables: Iterable[str] | None = None,
         current_user_id: int = 1,
         owner_only: bool = False,
+        action_map: dict[str, set[str]] | None = None,
+        scope_map: dict[str, str] | None = None,
     ):
         """owner_only（M2-5）：仅展示/操作「当前用户创建的记录」。
-        操作员角色由工作台层注入 True，实现对业务数据按归属列的强制撒权过滤（DR-05）。"""
+        操作员角色由工作台层注入 True，实现对业务数据按归属列的强制撒权过滤（DR-05）。
+
+        0.11.0 M5-C（DR-30）：action_map = 表名→允许动作集合；scope_map = 表名→数据范围。
+        均为 None 表示不限制（创建人/管理员/服务身份）。两者齐备时优先于 owner_only。
+        """
         self.engine = engine
         self.current_user_id = current_user_id
         self.owner_only = owner_only
+        self.action_map = action_map
+        self.scope_map = scope_map
         self.meta = MetaData()
-        allowed = list(tables) if tables is not None else None
-        self.meta.reflect(bind=engine, only=allowed if allowed else None)
+        # 空列表 = 明确「无任何表可访问」（不可退化为全量反射——操作员无授权时须 404）
+        if tables is None:
+            self.meta.reflect(bind=engine)
+        else:
+            allowed = list(tables)
+            if allowed:
+                self.meta.reflect(bind=engine, only=allowed)
         # only= 参数可能带 schema，表名取最后一段
         self.allowed_tables = {t.split(".")[-1] for t in self.meta.tables}
         self._reflect_fk_targets()
+
+    def require_action(self, table_name: str, action: str) -> None:
+        """动作级权限强制（0.11.0 M5-C2，DR-30）：无 action_map 时不限制。"""
+        if self.action_map is None:
+            return
+        if action not in self.action_map.get(table_name, set()):
+            abort(403, description="你没有该操作的权限")
+
+    def owner_only_for(self, table_name: str) -> bool:
+        """该表的数据范围是否为「仅自己」。scope_map 存在时按其判定，否则回退全局 owner_only。"""
+        if self.scope_map is not None:
+            return self.scope_map.get(table_name, "own") == "own"
+        return self.owner_only
 
     def _reflect_fk_targets(self) -> None:
         """补反射「被外键引用但不在白名单」的目标表，保证 refs 下拉可用。"""
@@ -204,15 +230,17 @@ def get_meta(registry: CrudRegistry) -> dict:
 def _owner_condition(registry: "CrudRegistry", table: Table):
     """「我的记录」强制过滤（DR-05/§十一 七）：操作员只见 created_by=自己的记录。
 
-    仅在表含归属列 created_by 且 registry.owner_only 时生效；返回 SQLAlchemy 条件或 None。
+    仅在表含归属列 created_by 且该表数据范围为「仅自己」时生效；返回 SQLAlchemy 条件或 None。
+    0.11.0：范围由 registry.owner_only_for(table.name) 判定（可配置，DR-30）。
     """
-    if registry.owner_only and "created_by" in table.c:
+    if registry.owner_only_for(table.name) and "created_by" in table.c:
         return table.c.created_by == registry.current_user_id
     return None
 
 
 def get_row(registry: CrudRegistry, name: str, pk: str) -> dict:
     table = registry.table(name)
+    registry.require_action(name, "view")
     pk_col = _pk_column(table)
     owner = _owner_condition(registry, table)
     cond = [pk_col == _coerce_value(pk_col, pk)]
@@ -293,6 +321,7 @@ def _diff_changes(old_row: dict, new_values: dict) -> dict:
 
 def create_row(registry: CrudRegistry, name: str, audit=None) -> dict:
     table = registry.table(name)
+    registry.require_action(name, "create")
     payload = request.get_json(force=True) or {}
     values = {}
     # 列白名单：不在反射 schema 里的键一律忽略；归属列（DR-05）禁止客户端改写
@@ -330,6 +359,7 @@ def create_row(registry: CrudRegistry, name: str, audit=None) -> dict:
 
 def update_row(registry: CrudRegistry, name: str, pk: str, audit=None) -> dict:
     table = registry.table(name)
+    registry.require_action(name, "update")
     pk_col = _pk_column(table)
     payload = request.get_json(force=True) or {}
     values = {}
@@ -371,6 +401,7 @@ def update_row(registry: CrudRegistry, name: str, pk: str, audit=None) -> dict:
 
 def delete_row(registry: CrudRegistry, name: str, pk: str, audit=None) -> dict:
     table = registry.table(name)
+    registry.require_action(name, "delete")
     pk_col = _pk_column(table)
     cond = [pk_col == _coerce_value(pk_col, pk)]
     owner = _owner_condition(registry, table)
@@ -399,6 +430,7 @@ def delete_row(registry: CrudRegistry, name: str, pk: str, audit=None) -> dict:
 
 def list_rows(registry: CrudRegistry, name: str, with_search: bool = True) -> dict:
     table = registry.table(name)
+    registry.require_action(name, "view")
     page = max(int(request.args.get("page", 1)), 1)
     page_size = min(max(int(request.args.get("page_size", 20)), 1), 200)
 
@@ -445,6 +477,7 @@ def list_rows(registry: CrudRegistry, name: str, with_search: bool = True) -> di
 def export_rows(registry: CrudRegistry, name: str, max_rows: int = 5000) -> tuple[list[str], list[dict]]:
     """导出用：不分页取全部（上限 max_rows）匹配行，复用搜索/过滤/排序/归属过滤。"""
     table = registry.table(name)
+    registry.require_action(name, "export")
     conditions = _filtered(table)
     owner = _owner_condition(registry, table)
     if owner is not None:
@@ -490,6 +523,7 @@ def _label_column(table: Table):
 def list_refs(registry: CrudRegistry, name: str, fk_col: str) -> dict:
     """外键下拉数据：返回被引用表 {value=pk, label=业务标签} 选项，支持 search/分页。"""
     table = registry.table(name)
+    registry.require_action(name, "view")
     if fk_col not in table.c:
         abort(400, description=f"未知外键列: {fk_col}")
     fks = list(table.c[fk_col].foreign_keys)

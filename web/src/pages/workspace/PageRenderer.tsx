@@ -40,6 +40,8 @@ export default function PageRenderer({ deploymentId, page, role, dataMode, focus
         tableBizName={page.table_biz_name || page.table}
         role={role}
         dataMode={dataMode}
+        actions={page.actions}
+        dataScope={page.data_scope}
         focusPk={focus?.table === page.table ? focus.pk : null}
         focusNonce={focus?.table === page.table ? focus.nonce : 0}
       />

@@ -8,6 +8,8 @@
 """
 from __future__ import annotations
 
+import json
+
 from flask import Blueprint, abort, current_app, jsonify, request, session
 from werkzeug.exceptions import HTTPException
 
@@ -99,28 +101,36 @@ def list_members(deployment_id: int):
                     deployment_id=deployment_id, user_id=owner.id, role="creator",
                 ))
                 s.commit()
-        grants = {
-            (g.menu_id, g.user_id)
-            for g in s.query(DeploymentMenuGrant)
+        grant_rows = (
+            s.query(DeploymentMenuGrant)
             .join(DeploymentMenu, DeploymentMenuGrant.menu_id == DeploymentMenu.id)
             .filter(DeploymentMenu.deployment_id == deployment_id)
             .all()
-        }
+        )
+        grants = {(g.menu_id, g.user_id) for g in grant_rows}
+        grant_map = {(g.menu_id, g.user_id): g for g in grant_rows}
         members = []
         for user in users.values():
             m_role = service.get_role(s, d, user.id)
-            if m_role == "creator":
-                menu_ids = sorted(all_menu_ids)
-            elif m_role == "admin":
+            if m_role in ("creator", "admin"):
                 menu_ids = sorted(all_menu_ids)
             else:
                 menu_ids = sorted(menu_id for menu_id, userId in grants if userId == user.id)
+            detail = {
+                str(mid): {
+                    "actions": (grant_map[(mid, user.id)].actions or {}),
+                    "data_scope": grant_map[(mid, user.id)].data_scope or "",
+                }
+                for mid in menu_ids
+                if (mid, user.id) in grant_map
+            }
             members.append({
                 "user_id": user.id,
                 "username": user.username,
                 "display_name": user.display_name or user.username,
                 "role": m_role,
                 "menu_ids": menu_ids,
+                "grants": detail,
                 "is_self": user.id == uid,
             })
         members.sort(key=lambda m: (0 if m["role"] == "creator" else 1, m["user_id"]))
@@ -164,7 +174,12 @@ def _validate_menu_ids(s, deployment_id: int, menu_ids) -> list[int]:
     return list(dict.fromkeys(menu_ids))
 
 
-def _set_grants(s, deployment_id: int, user_id: int, menu_ids: list[int]) -> None:
+def _set_grants(s, deployment_id: int, user_id: int, menu_ids: list[int],
+                actions_map: dict | None = None, scope_map: dict | None = None) -> None:
+    """写按人授权（DR-02）+ 操作动作/数据范围（0.11.0 M5-C，DR-30）。
+
+    actions_map/scope_map 以 menu_id（int 或 str）为键；缺省该菜单即按角色默认（存空）。
+    """
     if menu_ids is None:
         return
     # 仅清本部署的菜单授权：同一用户可同时是多个部署的操作员，授权须按部署隔离
@@ -180,7 +195,27 @@ def _set_grants(s, deployment_id: int, user_id: int, menu_ids: list[int]) -> Non
             DeploymentMenuGrant.menu_id.in_(owned_menu_ids),
         ).delete(synchronize_session=False)
     for menu_id in menu_ids:
-        s.add(DeploymentMenuGrant(menu_id=menu_id, user_id=user_id))
+        acts = None
+        if actions_map is not None:
+            acts = actions_map.get(menu_id, actions_map.get(str(menu_id)))
+        if acts is not None and isinstance(acts, dict):
+            # 存完整布尔表（含显式 false），以便区分「未配置」与「配置为无动作」
+            payload = {
+                k: bool(acts.get(k))
+                for k in service.ACTION_KEYS
+                if k in acts
+            }
+            actions_json = json.dumps(payload, ensure_ascii=False)
+        else:
+            actions_json = "{}"
+        scope = None
+        if scope_map is not None:
+            scope = scope_map.get(menu_id, scope_map.get(str(menu_id)))
+        scope = scope if scope in ("all", "own") else ""
+        s.add(DeploymentMenuGrant(
+            menu_id=menu_id, user_id=user_id,
+            actions_json=actions_json, data_scope=scope,
+        ))
 
 
 @bp.post("/deployments/<int:deployment_id>/members")
@@ -207,7 +242,9 @@ def add_member(deployment_id: int):
             deployment_id=deployment_id, user_id=user.id, role=role,
         ))
         if role == "operator":
-            _set_grants(s, deployment_id, user.id, menu_ids)
+            _set_grants(s, deployment_id, user.id, menu_ids,
+                        actions_map=data.get("actions"),
+                        scope_map=data.get("data_scope"))
         s.commit()
         log_system(current_app, deployment_id, "member", actor_user_id=uid,
                    object_kind="member", object_pk=str(user.id),
@@ -251,7 +288,9 @@ def update_member(deployment_id: int, user_id: int):
         if row.role == "operator":
             menu_ids = _validate_menu_ids(s, deployment_id, data.get("menu_ids"))
             changed["grants"] = _menu_labels(s, deployment_id, menu_ids)
-            _set_grants(s, deployment_id, user_id, menu_ids)
+            _set_grants(s, deployment_id, user_id, menu_ids,
+                        actions_map=data.get("actions"),
+                        scope_map=data.get("data_scope"))
         s.commit()
         user = s.get(User, user_id)
         log_system(current_app, deployment_id, "member", actor_user_id=uid,

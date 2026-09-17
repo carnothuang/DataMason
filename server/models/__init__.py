@@ -5,7 +5,7 @@ table_specs / page_specs / crud_configs / deployment_menus /
 deployment_menu_grants / deployment_members / flow_specs /
 activity_logs / ai_generations / llm_models。
 后续里程碑新增：app_settings（M1 配置）/ deployment_share_tokens（M3-5）/
-deployment_api_keys（M3-8）/ deployment_seed_rows（DR-08）。
+deployment_api_keys（M3-8）/ deployment_seed_rows（DR-08）/ attachments（0.11.0 M5-B1，DR-28）。
 关联闭环（防断档，见 §八 末尾闭环说明）：
 - deployment_menus.ref_id → page_specs.id
 - flow_specs.steps[].page_id → page_specs.id
@@ -140,10 +140,22 @@ class DeploymentMenu(Base):
 
 
 class DeploymentMenuGrant(Base):
+    """按人授权（DR-02）+ 操作/数据权限（0.11.0 DR-30）。
+
+    - actions_json：该功能的允许动作集合；空串/`{}` = 按角色默认（存量兼容）。
+    - data_scope：''=角色默认, 'all'=全部, 'own'=仅自己。
+    """
+
     __tablename__ = "deployment_menu_grants"
 
     menu_id: Mapped[int] = mapped_column(ForeignKey("deployment_menus.id"), primary_key=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), primary_key=True)
+    actions_json: Mapped[str] = mapped_column(Text, default="{}")
+    data_scope: Mapped[str] = mapped_column(String(8), default="")
+
+    @property
+    def actions(self) -> dict:
+        return json.loads(self.actions_json or "{}")
 
 
 class DeploymentMember(Base):
@@ -212,6 +224,31 @@ class DeploymentSeedRow(Base):
     deployment_id: Mapped[int] = mapped_column(ForeignKey("deployments.id"), nullable=False)
     table_name: Mapped[str] = mapped_column(String(128), nullable=False)
     row_pk: Mapped[str] = mapped_column(String(128), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
+
+
+class Attachment(Base):
+    """附件元数据（0.11.0 M5-B1，DR-28）。
+
+    - 业务表 FILE 列只存 attachment id（或 id 数组 JSON），二进制不吃业务库。
+    - 文件落每部署目录 `DATA_ROOT/deployments/<stem>.files/<token>.<ext>`。
+    - status: active / pending_gc（行删除或字段替换后的待回收，幂等回收）。
+    """
+
+    __tablename__ = "attachments"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    deployment_id: Mapped[int] = mapped_column(ForeignKey("deployments.id"), nullable=False)
+    table_name: Mapped[str] = mapped_column(String(128), default="")
+    row_pk: Mapped[str] = mapped_column(String(128), default="")
+    field_name: Mapped[str] = mapped_column(String(128), default="")
+    token: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
+    filename: Mapped[str] = mapped_column(String(255), default="")
+    mime: Mapped[str] = mapped_column(String(128), default="")
+    size: Mapped[int] = mapped_column(Integer, default=0)
+    storage_rel: Mapped[str] = mapped_column(String(512), default="")
+    status: Mapped[str] = mapped_column(String(16), default="active")  # active/pending_gc
+    uploaded_by: Mapped[int] = mapped_column(Integer, default=0)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
 
 

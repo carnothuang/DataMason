@@ -76,6 +76,8 @@ def _map_type(col: ColumnSpec, dialect: str) -> str:
         return "TIMESTAMP" if dialect == "postgresql" else "DATETIME"
     if t == "DECIMAL":
         return "DECIMAL(18,2)"
+    if t == "FILE":
+        return f"VARCHAR({length})"  # DR-28：只存 attachment id（或 id 数组 JSON）
     raise DdlBuildError(f"未知列类型: {t}")
 
 

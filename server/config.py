@@ -20,6 +20,14 @@ class Config:
     llm_model: str = ""
     # 数据根目录：部署的独立物理库（SQLite 文件）存放处
     data_root: str = "./data"
+    # 0.11.0 M5-B：文件/导入上限（DR-33）
+    max_content_length: int = 20 * 1024 * 1024  # 单请求上限（Flask MAX_CONTENT_LENGTH）
+    upload_max_file_bytes: int = 10 * 1024 * 1024  # 单附件上限
+    upload_allowed_ext: str = (
+        ".png,.jpg,.jpeg,.gif,.webp,.bmp,.svg,.pdf,.txt,.csv,.json,.log,.md,"
+        ".doc,.docx,.xls,.xlsx,.ppt,.pptx,.zip,.rar,.7z"
+    )
+    import_max_rows: int = 5000
     extra: dict = field(default_factory=dict)
 
     def as_flask_config(self) -> dict:
@@ -28,6 +36,10 @@ class Config:
             "SQLALCHEMY_DATABASE_URI": self.meta_db_uri,
             "SECRET_KEY": self.secret_key,
             "DATA_ROOT": self.data_root,
+            "MAX_CONTENT_LENGTH": self.max_content_length,
+            "DM_UPLOAD_MAX_FILE_BYTES": self.upload_max_file_bytes,
+            "DM_UPLOAD_ALLOWED_EXT": self.upload_allowed_ext,
+            "DM_IMPORT_MAX_ROWS": self.import_max_rows,
             "DATAMASON_ADMIN_USERNAME": self.admin_username,
             "DATAMASON_ADMIN_PASSWORD": self.admin_password,
             "DATAMASON_LLM_BASE_URL": self.llm_base_url,

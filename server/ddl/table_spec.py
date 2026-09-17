@@ -11,7 +11,11 @@ from typing import Literal
 from pydantic import BaseModel, Field, model_validator
 
 # 三方言共同支持的逻辑类型白名单
-ColumnType = Literal["INTEGER", "BIGINT", "VARCHAR", "TEXT", "BOOLEAN", "DATETIME", "DECIMAL"]
+# FILE（附件，0.11.0 DR-28）：确定性映射为 VARCHAR(255)，存 attachment id（或 id 数组 JSON），
+# 二进制落每部署文件目录，不进业务库。
+ColumnType = Literal[
+    "INTEGER", "BIGINT", "VARCHAR", "TEXT", "BOOLEAN", "DATETIME", "DECIMAL", "FILE"
+]
 
 
 class ColumnSpec(BaseModel):

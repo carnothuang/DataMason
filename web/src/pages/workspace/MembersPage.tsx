@@ -3,6 +3,7 @@ import {
   App,
   Alert,
   Button,
+  Checkbox,
   Empty,
   Modal,
   Popconfirm,
@@ -18,7 +19,7 @@ import {
 import type { DataNode } from "antd/es/tree";
 import { PlusOutlined, ReloadOutlined } from "@ant-design/icons";
 import { MembersApi, WorkspaceApi, WorkspaceMenu } from "../../api";
-import type { DeploymentMember } from "../../api";
+import type { ActionKey, DeploymentMember, MenuGrantDetail } from "../../api";
 
 const { Text } = Typography;
 
@@ -33,6 +34,24 @@ const ROLE_COLOR: Record<string, string> = {
   admin: "blue",
   operator: "default",
 };
+
+// 0.11.0 M5-C（DR-30）：操作动作标签与默认值（默认 = 角色默认，不改变存量行为）
+const ACTION_META: { key: ActionKey; label: string }[] = [
+  { key: "view", label: "查看" },
+  { key: "create", label: "新增" },
+  { key: "update", label: "修改" },
+  { key: "delete", label: "删除" },
+  { key: "export", label: "导出" },
+  { key: "import", label: "导入" },
+];
+
+const DEFAULT_ACTIONS: Record<ActionKey, boolean> = {
+  view: true, create: true, update: true, delete: true, export: true, import: false,
+};
+
+function defaultGrant(): MenuGrantDetail {
+  return { actions: { ...DEFAULT_ACTIONS }, data_scope: "own" };
+}
 
 interface Props {
   deploymentId: number;
@@ -52,10 +71,41 @@ export default function MembersPage({ deploymentId, canEdit }: Props) {
   const [addUsername, setAddUsername] = useState<string | undefined>();
   const [addRole, setAddRole] = useState<"admin" | "operator">("operator");
   const [addMenuIds, setAddMenuIds] = useState<number[]>([]);
+  const [addGrants, setAddGrants] = useState<Record<string, MenuGrantDetail>>({});
 
   const [editing, setEditing] = useState<DeploymentMember | null>(null);
   const [editRole, setEditRole] = useState<"admin" | "operator">("operator");
   const [editMenuIds, setEditMenuIds] = useState<number[]>([]);
+  const [editGrants, setEditGrants] = useState<Record<string, MenuGrantDetail>>({});
+
+  // 勾选/取消功能时同步动作配置：新勾选的用默认值，取消的清除
+  const syncGrants = (
+    ids: number[],
+    prev: Record<string, MenuGrantDetail>,
+    existing?: Record<string, MenuGrantDetail>,
+  ): Record<string, MenuGrantDetail> => {
+    const next: Record<string, MenuGrantDetail> = {};
+    for (const id of ids) {
+      const key = String(id);
+      next[key] = prev[key] || existing?.[key] || defaultGrant();
+    }
+    return next;
+  };
+
+  const buildGrantPayload = (
+    ids: number[],
+    detail: Record<string, MenuGrantDetail>,
+  ) => {
+    const actions: Record<string, Partial<Record<ActionKey, boolean>>> = {};
+    const data_scope: Record<string, "" | "all" | "own"> = {};
+    for (const id of ids) {
+      const d = detail[String(id)];
+      if (!d) continue;
+      actions[String(id)] = d.actions;
+      data_scope[String(id)] = d.data_scope;
+    }
+    return { actions, data_scope };
+  };
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -85,6 +135,7 @@ export default function MembersPage({ deploymentId, canEdit }: Props) {
     setAddUsername(undefined);
     setAddRole("operator");
     setAddMenuIds([]);
+    setAddGrants({});
     setAddOpen(true);
     try {
       setCandidates(await MembersApi.candidates(deploymentId));
@@ -99,10 +150,13 @@ export default function MembersPage({ deploymentId, canEdit }: Props) {
       return;
     }
     try {
+      const grantPayload =
+        addRole === "operator" ? buildGrantPayload(addMenuIds, addGrants) : {};
       await MembersApi.add(deploymentId, {
         username: addUsername,
         role: addRole,
         menu_ids: addRole === "operator" ? addMenuIds : [],
+        ...grantPayload,
       });
       message.success("成员已添加");
       setAddOpen(false);
@@ -116,15 +170,19 @@ export default function MembersPage({ deploymentId, canEdit }: Props) {
     setEditing(member);
     setEditRole(member.role === "admin" ? "admin" : "operator");
     setEditMenuIds(member.menu_ids);
+    setEditGrants(syncGrants(member.menu_ids, {}, member.grants));
   };
 
   const submitEdit = async () => {
     if (!editing) return;
     try {
+      const grantPayload =
+        editRole === "operator" ? buildGrantPayload(editMenuIds, editGrants) : {};
       await MembersApi.update(deploymentId, editing.user_id, {
         role: editRole,
         menu_ids:
           editRole === "operator" ? editMenuIds : editing.menu_ids,
+        ...grantPayload,
       });
       message.success("已保存");
       setEditing(null);
@@ -291,9 +349,18 @@ export default function MembersPage({ deploymentId, canEdit }: Props) {
                 <GrantTree
                   tree={menuTree}
                   checkedKeys={addMenuIds}
-                  onChange={setAddMenuIds}
+                  onChange={(ids) => {
+                    setAddMenuIds(ids);
+                    setAddGrants((prev) => syncGrants(ids, prev));
+                  }}
                 />
               </div>
+              <GrantConfigurator
+                menuLabels={menuIdToLabel}
+                ids={addMenuIds}
+                detail={addGrants}
+                onChange={setAddGrants}
+              />
             </div>
           ) : (
             <Text type="secondary">管理员拥有本套系统全部业务功能（不含工程室/成员变更）。</Text>
@@ -330,9 +397,18 @@ export default function MembersPage({ deploymentId, canEdit }: Props) {
                 <GrantTree
                   tree={menuTree}
                   checkedKeys={editMenuIds}
-                  onChange={setEditMenuIds}
+                  onChange={(ids) => {
+                    setEditMenuIds(ids);
+                    setEditGrants((prev) => syncGrants(ids, prev, editing?.grants));
+                  }}
                 />
               </div>
+              <GrantConfigurator
+                menuLabels={menuIdToLabel}
+                ids={editMenuIds}
+                detail={editGrants}
+                onChange={setEditGrants}
+              />
             </div>
           ) : (
             <Text type="secondary">管理员拥有本套系统全部业务功能，无需逐项分配。</Text>
@@ -380,6 +456,73 @@ function GrantTree({
       checkedKeys={{ checked: checkedKeys.map(String), halfChecked: [] }}
       onCheck={(checked) => onChange((checked as string[]).map(Number))}
     />
+  );
+}
+
+function GrantConfigurator({
+  menuLabels,
+  ids,
+  detail,
+  onChange,
+}: {
+  menuLabels: Record<number, string>;
+  ids: number[];
+  detail: Record<string, MenuGrantDetail>;
+  onChange: (next: Record<string, MenuGrantDetail>) => void;
+}) {
+  if (ids.length === 0) return null;
+  const setOne = (id: number, patch: Partial<MenuGrantDetail>) => {
+    const key = String(id);
+    const cur = detail[key] || defaultGrant();
+    onChange({ ...detail, [key]: { ...cur, ...patch } });
+  };
+  return (
+    <div style={{ marginTop: 8 }}>
+      <Text type="secondary" style={{ display: "block", marginBottom: 4 }}>
+        每个功能可分别设置「能做什么」与「看多少数据」（默认已按操作员常规模板勾好）
+      </Text>
+      <Space direction="vertical" style={{ width: "100%" }} size="small">
+        {ids.map((id) => {
+          const d = detail[String(id)] || defaultGrant();
+          return (
+            <div
+              key={id}
+              style={{ border: "1px solid #f0f0f0", borderRadius: 8, padding: "8px 10px" }}
+            >
+              <Text strong>{menuLabels[id] || `菜单 #${id}`}</Text>
+              <div style={{ marginTop: 6 }}>
+                <Checkbox.Group
+                  value={ACTION_META.filter((a) => d.actions[a.key]).map((a) => a.key)}
+                  options={ACTION_META.map((a) => ({ label: a.label, value: a.key }))}
+                  onChange={(vals) =>
+                    setOne(id, {
+                      actions: ACTION_META.reduce(
+                        (acc, a) => ({ ...acc, [a.key]: (vals as string[]).includes(a.key) }),
+                        {} as Record<ActionKey, boolean>,
+                      ),
+                    })
+                  }
+                />
+              </div>
+              <Space style={{ marginTop: 6 }}>
+                <Text type="secondary" style={{ fontSize: 12 }}>数据范围</Text>
+                <Select
+                  size="small"
+                  style={{ width: 160 }}
+                  value={d.data_scope}
+                  onChange={(v) => setOne(id, { data_scope: v })}
+                  options={[
+                    { value: "", label: "按角色默认" },
+                    { value: "own", label: "仅自己录入的" },
+                    { value: "all", label: "全部数据" },
+                  ]}
+                />
+              </Space>
+            </div>
+          );
+        })}
+      </Space>
+    </div>
   );
 }
 
