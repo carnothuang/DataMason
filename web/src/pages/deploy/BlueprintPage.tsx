@@ -17,6 +17,8 @@ import type { ColumnsType } from "antd/es/table";
 import { DeployApi, FieldColumn, TableBlueprint } from "../../api";
 import ErGraph from "../../components/ErGraph";
 import FieldEditor from "./FieldEditor";
+import NewTableModal from "./NewTableModal";
+import DropTableModal from "./DropTableModal";
 
 const { Text } = Typography;
 
@@ -36,6 +38,8 @@ export default function BlueprintPage({ deploymentId, bizName, dataMode, onBack 
   const [loading, setLoading] = useState(false);
   const [active, setActive] = useState<string | null>(null);
   const [editOpen, setEditOpen] = useState(false);
+  const [newOpen, setNewOpen] = useState(false);
+  const [dropOpen, setDropOpen] = useState(false);
   const [reloadKey, setReloadKey] = useState(0);
   const linkMode = dataMode === "link";
 
@@ -101,6 +105,11 @@ export default function BlueprintPage({ deploymentId, bizName, dataMode, onBack 
           <Tag color="green">创建模式 · 可编辑</Tag>
         )}
         <Button size="small" onClick={() => setReloadKey((k) => k + 1)}>刷新</Button>
+        {!linkMode && (
+          <Button type="primary" size="small" onClick={() => setNewOpen(true)}>
+            + 新建表
+          </Button>
+        )}
       </Space>
 
       <Spin spinning={loading}>
@@ -161,9 +170,14 @@ export default function BlueprintPage({ deploymentId, bizName, dataMode, onBack 
                   title={`${current.biz_name || current.name}（${current.name}）`}
                   extra={
                     !linkMode && (
-                      <Button type="primary" size="small" onClick={() => setEditOpen(true)}>
-                        编辑字段
-                      </Button>
+                      <Space>
+                        <Button size="small" onClick={() => setDropOpen(true)} danger>
+                          删除表
+                        </Button>
+                        <Button type="primary" size="small" onClick={() => setEditOpen(true)}>
+                          编辑字段
+                        </Button>
+                      </Space>
                     )
                   }
                 >
@@ -210,6 +224,30 @@ export default function BlueprintPage({ deploymentId, bizName, dataMode, onBack 
           onClose={() => setEditOpen(false)}
           onChanged={() => {
             setEditOpen(false);
+            setReloadKey((k) => k + 1);
+          }}
+        />
+      )}
+
+      {!linkMode && (
+        <NewTableModal
+          deploymentId={deploymentId}
+          open={newOpen}
+          existingTables={tables.map((t) => t.name)}
+          onClose={() => setNewOpen(false)}
+          onCreated={() => setReloadKey((k) => k + 1)}
+        />
+      )}
+
+      {current && !linkMode && (
+        <DropTableModal
+          deploymentId={deploymentId}
+          table={current.name}
+          bizName={current.biz_name || current.name}
+          open={dropOpen}
+          onClose={() => setDropOpen(false)}
+          onDropped={() => {
+            setActive(null);
             setReloadKey((k) => k + 1);
           }}
         />

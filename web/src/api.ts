@@ -961,6 +961,55 @@ function ensureArray<T>(data: unknown, what: string): T[] {
   return data;
 }
 
+// ---------- 结构演化（0.11.0 M5-A） ----------
+export interface NewTableColumnSpec {
+  name: string;
+  biz_name?: string;
+  type: string;
+  length?: number | null;
+  nullable?: boolean;
+  is_pk?: boolean;
+  autoincrement?: boolean;
+  unique?: boolean;
+  is_fk?: boolean;
+  ref_table?: string | null;
+  ref_column?: string | null;
+  is_ownership?: boolean;
+}
+
+export interface NewTableSpec {
+  name: string;
+  biz_name?: string;
+  columns: NewTableColumnSpec[];
+  indexes?: number[][];
+  biz_notes?: string;
+}
+
+export interface AddTableProposal {
+  table: string;
+  biz_name: string;
+  columns: FieldColumn[];
+  relations: { column: string; ref_table: string | null; ref_column: string | null }[];
+  statements: string[];
+  pages: { kind: string; access: string; title: string }[];
+  valid: boolean;
+}
+
+export interface DropImpact {
+  table: string;
+  biz_name: string;
+  row_count: number;
+  referenced_by: { table: string; column: string }[];
+  pages: { id: number; title: string; kind: string }[];
+  menus: { id: number; label: string }[];
+  grants: number;
+  flows: string[];
+  reports: string[];
+  seeds: number;
+  blocked: boolean;
+  reason: string;
+}
+
 // ---------- 部署 ----------
 export const DeployApi = {
   list: () =>
@@ -1001,6 +1050,29 @@ export const DeployApi = {
       .post<{ name: string; columns: FieldColumn[]; statements?: string[] }>(
         `/deployments/${id}/tables/${encodeURIComponent(table)}/columns`,
         { ops },
+      )
+      .then((r) => r.data),
+  /** 0.11.0 M5-A：增表提案 / 确认（创建模式自建库；直连模式拒绝）。 */
+  proposeAddTable: (id: number, spec: NewTableSpec) =>
+    http
+      .post<AddTableProposal>(`/deployments/${id}/tables/propose`, { spec })
+      .then((r) => r.data),
+  applyAddTable: (id: number, spec: NewTableSpec) =>
+    http
+      .post<{ table: string; page_id: number; menu_id: number; statements: string[] }>(
+        `/deployments/${id}/tables/apply`,
+        { spec },
+      )
+      .then((r) => r.data),
+  /** 0.11.0 M5-A：删表影响面 / 确认。 */
+  proposeDropTable: (id: number, table: string) =>
+    http
+      .post<DropImpact>(`/deployments/${id}/tables/${encodeURIComponent(table)}/drop/propose`)
+      .then((r) => r.data),
+  dropTable: (id: number, table: string) =>
+    http
+      .post<{ dropped: boolean; table: string; cascade: Record<string, number> }>(
+        `/deployments/${id}/tables/${encodeURIComponent(table)}/drop`,
       )
       .then((r) => r.data),
   /** M3-1：生命周期 停止/再启动（创建人独有） */

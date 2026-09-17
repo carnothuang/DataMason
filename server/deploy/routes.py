@@ -10,6 +10,8 @@ from server.deploy import link, service
 from server.deploy.service import DeployError
 from server.deploy.link import LinkError
 from server.deploy import editor
+from server.deploy import structure as structure_service
+from server.deploy.structure import StructureError
 from server.members import service as member_service
 from server.members.service import PermissionDenied
 from server.models import Deployment
@@ -417,6 +419,74 @@ def alter_columns(deployment_id: int, table_name: str):
                    changes={"ops": _ops_summary(ops)})
         return jsonify(result)
     except editor.EditorError as exc:
+        return jsonify({"error": str(exc)}), 400
+    except KeyError as exc:
+        return jsonify({"error": str(exc)}), 404
+    except Exception as exc:  # noqa: BLE001
+        return jsonify({"error": f"{type(exc).__name__}: {exc}"}), 502
+
+
+# ---------------- 0.11.0 M5-A 结构演化：对自建库增表/删表（DR-27/DR-31） ----------------
+
+@bp.post("/deployments/<int:deployment_id>/tables/propose")
+def propose_add_table(deployment_id: int):
+    """增表提案：只算不执行（建表 DDL + 待生成页面/菜单计划）。工程室=创建人独有。"""
+    _deployment_and_role(current_app, deployment_id)
+    _require_creator(deployment_id)
+    spec = _body().get("spec")
+    if not isinstance(spec, dict):
+        return jsonify({"error": "spec 必须是表规格对象"}), 400
+    try:
+        return jsonify(structure_service.propose_add_table(current_app, deployment_id, spec))
+    except StructureError as exc:
+        return jsonify({"error": str(exc)}), 400
+    except KeyError as exc:
+        return jsonify({"error": str(exc)}), 404
+    except Exception as exc:  # noqa: BLE001
+        return jsonify({"error": f"{type(exc).__name__}: {exc}"}), 502
+
+
+@bp.post("/deployments/<int:deployment_id>/tables/apply")
+def apply_add_table(deployment_id: int):
+    """增表确认执行：建表 + 写元数据（页面/菜单/配置）+ structure 日志。创建人独有。"""
+    _deployment_and_role(current_app, deployment_id)
+    _require_creator(deployment_id)
+    spec = _body().get("spec")
+    if not isinstance(spec, dict):
+        return jsonify({"error": "spec 必须是表规格对象"}), 400
+    try:
+        return jsonify(structure_service.add_table(current_app, deployment_id, spec, _uid())), 201
+    except StructureError as exc:
+        return jsonify({"error": str(exc)}), 400
+    except KeyError as exc:
+        return jsonify({"error": str(exc)}), 404
+    except Exception as exc:  # noqa: BLE001
+        return jsonify({"error": f"{type(exc).__name__}: {exc}"}), 502
+
+
+@bp.post("/deployments/<int:deployment_id>/tables/<table_name>/drop/propose")
+def propose_drop_table(deployment_id: int, table_name: str):
+    """删表影响面提案（不执行）：行数/外键引用/页面/菜单/授权/流程/报表/种子 + 阻断判定。"""
+    _deployment_and_role(current_app, deployment_id)
+    _require_creator(deployment_id)
+    try:
+        return jsonify(structure_service.analyze_drop_table(current_app, deployment_id, table_name))
+    except StructureError as exc:
+        return jsonify({"error": str(exc)}), 400
+    except KeyError as exc:
+        return jsonify({"error": str(exc)}), 404
+    except Exception as exc:  # noqa: BLE001
+        return jsonify({"error": f"{type(exc).__name__}: {exc}"}), 502
+
+
+@bp.post("/deployments/<int:deployment_id>/tables/<table_name>/drop")
+def confirm_drop_table(deployment_id: int, table_name: str):
+    """删表确认执行：守卫（被引用/被流程引用则拒绝）→ 级联清元数据 → 物理 DROP。创建人独有。"""
+    _deployment_and_role(current_app, deployment_id)
+    _require_creator(deployment_id)
+    try:
+        return jsonify(structure_service.drop_table(current_app, deployment_id, table_name, _uid()))
+    except StructureError as exc:
         return jsonify({"error": str(exc)}), 400
     except KeyError as exc:
         return jsonify({"error": str(exc)}), 404
