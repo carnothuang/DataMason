@@ -35,7 +35,11 @@ http.interceptors.response.use(
         : error?.response?.data?.error ||
           error?.message ||
           "请求失败";
-    return Promise.reject(new Error(msg));
+    // 结构化错误附件：M6-5 合并失败需带表/字段定位清单，供画布回跳修正
+    const failure = new Error(msg) as Error & { errors?: unknown; status?: number };
+    failure.errors = error?.response?.data?.errors;
+    failure.status = status;
+    return Promise.reject(failure);
   },
 );
 
@@ -1194,6 +1198,98 @@ export const DeployApi = {
         db_file_removed: boolean;
         external_preserved: boolean;
       }>(`/deployments/${id}/destroy`)
+      .then((r) => r.data),
+};
+
+// ---------- 混合建库（M6 / 0.12.0，DR-34~39） ----------
+export interface SkeletonRelation {
+  to_table: string;
+  note?: string;
+}
+
+export interface SkeletonTableJson {
+  name: string;
+  biz_name?: string;
+  biz_notes?: string;
+  relations?: SkeletonRelation[];
+}
+
+export interface SkeletonJson {
+  biz_notes: string;
+  tables: SkeletonTableJson[];
+}
+
+export interface SkeletonColumn {
+  name: string;
+  biz_name?: string;
+  type: string;
+  length?: number | null;
+  nullable?: boolean;
+  unique?: boolean;
+  is_pk?: boolean;
+  autoincrement?: boolean;
+  is_fk?: boolean;
+  ref_table?: string | null;
+  ref_column?: string | null;
+  is_ownership?: boolean;
+}
+
+export interface SkeletonProposeResult {
+  biz_notes: string;
+  attempts: number;
+  skeleton_json: SkeletonJson;
+  columns: Record<string, SkeletonColumn[]>;
+}
+
+export interface SkeletonColumnsResult {
+  table: string;
+  attempts: number;
+  columns: SkeletonColumn[];
+  unguided_tables: string[];
+}
+
+export interface SkeletonMergeResult {
+  biz_notes: string;
+  table_count: number;
+  spec_json: Record<string, unknown>;
+}
+
+export interface MergeIssue {
+  table?: string | null;
+  column?: string | null;
+  message: string;
+}
+
+/** 混合建库两段式接口（仅创建模式；link 由后端 400 拒绝，DR-39）。 */
+export const SkeletonApi = {
+  propose: (description: string, mode: "create" | "link" = "create") =>
+    http
+      .post<SkeletonProposeResult>(
+        "/deployments/skeleton/propose",
+        { description, mode },
+        { timeout: 240_000 },
+      )
+      .then((r) => r.data),
+  columns: (
+    table: string,
+    payload: {
+      skeleton: SkeletonJson;
+      nl: string;
+      mode?: "overwrite" | "append";
+      existing_columns?: SkeletonColumn[];
+      guided_tables?: string[];
+    },
+  ) =>
+    http
+      .post<SkeletonColumnsResult>(
+        `/deployments/skeleton/tables/${encodeURIComponent(table)}/columns`,
+        payload,
+        { timeout: 240_000 },
+      )
+      .then((r) => r.data),
+  merge: (skeleton: SkeletonJson, columns: Record<string, SkeletonColumn[]>) =>
+    http
+      .post<SkeletonMergeResult>("/deployments/skeleton/merge", { skeleton, columns })
       .then((r) => r.data),
 };
 

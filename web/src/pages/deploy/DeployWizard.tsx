@@ -30,6 +30,7 @@ import {
 } from "../../api";
 import { LinkApi } from "../../api";
 import ErGraph from "../../components/ErGraph";
+import HybridBuilder from "./HybridBuilder";
 
 const { Text } = Typography;
 
@@ -52,6 +53,9 @@ export default function DeployWizard({ open, onClose, onDeployed }: Props) {
   }>();
   const [phase, setPhase] = useState<Phase>("input");
   const [mode, setMode] = useState<Mode>("create");
+  // M6-4：创建模式下「全自动 / 混合·分步引导」二选一（link 无混合入口，DR-39）
+  const [builder, setBuilder] = useState<"auto" | "hybrid">("auto");
+  const [showHybrid, setShowHybrid] = useState(false);
   const [proposal, setProposal] = useState<Proposal | LinkProposal | null>(null);
   const [result, setResult] = useState<DeployResult | null>(null);
   const [error, setError] = useState("");
@@ -106,6 +110,8 @@ export default function DeployWizard({ open, onClose, onDeployed }: Props) {
     setProposal(null);
     setResult(null);
     setError("");
+    setBuilder("auto");
+    setShowHybrid(false);
     setConnId(undefined);
     setTargetConnId(undefined);
     setTables([]);
@@ -119,6 +125,8 @@ export default function DeployWizard({ open, onClose, onDeployed }: Props) {
 
   const switchMode = (m: Mode) => {
     setMode(m);
+    setBuilder("auto");
+    setShowHybrid(false);
     setTables([]);
     setConnId(undefined);
     setInventory([]);
@@ -218,6 +226,14 @@ export default function DeployWizard({ open, onClose, onDeployed }: Props) {
     }
   };
 
+  // M6-4：混合建库完成后，回到本向导的「就绪」结果页（复用既有成功态）
+  const handleHybridDeployed = (r: DeployResult) => {
+    setShowHybrid(false);
+    setResult(r);
+    setPhase("done");
+    onDeployed();
+  };
+
   const currentStep =
     phase === "input" || phase === "loading" ? 0 : phase === "proposal" || phase === "deploying" ? 1 : 2;
   const generating = phase === "loading";
@@ -235,9 +251,15 @@ export default function DeployWizard({ open, onClose, onDeployed }: Props) {
         phase === "input" || generating ? (
           <Space>
             <Button onClick={close} disabled={generating}>取消</Button>
-            <Button type="primary" onClick={generate} loading={generating}>
-              生成提案
-            </Button>
+            {mode === "create" && builder === "hybrid" ? (
+              <Button type="primary" onClick={() => setShowHybrid(true)} disabled={generating}>
+                开始分步引导
+              </Button>
+            ) : (
+              <Button type="primary" onClick={generate} loading={generating}>
+                生成提案
+              </Button>
+            )}
           </Space>
         ) : phase === "proposal" || deploying ? (
           <Space>
@@ -297,6 +319,19 @@ export default function DeployWizard({ open, onClose, onDeployed }: Props) {
 
       {(phase === "input" || phase === "loading") && (
         <div style={{ marginBottom: 16 }}>
+          {!isLink && (
+            <Segmented
+              block
+              value={builder}
+              onChange={(v) => setBuilder(v as "auto" | "hybrid")}
+              disabled={generating}
+              style={{ marginBottom: 8 }}
+              options={[
+                { label: "全自动（一步生成）", value: "auto" },
+                { label: "混合·分步引导", value: "hybrid" },
+              ]}
+            />
+          )}
           <Segmented
             block
             value={mode}
@@ -535,6 +570,12 @@ export default function DeployWizard({ open, onClose, onDeployed }: Props) {
           ]}
         />
       )}
+      <HybridBuilder
+        open={showHybrid}
+        conns={conns}
+        onClose={() => setShowHybrid(false)}
+        onDeployed={handleHybridDeployed}
+      />
     </Modal>
   );
 }
