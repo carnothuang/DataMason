@@ -8,6 +8,7 @@ from server.crud import runtime
 from server.audit.service import log_system
 from server.deploy import link, service
 from server.deploy.service import DeployError
+from server.ddl.skeleton import SkeletonMergeError
 from server.deploy.link import LinkError
 from server.deploy import editor
 from server.deploy import structure as structure_service
@@ -166,6 +167,24 @@ def skeleton_table_columns(table_name: str):
             guided_tables=data.get("guided_tables")))
     except DeployError as exc:
         return jsonify({"error": str(exc)}), 400
+    except Exception as exc:  # noqa: BLE001
+        return jsonify({"error": f"{type(exc).__name__}: {exc}"}), 502
+
+
+@bp.post("/deployments/skeleton/merge")
+def skeleton_merge():
+    """混合建库 Step 4：骨架+字段合并为完整 spec_json；失败返回定位清单。"""
+    data = _body()
+    skeleton = data.get("skeleton")
+    columns = data.get("columns")
+    if not isinstance(skeleton, dict) or not isinstance(columns, dict):
+        return jsonify({"error": "缺少骨架 skeleton 或字段映射 columns"}), 400
+    try:
+        return jsonify(service.merge_hybrid(current_app, skeleton, columns))
+    except DeployError as exc:
+        return jsonify({"error": str(exc)}), 400
+    except SkeletonMergeError as exc:
+        return jsonify({"error": str(exc), "errors": exc.errors}), 400
     except Exception as exc:  # noqa: BLE001
         return jsonify({"error": f"{type(exc).__name__}: {exc}"}), 502
 

@@ -301,6 +301,32 @@ def generate_columns(app, skeleton_dict: dict, table_name: str, nl: str,
     }
 
 
+# ---------------- M6-5 混合建库：合并为完整 spec（复用落库链路） ----------------
+
+def merge_hybrid(app, skeleton_dict: dict, columns_map: dict) -> dict:
+    """骨架 + 各表字段 → 完整 spec_json（供前端直接复用 confirm 落库）。
+
+    校验失败抛 `SkeletonMergeError`（携带定位到表/字段的 errors 清单）。
+    """
+    from pydantic import ValidationError
+
+    from server.ddl.skeleton import SchemaSkeleton, merge_skeleton_columns
+
+    try:
+        skeleton = SchemaSkeleton.model_validate(skeleton_dict)
+    except ValidationError as exc:
+        raise DeployError(f"骨架不合法：{exc}") from exc
+    if not isinstance(columns_map, dict):
+        raise DeployError("columns 必须是「表名 → 字段列表」映射")
+
+    spec = merge_skeleton_columns(skeleton, columns_map)
+    return {
+        "biz_notes": spec.biz_notes,
+        "table_count": len(spec.tables),
+        "spec_json": spec.model_dump(mode="json"),
+    }
+
+
 # ---------------- 确认部署（落库） ----------------
 
 
