@@ -18,6 +18,8 @@ class Config:
     llm_base_url: str = ""
     llm_api_key: str = ""
     llm_model: str = ""
+    # LLM 读超时（秒）：慢模型/推理模型常超过 60s，默认放宽到 300s
+    llm_timeout: float = 300.0
     # 数据根目录：部署的独立物理库（SQLite 文件）存放处
     data_root: str = "./data"
     # 0.11.0 M5-B：文件/导入上限（DR-33）
@@ -61,6 +63,7 @@ class Config:
             "DATAMASON_LLM_BASE_URL": self.llm_base_url,
             "DATAMASON_LLM_API_KEY": self.llm_api_key,
             "DATAMASON_LLM_MODEL": self.llm_model,
+            "DATAMASON_LLM_TIMEOUT": self.llm_timeout,
             **self.extra,
         }
 
@@ -76,4 +79,15 @@ def get_config(config_object: object | None = None) -> Config:
         llm_base_url=os.environ.get("DATAMASON_LLM_BASE_URL", ""),
         llm_api_key=os.environ.get("DATAMASON_LLM_API_KEY", ""),
         llm_model=os.environ.get("DATAMASON_LLM_MODEL", ""),
+        llm_timeout=_env_float("DATAMASON_LLM_TIMEOUT", 300.0),
     )
+
+
+def _env_float(name: str, default: float) -> float:
+    raw = (os.environ.get(name) or "").strip()
+    if not raw:
+        return default
+    try:
+        return float(raw)
+    except ValueError:
+        return default

@@ -336,6 +336,7 @@ def get_default_llm_client(app):
     """
     from server.llm.client import LlmConfig, OpenAiCompatibleClient
 
+    timeout = float(app.config.get("DATAMASON_LLM_TIMEOUT") or 300.0)
     cipher = _cipher(app)
     with _session(app) as s:
         m = s.query(LlmModel).filter_by(is_default=True).first()
@@ -347,6 +348,7 @@ def get_default_llm_client(app):
                 api_key=cipher.decrypt(m.api_key_cipher),
                 model=m.model_name or m.name,
                 temperature=m.temperature,
+                timeout=timeout,
             )
             return OpenAiCompatibleClient(cfg)
 
@@ -357,6 +359,7 @@ def get_default_llm_client(app):
     if base_url and api_key:
         return OpenAiCompatibleClient(LlmConfig(
             base_url=base_url, api_key=api_key, model=model or "default", temperature=0.0,
+            timeout=timeout,
         ))
     return None
 

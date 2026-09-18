@@ -28,7 +28,7 @@ class LlmConfig:
     api_key: str
     model: str
     temperature: float = 0.0
-    timeout: float = 60.0
+    timeout: float = 300.0
 
 
 @dataclass
@@ -80,8 +80,12 @@ class OpenAiCompatibleClient:
         try:
             body = resp.json()
             content = body["choices"][0]["message"]["content"]
-            parsed = json.loads(content)
-        except (KeyError, IndexError, json.JSONDecodeError) as exc:
+        except (KeyError, IndexError, ValueError) as exc:
+            raise LlmCallError(f"LLM 返回不是合法 JSON: {exc}") from exc
+
+        try:
+            parsed = _loads_llm_json(content)
+        except (ValueError, TypeError) as exc:
             raise LlmCallError(f"LLM 返回不是合法 JSON: {exc}") from exc
 
         usage = body.get("usage", {})
@@ -93,3 +97,62 @@ class OpenAiCompatibleClient:
 
     def close(self):
         self._http.close()
+
+
+def _loads_llm_json(content: str) -> object:
+    """解析 LLM 文本响应，容忍常见瑕疵：markdown 代码围栏、解释性前后缀、尾随逗号。
+
+    真机模型（尤其长结构）常输出 ```json 围栏或 `{"a": 1,}` 这类尾随逗号，
+    严格 json.loads 会直接失败；此处做保守修复后再解析。
+    """
+    if not isinstance(content, str):
+        raise TypeError("响应内容不是文本")
+    text = content.strip()
+    if text.startswith("```"):
+        text = text.split("\n", 1)[1] if "\n" in text else ""
+        end = text.rfind("```")
+        if end != -1:
+            text = text[:end]
+        text = text.strip()
+    starts = [i for i in (text.find("{"), text.find("[")) if i != -1]
+    if not starts:
+        raise ValueError("响应中找不到 JSON 对象")
+    text = _strip_trailing_commas(text[min(starts):])
+    obj, _ = json.JSONDecoder().raw_decode(text)
+    return obj
+
+
+def _strip_trailing_commas(text: str) -> str:
+    """删除对象/数组闭合符前的多余逗号（字符串感知，不误伤字符串内逗号）。"""
+    out: list[str] = []
+    in_str = False
+    escape = False
+    i = 0
+    n = len(text)
+    while i < n:
+        ch = text[i]
+        if in_str:
+            out.append(ch)
+            if escape:
+                escape = False
+            elif ch == "\\":
+                escape = True
+            elif ch == '"':
+                in_str = False
+            i += 1
+            continue
+        if ch == '"':
+            in_str = True
+            out.append(ch)
+        elif ch == ",":
+            j = i + 1
+            while j < n and text[j] in " \t\r\n":
+                j += 1
+            if j < n and text[j] in "}]":
+                i += 1
+                continue
+            out.append(ch)
+        else:
+            out.append(ch)
+        i += 1
+    return "".join(out)
