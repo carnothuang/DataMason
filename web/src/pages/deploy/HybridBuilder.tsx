@@ -268,7 +268,7 @@ export default function HybridBuilder({ open, conns, onClose, onDeployed }: Prop
         />
       )}
 
-      {step === 0 && (
+      <div style={{ display: step === 0 ? "block" : "none" }}>
         <Form form={form} layout="vertical" initialValues={{ seed: true }}>
           <Form.Item name="description" label="一句话描述你要建什么"
                      rules={[{ required: true, message: "请描述你要建什么" }]}>
@@ -293,7 +293,7 @@ export default function HybridBuilder({ open, conns, onClose, onDeployed }: Prop
             <Checkbox>就绪即带演示数据（部署后可一键清空）</Checkbox>
           </Form.Item>
         </Form>
-      )}
+      </div>
 
       {step === 1 && (
         <>

@@ -47,7 +47,7 @@ export interface SkeletonTableJson {
   relations?: { to_table: string; note?: string }[];
 }
 
-export type ColumnInput = Partial<HybridColumn> & { name: string };
+export type ColumnInput = Partial<Omit<HybridColumn, "type">> & { name: string; type?: string };
 
 let seq = 0;
 const nextKey = () => `c-${Date.now().toString(36)}-${seq++}`;
