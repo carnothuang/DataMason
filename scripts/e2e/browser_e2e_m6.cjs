@@ -96,25 +96,33 @@ const msg = (page, text) => page.getByText(text, { exact: false });
     await login(page, E2E_USER, E2E_PASS);
     log("创建人已登录", elapsed());
 
-    // 进入部署页 → 打开向导
+    // 进入部署页 → 打开入口下拉（全自动 / 混合引导 两个入口）
     await page.goto(BASE + "/deployments", { waitUntil: "domcontentloaded" });
     await page.getByText("我部署过的系统").first().waitFor({ timeout: 30000 });
     await page.getByRole("button", { name: btn("部署一套系统") }).click();
+    await page.locator(".ant-dropdown-menu-item").first().waitFor({ timeout: 10000 });
+    const menuAll = await page.locator(".ant-dropdown-menu-item").allInnerTexts();
+    check(menuAll.some((t) => t.includes("全自动") && t.includes("简单业务")),
+      "入口下拉给出「全自动（简单业务）」");
+    check(menuAll.some((t) => t.includes("混合引导") && t.includes("复杂需求")),
+      "入口下拉给出「混合引导（复杂需求）」");
+
+    // ⑤ 全自动向导内不再出现混合入口（混合只走专属入口，DR-39；直连整体无混合）
+    await page.getByRole("menuitem", { name: btn("全自动（简单业务）") }).click();
     await page.locator(".ant-modal").filter({ hasText: "部署一套系统" }).first()
       .waitFor({ timeout: 10000 });
-
-    // ⑤ 直连模式无「混合·分步引导」入口
     await page.getByText("接已有的库", { exact: false }).click();
     await page.waitForTimeout(300);
     const hybridVisibleInLink =
       (await page.getByText("混合·分步引导", { exact: false }).count()) > 0;
     check(!hybridVisibleInLink, "⑤ 直连模式不显示「混合·分步引导」入口");
-    await page.getByText("数据从零建", { exact: false }).click();
+    await page.locator(".ant-modal").filter({ hasText: "部署一套系统" })
+      .getByRole("button", { name: btn("取消") }).click();
     await page.waitForTimeout(300);
 
-    // 选混合模式 → 开始分步引导
-    await page.getByText("混合·分步引导", { exact: false }).click();
-    await page.getByRole("button", { name: btn("开始分步引导") }).click();
+    // 选「混合引导（复杂需求）」→ 直达分步引导弹窗
+    await page.getByRole("button", { name: btn("部署一套系统") }).click();
+    await page.getByRole("menuitem", { name: btn("混合引导（复杂需求）") }).click();
     const hybrid = page.locator(".ant-modal").filter({ hasText: "混合建库（分步引导）" });
     await hybrid.waitFor({ timeout: 10000 });
 

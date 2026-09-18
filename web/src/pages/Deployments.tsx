@@ -4,13 +4,14 @@ import {
   Button,
   Card,
   Collapse,
+  Dropdown,
   Empty,
   Space,
   Spin,
   Tag,
   Typography,
 } from "antd";
-import { PlayCircleOutlined, PlusOutlined, ProjectOutlined, ReloadOutlined, ShareAltOutlined, TableOutlined, ThunderboltOutlined, DownloadOutlined, DeleteOutlined } from "@ant-design/icons";
+import { PlayCircleOutlined, PlusOutlined, ProjectOutlined, ReloadOutlined, ShareAltOutlined, TableOutlined, ThunderboltOutlined, DownloadOutlined, DeleteOutlined, DownOutlined } from "@ant-design/icons";
 import { useNavigate } from "react-router-dom";
 import { DeployApi, Deployment, downloadJson } from "../api";
 import DeployWizard from "./deploy/DeployWizard";
@@ -42,6 +43,7 @@ export default function Deployments() {
   const [rows, setRows] = useState<Deployment[]>([]);
   const [loading, setLoading] = useState(false);
   const [wizardOpen, setWizardOpen] = useState(false);
+  const [wizardBuilder, setWizardBuilder] = useState<"auto" | "hybrid">("auto");
   const [openId, setOpenId] = useState<number | null>(null);
   const [blueprintId, setBlueprintId] = useState<number | null>(null);
   const [shareDep, setShareDep] = useState<Deployment | null>(null);
@@ -62,6 +64,12 @@ export default function Deployments() {
   useEffect(() => {
     load();
   }, [load]);
+
+  // 入口下拉：全自动（简单业务）/ 混合引导（复杂需求）二选一，进入部署向导的对应模式
+  const openWizard = (builder: "auto" | "hybrid") => {
+    setWizardBuilder(builder);
+    setWizardOpen(true);
+  };
 
   // M3-1：清单分组 —— 运行中/进行中铺开，已停止默认折叠（DR：运行中铺开 / 已停止折叠）
   const runningRows = rows.filter((r) => ["running", "deploying", "draft"].includes(r.status) || !["running", "stopped"].includes(r.status));
@@ -271,9 +279,19 @@ export default function Deployments() {
           <Button icon={<ReloadOutlined />} onClick={load}>
             刷新
           </Button>
-          <Button type="primary" icon={<PlusOutlined />} onClick={() => setWizardOpen(true)}>
-            部署一套系统
-          </Button>
+          <Dropdown
+            menu={{
+              items: [
+                { key: "auto", label: "全自动（简单业务）" },
+                { key: "hybrid", label: "混合引导（复杂需求）" },
+              ],
+              onClick: ({ key }) => openWizard(key as "auto" | "hybrid"),
+            }}
+          >
+            <Button type="primary" icon={<PlusOutlined />}>
+              部署一套系统 <DownOutlined style={{ fontSize: 12 }} />
+            </Button>
+          </Dropdown>
         </Space>
       </Space>
 
@@ -327,6 +345,7 @@ export default function Deployments() {
 
       <DeployWizard
         open={wizardOpen}
+        initialBuilder={wizardBuilder}
         onClose={() => setWizardOpen(false)}
         onDeployed={load}
       />

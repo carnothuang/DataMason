@@ -9,7 +9,6 @@ import {
   Divider,
   Form,
   Input,
-  Modal,
   Result,
   Segmented,
   Select,
@@ -30,6 +29,7 @@ import {
 } from "../../api";
 import { LinkApi } from "../../api";
 import ErGraph from "../../components/ErGraph";
+import MaximizableModal from "../../components/MaximizableModal";
 import HybridBuilder from "./HybridBuilder";
 
 const { Text } = Typography;
@@ -38,12 +38,19 @@ interface Props {
   open: boolean;
   onClose: () => void;
   onDeployed: () => void;
+  /** 由首页入口下拉决定：auto=全自动（简单业务），hybrid=混合引导（复杂需求） */
+  initialBuilder?: "auto" | "hybrid";
 }
 
 type Mode = "create" | "link";
 type Phase = "input" | "loading" | "proposal" | "deploying" | "done";
 
-export default function DeployWizard({ open, onClose, onDeployed }: Props) {
+export default function DeployWizard({
+  open,
+  onClose,
+  onDeployed,
+  initialBuilder = "auto",
+}: Props) {
   const { message } = App.useApp();
   const [form] = Form.useForm<{
     description: string;
@@ -53,9 +60,7 @@ export default function DeployWizard({ open, onClose, onDeployed }: Props) {
   }>();
   const [phase, setPhase] = useState<Phase>("input");
   const [mode, setMode] = useState<Mode>("create");
-  // M6-4：创建模式下「全自动 / 混合·分步引导」二选一（link 无混合入口，DR-39）
-  const [builder, setBuilder] = useState<"auto" | "hybrid">("auto");
-  const [showHybrid, setShowHybrid] = useState(false);
+  // 构建方式（全自动 / 混合）由首页「部署一套系统」下拉入口带入（link 无混合，DR-39）
   const [proposal, setProposal] = useState<Proposal | LinkProposal | null>(null);
   const [result, setResult] = useState<DeployResult | null>(null);
   const [error, setError] = useState("");
@@ -110,8 +115,6 @@ export default function DeployWizard({ open, onClose, onDeployed }: Props) {
     setProposal(null);
     setResult(null);
     setError("");
-    setBuilder("auto");
-    setShowHybrid(false);
     setConnId(undefined);
     setTargetConnId(undefined);
     setTables([]);
@@ -125,8 +128,6 @@ export default function DeployWizard({ open, onClose, onDeployed }: Props) {
 
   const switchMode = (m: Mode) => {
     setMode(m);
-    setBuilder("auto");
-    setShowHybrid(false);
     setTables([]);
     setConnId(undefined);
     setInventory([]);
@@ -226,9 +227,7 @@ export default function DeployWizard({ open, onClose, onDeployed }: Props) {
     }
   };
 
-  // M6-4：混合建库完成后，回到本向导的「就绪」结果页（复用既有成功态）
   const handleHybridDeployed = (r: DeployResult) => {
-    setShowHybrid(false);
     setResult(r);
     setPhase("done");
     onDeployed();
@@ -241,8 +240,22 @@ export default function DeployWizard({ open, onClose, onDeployed }: Props) {
   const isLink = mode === "link";
   const linkProposal = (isLink ? proposal : null) as LinkProposal | null;
 
+  // 混合入口：只弹「混合建库（分步引导）」这一个窗口，不再叠加本向导弹窗
+  // （部署成功后才切回本向导的「就绪」结果页）
+  const hybridDirect = initialBuilder === "hybrid" && !result;
+  if (hybridDirect) {
+    return (
+      <HybridBuilder
+        open={open}
+        conns={conns}
+        onClose={close}
+        onDeployed={handleHybridDeployed}
+      />
+    );
+  }
+
   return (
-    <Modal
+    <MaximizableModal
       title="部署一套系统"
       open={open}
       onCancel={close}
@@ -251,15 +264,9 @@ export default function DeployWizard({ open, onClose, onDeployed }: Props) {
         phase === "input" || generating ? (
           <Space>
             <Button onClick={close} disabled={generating}>取消</Button>
-            {mode === "create" && builder === "hybrid" ? (
-              <Button type="primary" onClick={() => setShowHybrid(true)} disabled={generating}>
-                开始分步引导
-              </Button>
-            ) : (
-              <Button type="primary" onClick={generate} loading={generating}>
-                生成提案
-              </Button>
-            )}
+            <Button type="primary" onClick={generate} loading={generating}>
+              生成提案
+            </Button>
           </Space>
         ) : phase === "proposal" || deploying ? (
           <Space>
@@ -319,19 +326,6 @@ export default function DeployWizard({ open, onClose, onDeployed }: Props) {
 
       {(phase === "input" || phase === "loading") && (
         <div style={{ marginBottom: 16 }}>
-          {!isLink && (
-            <Segmented
-              block
-              value={builder}
-              onChange={(v) => setBuilder(v as "auto" | "hybrid")}
-              disabled={generating}
-              style={{ marginBottom: 8 }}
-              options={[
-                { label: "全自动（一步生成）", value: "auto" },
-                { label: "混合·分步引导", value: "hybrid" },
-              ]}
-            />
-          )}
           <Segmented
             block
             value={mode}
@@ -570,12 +564,6 @@ export default function DeployWizard({ open, onClose, onDeployed }: Props) {
           ]}
         />
       )}
-      <HybridBuilder
-        open={showHybrid}
-        conns={conns}
-        onClose={() => setShowHybrid(false)}
-        onDeployed={handleHybridDeployed}
-      />
-    </Modal>
+    </MaximizableModal>
   );
 }

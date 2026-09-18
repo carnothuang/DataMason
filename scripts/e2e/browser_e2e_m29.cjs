@@ -179,7 +179,8 @@ async function dismissDoneModal(page) {
     log("操作员账号已建", mk.data.username, "id", OP_ID, elapsed());
 
     // -------- 2. 创建人：部署向导（创建模式，LLM 桩）→ 就绪 --------
-    await page.getByRole("button", { name: "部署一套系统" }).click();
+    await page.getByRole("button", { name: /部署一套系统/ }).click();
+    await page.getByRole("menuitem", { name: /全自动/ }).click();
     await page.getByPlaceholder(/做个留言板/).fill("客户和订单管理，方便跟进客户、登记订单与说明");
     await page.getByPlaceholder("给这套系统起个名").fill(CREATE_BIZ);
     // 不勾演示数据：stub 结构 customers.name 唯一，确定性种子 10 行会撞名（UNIQUE 冲突），
@@ -306,7 +307,8 @@ async function dismissDoneModal(page) {
     // -------- 6. 直连模式：接已有的库 → 提案 → 部署（不依赖 LLM）--------
     await page.getByRole("button", { name: btn("返回控制台") }).click();
     await page.getByText("我部署过的系统").first().waitFor({ timeout: 15000 });
-    await page.getByRole("button", { name: "部署一套系统" }).click();
+    await page.getByRole("button", { name: /部署一套系统/ }).click();
+    await page.getByRole("menuitem", { name: /全自动/ }).click();
     await page.locator(".ant-segmented-item", { hasText: "接已有的库" }).click();
 
     await page.locator(".ant-select", { hasText: "选择要接入的已有连接" }).first().click();

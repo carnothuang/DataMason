@@ -12,7 +12,6 @@ import {
   Checkbox,
   Form,
   Input,
-  Modal,
   Segmented,
   Select,
   Space,
@@ -29,6 +28,7 @@ import {
   SkeletonColumn,
 } from "../../api";
 import ErCanvas from "../../components/ErCanvas";
+import MaximizableModal from "../../components/MaximizableModal";
 import {
   HybridDraft,
   draftFromSkeleton,
@@ -235,7 +235,7 @@ export default function HybridBuilder({ open, conns, onClose, onDeployed }: Prop
     );
 
   return (
-    <Modal
+    <MaximizableModal
       title="混合建库（分步引导）"
       open={open}
       onCancel={close}
@@ -365,6 +365,6 @@ export default function HybridBuilder({ open, conns, onClose, onDeployed }: Prop
           </Space>
         </div>
       )}
-    </Modal>
+    </MaximizableModal>
   );
 }

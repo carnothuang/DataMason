@@ -55,8 +55,9 @@ async function shot(page, name) {
     await page.getByText("我部署过的系统").first().waitFor({ timeout: 10000 });
     log("首页就绪", elapsed());
 
-    // 2. 打开部署向导
-    await page.getByRole("button", { name: "部署一套系统" }).click();
+    // 2. 打开部署向导（下拉选择「全自动」入口）
+    await page.getByRole("button", { name: /部署一套系统/ }).click();
+    await page.getByRole("menuitem", { name: /全自动/ }).click();
     await page.getByText("你要验证什么").waitFor();
 
     // 3. 输入一句话 + 系统名称（演示数据默认勾选）
