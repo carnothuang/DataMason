@@ -206,7 +206,103 @@ def _derive_pages(schema, with_public_forms: bool = True) -> list[dict]:
     return pages
 
 
+# ---------------- M6 混合建库：两段式（骨架 / 字段，DR-35） ----------------
+
+def propose_skeleton(app, description: str, mode: str = "create") -> dict:
+    """混合建库 Step 2：一句话 → 表骨架 + 外键列占位（不落库，DR-37）。
+
+    仅创建模式开放（DR-39，直连外部库只读）；LLM 只产表集合 + 关系，
+    Python 确定性映射外键列占位（DR-35）。骨架与占位列回传前端草稿。
+    """
+    from server.ai import service as ai_service
+    from server.ddl.skeleton import map_relations_to_columns
+    from server.llm.structure import generate_skeleton
+    from server.settings.service import get_default_llm_client
+
+    if mode == "link":
+        raise DeployError("混合建库仅支持创建模式（直连外部库只读，DR-39）")
+    client = get_default_llm_client(app)
+    if client is None:
+        raise DeployError("尚未配置默认 LLM 模型，请先到「设置 → 模型管理」添加并测试")
+
+    try:
+        skeleton, meta = generate_skeleton(client, description)
+    except Exception as exc:  # noqa: BLE001 失败也记一条，便于排查
+        ai_service.record(app, "deploy", "error", prompt_summary=description,
+                          result_summary=f"骨架 {type(exc).__name__}: {exc}")
+        raise
+
+    ai_service.record(
+        app, "deploy", "ok", prompt_summary=description,
+        result_summary=f"表骨架：{skeleton.biz_notes or description}"
+                       f"（{len(skeleton.tables)} 表，attempts={meta['attempts']}）",
+        usage=meta.get("usage"))
+    columns = {
+        name: [c.model_dump(mode="json") for c in cols]
+        for name, cols in map_relations_to_columns(skeleton).items()
+    }
+    return {
+        "biz_notes": skeleton.biz_notes,
+        "attempts": meta["attempts"],
+        "skeleton_json": skeleton.model_dump(mode="json"),
+        "columns": columns,
+    }
+
+
+def generate_columns(app, skeleton_dict: dict, table_name: str, nl: str,
+                     mode: str = "overwrite", existing_columns=None,
+                     guided_tables=None) -> dict:
+    """混合建库 Step 3：逐表 NL 引导字段（骨架上下文注入，DR-35/38）。
+
+    mode=overwrite 整表重写；append 在既有字段上追加。返回该表完整字段 +
+    仍未引导字段的表清单（供 Step 4 拦截）。
+    """
+    from pydantic import ValidationError
+
+    from server.ai import service as ai_service
+    from server.ddl.skeleton import SchemaSkeleton
+    from server.llm.structure import generate_table_columns
+    from server.settings.service import get_default_llm_client
+
+    try:
+        skeleton = SchemaSkeleton.model_validate(skeleton_dict)
+    except ValidationError as exc:
+        raise DeployError(f"骨架不合法：{exc}") from exc
+    if table_name not in skeleton.table_map:
+        raise DeployError(f"表 {table_name} 不在骨架中")
+
+    client = get_default_llm_client(app)
+    if client is None:
+        raise DeployError("尚未配置默认 LLM 模型，请先到「设置 → 模型管理」添加并测试")
+
+    try:
+        columns, meta = generate_table_columns(
+            client, skeleton, table_name, nl, mode=mode,
+            existing_columns=existing_columns)
+    except Exception as exc:  # noqa: BLE001
+        ai_service.record(app, "deploy", "error", prompt_summary=nl,
+                          result_summary=f"字段 {table_name} {type(exc).__name__}: {exc}")
+        raise
+
+    ai_service.record(
+        app, "deploy", "ok", prompt_summary=nl,
+        result_summary=f"字段：{table_name}（{len(columns)} 列，"
+                       f"mode={mode}，attempts={meta['attempts']}）",
+        usage=meta.get("usage"))
+
+    guided = set(guided_tables or [])
+    guided.add(table_name)
+    unguided = [t for t in skeleton.table_names if t not in guided]
+    return {
+        "table": table_name,
+        "attempts": meta["attempts"],
+        "columns": [c.model_dump(mode="json") for c in columns],
+        "unguided_tables": unguided,
+    }
+
+
 # ---------------- 确认部署（落库） ----------------
+
 
 def confirm(app, spec_dict: dict, biz_name: str, seed_data: bool = True,
             purpose: str = "", data_mode: str = "create",

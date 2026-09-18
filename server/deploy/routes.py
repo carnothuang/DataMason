@@ -126,6 +126,50 @@ def preview():
         return jsonify({"error": f"{type(exc).__name__}: {exc}"}), 502
 
 
+# ---------------- M6 混合建库：两段式骨架/字段（DR-34~39，仅创建模式） ----------------
+
+@bp.post("/deployments/skeleton/propose")
+def skeleton_propose():
+    """混合建库 Step 2：一句话 → 表骨架 + 外键列占位（不落库，DR-37/39）。"""
+    data = _body()
+    description = (data.get("description") or "").strip()
+    if not description:
+        return jsonify({"error": "请描述你要建什么（一句话）"}), 400
+    mode = data.get("mode") or "create"
+    if mode not in ("create", "link"):
+        return jsonify({"error": f"未知数据模式: {mode}"}), 400
+    try:
+        return jsonify(service.propose_skeleton(current_app, description, mode))
+    except DeployError as exc:
+        return jsonify({"error": str(exc)}), 400
+    except Exception as exc:  # noqa: BLE001
+        return jsonify({"error": f"{type(exc).__name__}: {exc}"}), 502
+
+
+@bp.post("/deployments/skeleton/tables/<table_name>/columns")
+def skeleton_table_columns(table_name: str):
+    """混合建库 Step 3：逐表 NL 引导字段（骨架上下文注入；overwrite/append）。"""
+    data = _body()
+    nl = (data.get("nl") or data.get("description") or "").strip()
+    if not nl:
+        return jsonify({"error": "请用一句话描述这张表需要哪些字段"}), 400
+    mode = data.get("mode") or "overwrite"
+    if mode not in ("overwrite", "append"):
+        return jsonify({"error": f"未知字段生成模式: {mode}"}), 400
+    skeleton = data.get("skeleton")
+    if not isinstance(skeleton, dict):
+        return jsonify({"error": "缺少骨架 skeleton"}), 400
+    try:
+        return jsonify(service.generate_columns(
+            current_app, skeleton, table_name, nl, mode=mode,
+            existing_columns=data.get("existing_columns"),
+            guided_tables=data.get("guided_tables")))
+    except DeployError as exc:
+        return jsonify({"error": str(exc)}), 400
+    except Exception as exc:  # noqa: BLE001
+        return jsonify({"error": f"{type(exc).__name__}: {exc}"}), 502
+
+
 @bp.post("/deployments/confirm")
 def confirm():
     data = _body()
