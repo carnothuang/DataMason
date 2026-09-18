@@ -65,11 +65,57 @@ def _install_stub_llm(app) -> None:
     只把 settings_service.get_default_llm_client 换成桩，其余管线原样走真实路径
     （generate_schema 的 pydantic 自检、confirm 落库/种子/日志都在线）。桩无视描述，
     恒定返回 E2E_SPEC；结构生成与补标签两种调用（chat_json）都能被该形状满足。
+    0.12.0 M6：另支持两段式骨架/字段 prompt（确定性三表 + 逐表字段）。
     """
+    import re
+
     from server.llm.client import Usage
+
+    # M6 混合建库：确定性骨架（客户/订单/回访记录，两条关系）与逐表字段
+    m6_skeleton = {
+        "biz_notes": "客户与订单（含回访记录）",
+        "tables": [
+            {"name": "customers", "biz_name": "客户", "relations": []},
+            {"name": "orders", "biz_name": "订单",
+             "relations": [{"to_table": "customers"}]},
+            {"name": "followups", "biz_name": "回访记录",
+             "relations": [{"to_table": "customers"}]},
+        ],
+    }
+    m6_columns = {
+        "customers": [
+            {"name": "name", "biz_name": "客户名", "type": "VARCHAR", "length": 64, "nullable": False},
+            {"name": "phone", "biz_name": "电话", "type": "VARCHAR", "length": 32},
+            {"name": "vip", "biz_name": "VIP", "type": "BOOLEAN"},
+            {"name": "joined", "biz_name": "入会", "type": "DATETIME"},
+            {"name": "remark", "biz_name": "备注", "type": "TEXT"},
+        ],
+        "orders": [
+            {"name": "amount", "biz_name": "金额", "type": "DECIMAL", "nullable": False},
+            {"name": "memo", "biz_name": "说明", "type": "VARCHAR", "length": 255},
+        ],
+        "followups": [
+            {"name": "content", "biz_name": "回访内容", "type": "TEXT", "nullable": False},
+            {"name": "visited_at", "biz_name": "回访时间", "type": "DATETIME"},
+            {"name": "result", "biz_name": "结果", "type": "VARCHAR", "length": 64},
+        ],
+    }
 
     class _StubLlm:
         def chat_json(self, system_prompt: str, user_prompt: str):
+            # M6 骨架 prompt：只设计表集合 + 关系
+            if "表集合" in system_prompt:
+                return m6_skeleton, Usage(tokens_in=0, tokens_out=0, duration_ms=1)
+            # M6 字段级 prompt：按 user_prompt 里的「当前表：<name>」返回该表字段
+            if "设计字段（列）" in system_prompt:
+                m = re.search(r"当前表：([a-zA-Z_][a-zA-Z0-9_]*)", user_prompt)
+                table = m.group(1) if m else "customers"
+                cols = m6_columns.get(table)
+                if cols is None:
+                    # append 等场景：补一个不冲突的说明字段
+                    cols = [{"name": "extra_note", "biz_name": "补充说明",
+                             "type": "VARCHAR", "length": 255}]
+                return {"columns": cols}, Usage(tokens_in=0, tokens_out=0, duration_ms=1)
             # M4-1/M4-2 问数据：只读 SQL + 可选图表规格 + 一句话结论（桩无视问题，返回确定性查询）
             if "只读 SQL" in system_prompt:
                 if "分类" in user_prompt:
