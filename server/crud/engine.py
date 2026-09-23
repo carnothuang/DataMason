@@ -50,18 +50,23 @@ class CrudRegistry:
         owner_only: bool = False,
         action_map: dict[str, set[str]] | None = None,
         scope_map: dict[str, str] | None = None,
+        value_validator=None,
     ):
         """owner_only（M2-5）：仅展示/操作「当前用户创建的记录」。
         操作员角色由工作台层注入 True，实现对业务数据按归属列的强制撒权过滤（DR-05）。
 
         0.11.0 M5-C（DR-30）：action_map = 表名→允许动作集合；scope_map = 表名→数据范围。
         均为 None 表示不限制（创建人/管理员/服务身份）。两者齐备时优先于 owner_only。
+
+        0.13.0 M7-2：value_validator = `(table_name, values) -> None` 写前校验回调
+        （表单控件配置的候选项/时间等语义校验），默认 None 表示不校验（存量行为零变化）。
         """
         self.engine = engine
         self.current_user_id = current_user_id
         self.owner_only = owner_only
         self.action_map = action_map
         self.scope_map = scope_map
+        self.value_validator = value_validator
         self.meta = MetaData()
         # 空列表 = 明确「无任何表可访问」（不可退化为全量反射——操作员无授权时须 404）
         if tables is None:
@@ -319,6 +324,17 @@ def _diff_changes(old_row: dict, new_values: dict) -> dict:
 
 # ---------------- M2-3 业务写路径（M2-6：两阶段日志钩子） ----------------
 
+def _run_value_validator(registry: "CrudRegistry", table_name: str, values: dict) -> None:
+    """M7-2：写前表单控件校验（未注入回调时零行为变化）；违规 → 400 可读错误。"""
+    validator = getattr(registry, "value_validator", None)
+    if validator is None:
+        return
+    try:
+        validator(table_name, values)
+    except ValueError as exc:
+        abort(400, description=str(exc))
+
+
 def create_row(registry: CrudRegistry, name: str, audit=None) -> dict:
     table = registry.table(name)
     registry.require_action(name, "create")
@@ -338,6 +354,7 @@ def create_row(registry: CrudRegistry, name: str, audit=None) -> dict:
         values["updated_by"] = registry.current_user_id
     if "updated_at" in table.c:
         values["updated_at"] = now
+    _run_value_validator(registry, table.name, values)
     # 日志意图（①pending）：含待写入值，供启动对账按值反查主键
     intent = {
         k: {"old": None, "new": _jsonable(v)}
@@ -372,6 +389,7 @@ def update_row(registry: CrudRegistry, name: str, pk: str, audit=None) -> dict:
         values["updated_at"] = _utcnow()
     if not values:
         abort(400, description="没有可更新的列")
+    _run_value_validator(registry, table.name, values)
     cond = [pk_col == _coerce_value(pk_col, pk)]
     owner = _owner_condition(registry, table)
     if owner is not None:

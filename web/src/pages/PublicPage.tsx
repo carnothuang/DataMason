@@ -1,10 +1,10 @@
-import { useEffect, useState } from "react";
-import { App, Button, Card, Form, Input, InputNumber, Result, Select, Space, Spin, Typography } from "antd";
+import { useEffect, useMemo, useState } from "react";
+import { App, Button, Card, Col, Form, Result, Row, Space, Spin, Typography } from "antd";
 import { CheckCircleOutlined, SendOutlined } from "@ant-design/icons";
 import { PublicApi, PublicField, PublicPageMeta } from "../api";
+import { baseType, renderFormControl } from "../components/FormControlRenderer";
 
 const { Title, Text, Paragraph } = Typography;
-const { TextArea } = Input;
 
 interface Props {
   deploymentId: number;
@@ -13,8 +13,7 @@ interface Props {
   embedded?: boolean;
 }
 
-/** M3-5 访客公开页（DR-04）：匿名可访问的 public_form，只能提交，看不到菜单与数据。
- *  提交走 CRUD 写路径（归属记系统、进 activity_logs）。同一组件供工作台成员预览与匿名入口复用。 */
+/** M3-5 访客公开页（DR-04）；0.13.0 M7-5 改为公开布局配置驱动（缺省时与升级前一致）。 */
 export default function PublicPage({ deploymentId, pageId, embedded }: Props) {
   const { message } = App.useApp();
   const [meta, setMeta] = useState<PublicPageMeta | null>(null);
@@ -38,6 +37,20 @@ export default function PublicPage({ deploymentId, pageId, embedded }: Props) {
     };
   }, [deploymentId, pageId]);
 
+  const fields = useMemo(() => {
+    if (!meta) return [] as PublicField[];
+    const visible = meta.fields.filter((f) => !f.hidden);
+    const order = meta.layout?.order || [];
+    const inOrder = order
+      .map((n) => visible.find((f) => f.name === n))
+      .filter((f): f is PublicField => !!f);
+    const rest = visible.filter((f) => !order.includes(f.name));
+    return [...inOrder, ...rest];
+  }, [meta]);
+
+  const columns = meta?.layout?.columns_per_row || 1;
+  const span = columns > 1 ? Math.floor(24 / columns) : 24;
+
   const onSubmit = async (values: Record<string, unknown>) => {
     setSubmitting(true);
     try {
@@ -55,6 +68,56 @@ export default function PublicPage({ deploymentId, pageId, embedded }: Props) {
       setSubmitting(false);
     }
   };
+
+  const rulesFor = (f: PublicField) => {
+    const rules: Record<string, unknown>[] = [];
+    if (!f.nullable) rules.push({ required: true, message: `请填写${f.biz_name}` });
+    if (baseType(f.type) === "VARCHAR" && f.length) {
+      rules.push({ max: f.length, message: `长度不能超过 ${f.length} 个字符` });
+    }
+    if (f.control_type === "checkbox" && f.length) {
+      rules.push({
+        validator: (_r: unknown, v: unknown) => {
+          const len = Array.isArray(v) ? JSON.stringify(v).length : 0;
+          if (len > f.length!) {
+            return Promise.reject(new Error(`已选内容过长（上限 ${f.length} 字符）`));
+          }
+          return Promise.resolve();
+        },
+      });
+    }
+    return rules;
+  };
+
+  const renderItem = (f: PublicField) => (
+    <Col span={span} key={f.name}>
+      <Form.Item
+        name={f.name}
+        label={f.biz_name}
+        rules={rulesFor(f)}
+        extra={f.hint ? <Text type="secondary">{f.hint}</Text> : undefined}
+      >
+        {renderFormControl({
+          name: f.name,
+          bizName: f.biz_name,
+          type: f.type,
+          length: f.length,
+          isFk: false,
+          controlType: f.control_type ?? null,
+          timeGranularity: f.time_granularity ?? null,
+          options: f.options,
+          disabled: f.readonly,
+          deploymentId,
+          table: meta?.table || "",
+        })}
+      </Form.Item>
+    </Col>
+  );
+
+  const groups = meta?.layout?.groups || [];
+  const grouped = new Set<string>();
+  for (const g of groups) for (const n of g.field_names) grouped.add(n);
+  const ungrouped = fields.filter((f) => !grouped.has(f.name));
 
   const body = () => {
     if (loading) {
@@ -85,23 +148,18 @@ export default function PublicPage({ deploymentId, pageId, embedded }: Props) {
       );
     }
     return (
-      <Form
-        form={form}
-        layout="vertical"
-        onFinish={onSubmit}
-        requiredMark
-        style={{ maxWidth: 560 }}
-      >
-        {meta.fields.map((f) => (
-          <Form.Item
-            key={f.name}
-            name={f.name}
-            label={f.biz_name}
-            rules={f.nullable ? undefined : [{ required: true, message: `请填写${f.biz_name}` }]}
-          >
-            {renderControl(f)}
-          </Form.Item>
-        ))}
+      <Form form={form} layout="vertical" onFinish={onSubmit} requiredMark style={{ maxWidth: 640 }}>
+        {groups.map((g, gi) => {
+          const items = fields.filter((f) => g.field_names.includes(f.name));
+          if (!items.length) return null;
+          return (
+            <div key={`g-${gi}`}>
+              <Text strong>{g.title}</Text>
+              <Row gutter={16} style={{ marginTop: 8 }}>{items.map(renderItem)}</Row>
+            </div>
+          );
+        })}
+        <Row gutter={16}>{ungrouped.map(renderItem)}</Row>
         <Form.Item>
           <Button type="primary" htmlType="submit" icon={<SendOutlined />} loading={submitting}>
             提交
@@ -141,7 +199,7 @@ export default function PublicPage({ deploymentId, pageId, embedded }: Props) {
         padding: 24,
       }}
     >
-      <Card style={{ width: 640, maxWidth: "100%" }}>{inner}</Card>
+      <Card style={{ width: 720, maxWidth: "100%" }}>{inner}</Card>
       <Space style={{ position: "fixed", bottom: 12, width: "100%", justifyContent: "center" }}>
         <Text type="secondary" style={{ fontSize: 12 }}>
           由 DataMason 生成 · 访客仅可提交，无法查看任何数据
@@ -149,30 +207,4 @@ export default function PublicPage({ deploymentId, pageId, embedded }: Props) {
       </Space>
     </div>
   );
-}
-
-function renderControl(f: PublicField) {
-  const t = (f.type || "").toUpperCase();
-  if (t.includes("BOOL")) {
-    return (
-      <Select
-        allowClear
-        placeholder="请选择"
-        options={[
-          { value: 1, label: "是" },
-          { value: 0, label: "否" },
-        ]}
-      />
-    );
-  }
-  if (t.includes("INT") || t.includes("DEC") || t.includes("NUM") || t.includes("FLOAT") || t.includes("DOUBLE")) {
-    return <InputNumber style={{ width: "100%" }} placeholder="请输入数字" />;
-  }
-  if (t.includes("DATETIME") || t.includes("TIMESTAMP") || t.includes("DATE")) {
-    return <Input placeholder="YYYY-MM-DD HH:MM:SS" />;
-  }
-  if (t === "TEXT" || (f.length != null && f.length > 255)) {
-    return <TextArea rows={4} placeholder="请输入" />;
-  }
-  return <Input placeholder="请输入" maxLength={f.length ?? undefined} />;
 }

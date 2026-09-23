@@ -134,6 +134,13 @@ def _install_stub_llm(app) -> None:
             if "总结" in system_prompt:
                 return {"conclusion": "已列出当前客户。"}, Usage(
                     tokens_in=0, tokens_out=0, duration_ms=1)
+            # 0.13.0 M7-7 候选项生成：确定性返回订单状态候选
+            if "候选项清单" in system_prompt:
+                return ({"items": [
+                    {"value": "new", "label": "新建"},
+                    {"value": "paid", "label": "已支付"},
+                    {"value": "shipped", "label": "已发货"},
+                ]}, Usage(tokens_in=0, tokens_out=0, duration_ms=1))
             return E2E_SPEC, Usage(tokens_in=0, tokens_out=0, duration_ms=1)
 
         def close(self):

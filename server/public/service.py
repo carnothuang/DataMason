@@ -61,13 +61,28 @@ def _field_columns(ts: TableSpec) -> list[dict]:
     ]
 
 
+def _public_layout(layout: dict, allowed: set[str]) -> dict:
+    """按公开页字段白名单裁剪布局（最小暴露：不含他表/已删字段）。"""
+    order = [n for n in (layout.get("order") or []) if n in allowed]
+    groups = []
+    for g in layout.get("groups") or []:
+        names = [n for n in (g.get("field_names") or []) if n in allowed]
+        if names:
+            groups.append({"title": g.get("title", ""), "field_names": names})
+    return {
+        "columns_per_row": layout.get("columns_per_row", 1) or 1,
+        "order": order,
+        "groups": groups,
+    }
+
+
 def get_page(app, deployment_id: int, page_id: int) -> dict:
     d, p, ts = _context(app, deployment_id, page_id)
     fields = [
         c for c in _field_columns(ts)
         if not c["is_ownership"] and not c["is_pk"]
     ]
-    return {
+    result = {
         "deployment_id": deployment_id,
         "biz_name": d.biz_name,
         "page_id": p.id,
@@ -76,6 +91,33 @@ def get_page(app, deployment_id: int, page_id: int) -> dict:
         "table": ts.name,
         "fields": fields,
     }
+    # 0.13.0 M7-4-2：下发公开表单配置（仅本页字段与候选项）；缺省时响应与升级前完全一致
+    try:
+        from server.forms import service as form_service
+
+        cfg = form_service.get_form_config(
+            app, deployment_id, ts.name, page_kind="public")
+    except Exception:  # noqa: BLE001 配置不可用 → 默认映射（不阻断公开页）
+        return result
+    if cfg.get("degraded"):
+        return result
+
+    allowed = {f["name"] for f in fields}
+    cfg_by = {f["field_name"]: f for f in cfg["fields"]}
+    for f in fields:
+        c = cfg_by.get(f["name"])
+        if c and (c.get("configured") or c.get("options")):
+            f["control_type"] = c["control_type"]
+            f["time_granularity"] = c["time_granularity"]
+            f["readonly"] = c["readonly"]
+            f["hidden"] = c["hidden"]
+            f["hint"] = c["hint"]
+            f["options"] = c["options"]
+    layout = cfg.get("layout") or {}
+    if (layout.get("order") or layout.get("groups")
+            or (layout.get("columns_per_row") or 1) != 1):
+        result["layout"] = _public_layout(layout, allowed)
+    return result
 
 
 def submit(app, deployment_id: int, page_id: int, source_ip: str = "") -> dict:
@@ -88,8 +130,12 @@ def submit(app, deployment_id: int, page_id: int, source_ip: str = "") -> dict:
 
     engine = crud_runtime._biz_engine(app, d)
     try:
+        from server.forms import service as form_service
+
         registry = CrudRegistry(
             engine, tables=[ts.name], current_user_id=VISITOR_ACTOR_ID, owner_only=False,
+            value_validator=form_service.build_validator(
+                app, deployment_id, ts.name, page_kind="public"),
         )
         table = registry.table(ts.name)
         # 必填校验（NOT NULL 业务列）：给出业务名提示

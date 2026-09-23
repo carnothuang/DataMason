@@ -5,7 +5,8 @@ table_specs / page_specs / crud_configs / deployment_menus /
 deployment_menu_grants / deployment_members / flow_specs /
 activity_logs / ai_generations / llm_models。
 后续里程碑新增：app_settings（M1 配置）/ deployment_share_tokens（M3-5）/
-deployment_api_keys（M3-8）/ deployment_seed_rows（DR-08）/ attachments（0.11.0 M5-B1，DR-28）。
+deployment_api_keys（M3-8）/ deployment_seed_rows（DR-08）/ attachments（0.11.0 M5-B1，DR-28）/
+form_field_configs / form_option_items / form_layouts（0.13.0 M7-0 表单控件配置，业务库零 DDL）。
 关联闭环（防断档，见 §八 末尾闭环说明）：
 - deployment_menus.ref_id → page_specs.id
 - flow_specs.steps[].page_id → page_specs.id
@@ -330,6 +331,85 @@ class AppSetting(Base):
     key: Mapped[str] = mapped_column(String(64), primary_key=True)
     value_json: Mapped[str] = mapped_column(Text, default="{}")
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=_now, onupdate=_now)
+
+
+class FormFieldConfig(Base):
+    """字段控件配置（0.13.0 M7-0）：字段数据语义 → 表单控件的展示层映射。
+
+    与字段蓝图解耦：业务库零 DDL，只存"呈现配置"；字段被删除后残留行在读时求交丢弃。
+    control_type 为空表示未配置（走默认映射，零配置零变化）。
+    """
+
+    __tablename__ = "form_field_configs"
+    __table_args__ = (
+        UniqueConstraint(
+            "deployment_id", "table_name", "field_name", name="uq_form_field"
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    deployment_id: Mapped[int] = mapped_column(
+        ForeignKey("deployments.id"), nullable=False, index=True
+    )
+    table_name: Mapped[str] = mapped_column(String(128), nullable=False)
+    field_name: Mapped[str] = mapped_column(String(128), nullable=False)
+    control_type: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    time_granularity: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    readonly: Mapped[bool] = mapped_column(Boolean, default=False)
+    hidden: Mapped[bool] = mapped_column(Boolean, default=False)
+    hint: Mapped[str] = mapped_column(String(200), default="")
+    updated_by: Mapped[int] = mapped_column(Integer, default=0)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
+
+
+class FormOptionItem(Base):
+    """单选/多选候选项（0.13.0 M7-0）：单字段内的存储值集合。
+
+    value 为落库值（单选存单值、多选存 value 数组的 JSON 串），label 为展示文案。
+    """
+
+    __tablename__ = "form_option_items"
+    __table_args__ = (
+        UniqueConstraint(
+            "deployment_id", "table_name", "field_name", "value", name="uq_form_option"
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    deployment_id: Mapped[int] = mapped_column(
+        ForeignKey("deployments.id"), nullable=False, index=True
+    )
+    table_name: Mapped[str] = mapped_column(String(128), nullable=False)
+    field_name: Mapped[str] = mapped_column(String(128), nullable=False)
+    value: Mapped[str] = mapped_column(String(100), nullable=False)
+    label: Mapped[str] = mapped_column(String(100), nullable=False)
+    order_index: Mapped[int] = mapped_column(Integer, default=0)
+
+
+class FormLayout(Base):
+    """表单布局配置（0.13.0 M7-0）：顺序 / 分组 / 列数，按页面类型分别存储。
+
+    page_kind 区分工作台（workspace）与公开表单（public），两者布局独立可控。
+    """
+
+    __tablename__ = "form_layouts"
+    __table_args__ = (
+        UniqueConstraint(
+            "deployment_id", "table_name", "page_kind", name="uq_form_layout"
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    deployment_id: Mapped[int] = mapped_column(
+        ForeignKey("deployments.id"), nullable=False, index=True
+    )
+    table_name: Mapped[str] = mapped_column(String(128), nullable=False)
+    page_kind: Mapped[str] = mapped_column(String(32), nullable=False)
+    columns_per_row: Mapped[int] = mapped_column(Integer, default=1)
+    order_json: Mapped[str] = mapped_column(Text, default="[]")
+    groups_json: Mapped[str] = mapped_column(Text, default="[]")
+    updated_by: Mapped[int] = mapped_column(Integer, default=0)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
 
 
 def create_all_lazy(app) -> None:

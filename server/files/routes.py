@@ -106,9 +106,12 @@ def download_file(deployment_id: int, token: str):
     _assert_access(a)
     path = files_service.abs_path(current_app, a)
     if not path.exists():
-        return jsonify({"error": "文件已丢失"}), 404
-    return send_file(path, mimetype=a.mime or "application/octet-stream",
-                     as_attachment=True, download_name=a.filename or a.token)
+        return jsonify({"error": "文件已丢失（可能未随数据一起迁移）"}), 404
+    try:
+        return send_file(path, mimetype=a.mime or "application/octet-stream",
+                         as_attachment=True, download_name=a.filename or a.token)
+    except (FileNotFoundError, OSError):
+        return jsonify({"error": "文件已丢失（可能未随数据一起迁移）"}), 404
 
 
 @bp.get("/<int:deployment_id>/api/files/<token>/preview")
@@ -121,9 +124,12 @@ def preview_file(deployment_id: int, token: str):
         return jsonify({"error": "该类型不支持内嵌预览，请下载查看"}), 415
     path = files_service.abs_path(current_app, a)
     if not path.exists():
-        return jsonify({"error": "文件已丢失"}), 404
-    resp = send_file(path, mimetype=a.mime or "application/octet-stream",
-                     as_attachment=False, download_name=a.filename or a.token)
+        return jsonify({"error": "文件已丢失（可能未随数据一起迁移）"}), 404
+    try:
+        resp = send_file(path, mimetype=a.mime or "application/octet-stream",
+                         as_attachment=False, download_name=a.filename or a.token)
+    except (FileNotFoundError, OSError):
+        return jsonify({"error": "文件已丢失（可能未随数据一起迁移）"}), 404
     resp.headers["X-Content-Type-Options"] = "nosniff"
     # D-2：即使扩展名/类型判定失误，也用 CSP sandbox 阻断脚本与同源能力
     resp.headers["Content-Security-Policy"] = "default-src 'none'; sandbox"

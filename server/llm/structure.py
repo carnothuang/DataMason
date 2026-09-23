@@ -518,3 +518,74 @@ def generate_seed_rows(spec: SchemaSpec, rows_per_table: int = 10, seed: int = 4
         rows[table.name] = table_rows
         ref_pk_map[table.name] = generated_pks
     return rows
+
+
+# ---------- 候选项生成（M7-7 / 0.13.0）：NL → 候选项 JSON 中间规格 ----------
+
+OPTION_ITEMS_SYSTEM_PROMPT = """你是业务数据专家。根据字段名称与描述，生成该字段的候选项清单。
+只输出一个 JSON 对象，不要输出任何解释或 markdown 代码块标记。结构必须严格符合：
+{
+  "items": [
+    {"value": "存储值（简短、稳定、唯一，如英文编码）", "label": "中文展示文案"}
+  ]
+}
+硬性规则：
+1. value 非空且同批内唯一；label 非空；
+2. value 与 label 均不超过 100 个字符；
+3. 候选项数量控制在合理范围（通常 3~12 项），不超过上限；
+4. 只产出候选项，不要产出任何配置或解释。"""
+
+
+def _normalize_option_items(parsed: object, max_items: int) -> list[dict]:
+    if not isinstance(parsed, dict):
+        raise ValueError("响应不是 JSON 对象")
+    raw = parsed.get("items")
+    if not isinstance(raw, list):
+        raise ValueError("响应缺少 items 列表")
+    items: list[dict] = []
+    for it in raw:
+        if not isinstance(it, dict):
+            continue
+        value = str(it.get("value") or "").strip()
+        label = str(it.get("label") or "").strip()
+        if not value or not label:
+            raise ValueError("候选项的存储值与展示文案都不能为空")
+        if len(value) > 100 or len(label) > 100:
+            raise ValueError("候选项存储值/展示文案不能超过 100 个字符")
+        items.append({"value": value, "label": label})
+    if not items:
+        raise ValueError("未生成任何候选项")
+    return items[:max_items]
+
+
+def generate_option_items(
+    client: OpenAiCompatibleClient, *, field_label: str, description: str,
+    max_items: int = 200,
+) -> tuple[list[dict], dict]:
+    """NL 描述 → 候选项 JSON 中间规格（只产 JSON，不落库、不产配置）。
+
+    失败回喂中文错误重试，超过 MAX_RETRY 抛 LlmCallError。
+    返回 (items, meta)，meta 含重试次数与累计用量（M4-4 埋点用）。
+    """
+    user_prompt = (
+        f"字段：{field_label}\n候选项来源描述：{description}\n"
+        f"请输出候选项 JSON（最多 {max_items} 项）。"
+    )
+    last_error = ""
+    attempts = 0
+    usage = Usage()
+    for attempt in range(MAX_RETRY + 1):
+        attempts = attempt + 1
+        prompt = user_prompt if attempt == 0 else (
+            f"{user_prompt}\n\n上一次生成不合法：{last_error}\n"
+            "请修正后重新输出完整 JSON。"
+        )
+        parsed, call_usage = client.chat_json(OPTION_ITEMS_SYSTEM_PROMPT, prompt)
+        usage = _add_usage(usage, call_usage)
+        try:
+            return _normalize_option_items(parsed, max_items), {
+                "attempts": attempts, "usage": usage,
+            }
+        except ValueError as exc:
+            last_error = str(exc)
+    raise LlmCallError(f"经过 {attempts} 次生成仍不合法：{last_error}")

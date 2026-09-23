@@ -878,6 +878,19 @@ export interface PublicField {
   nullable: boolean;
   is_pk: boolean;
   is_ownership: boolean;
+  // 0.13.0 M7-4：公开表单配置（可选，缺省时按默认映射渲染）
+  control_type?: string | null;
+  time_granularity?: "date" | "datetime" | null;
+  readonly?: boolean;
+  hidden?: boolean;
+  hint?: string;
+  options?: { value: string; label: string }[];
+}
+
+export interface PublicLayout {
+  columns_per_row: number;
+  order: string[];
+  groups: { title: string; field_names: string[] }[];
 }
 
 export interface PublicPageMeta {
@@ -888,6 +901,7 @@ export interface PublicPageMeta {
   kind: string;
   table: string;
   fields: PublicField[];
+  layout?: PublicLayout;
 }
 
 export const PublicApi = {
@@ -902,6 +916,112 @@ export const PublicApi = {
       .post<{ ok: boolean; id: string | number }>(
         `/public/${deploymentId}/pages/${pageId}/submit`,
         values,
+      )
+      .then((r) => r.data),
+};
+
+// ---------- 0.13.0 M7 表单控件与界面配置 ----------
+export type FormControlType =
+  | "text"
+  | "textarea"
+  | "number"
+  | "boolean"
+  | "radio"
+  | "checkbox"
+  | "date"
+  | "datetime"
+  | "ref"
+  | "file";
+
+export interface FormOptionItem {
+  value: string;
+  label: string;
+}
+
+export interface FormFieldConfig {
+  field_name: string;
+  biz_name: string;
+  data_type: string;
+  length: number | null;
+  nullable: boolean;
+  is_pk: boolean;
+  is_ownership: boolean;
+  is_fk: boolean;
+  ref_table?: string | null;
+  control_type: FormControlType | null;
+  time_granularity: "date" | "datetime" | null;
+  readonly: boolean;
+  hidden: boolean;
+  hint: string;
+  options: FormOptionItem[];
+  configured: boolean;
+}
+
+export interface FormLayout {
+  columns_per_row: number;
+  order: string[];
+  groups: { title: string; field_names: string[] }[];
+}
+
+export interface FormConfigResponse {
+  deployment_id: number;
+  table: string;
+  page_kind: string;
+  fields: FormFieldConfig[];
+  options: Record<string, FormOptionItem[]>;
+  layout: FormLayout;
+  degraded: boolean;
+}
+
+export interface FormConfigPayload {
+  fields: {
+    field_name: string;
+    control_type: FormControlType | null;
+    time_granularity?: "date" | "datetime" | null;
+    readonly?: boolean;
+    hidden?: boolean;
+    hint?: string;
+    options?: FormOptionItem[];
+  }[];
+  layout?: {
+    columns_per_row: number;
+    order: { field_name: string }[];
+    groups: { title: string; field_names: string[] }[];
+  } | null;
+}
+
+export const FormsApi = {
+  /** 读取工作台表单配置（配置者：创建人/平台管理员）。 */
+  getConfig: (deploymentId: number, table: string) =>
+    http
+      .get<FormConfigResponse>(`/deployments/${deploymentId}/forms/${encodeURIComponent(table)}`)
+      .then((r) => r.data),
+  /** 整表覆盖保存（单事务）。 */
+  saveConfig: (deploymentId: number, table: string, payload: FormConfigPayload) =>
+    http
+      .put<{ saved: boolean }>(
+        `/deployments/${deploymentId}/forms/${encodeURIComponent(table)}`,
+        payload,
+      )
+      .then((r) => r.data),
+  /** 恢复单字段默认。 */
+  resetField: (deploymentId: number, table: string, field: string) =>
+    http
+      .delete<{ reset: boolean }>(
+        `/deployments/${deploymentId}/forms/${encodeURIComponent(table)}/fields/${encodeURIComponent(field)}`,
+      )
+      .then((r) => r.data),
+  /** 运行态只读配置（任意成员；失败时前端走默认映射降级）。 */
+  runtimeConfig: (deploymentId: number, table: string) =>
+    http
+      .get<FormConfigResponse>(`/app/${deploymentId}/api/forms/${encodeURIComponent(table)}`)
+      .then((r) => r.data),
+  /** NL 生成候选项候选清单（不落库，确认后才随保存写入）。 */
+  generateOptions: (deploymentId: number, table: string, field: string, description: string) =>
+    http
+      .post<{ items: FormOptionItem[]; attempts: number }>(
+        `/deployments/${deploymentId}/forms/${encodeURIComponent(table)}/fields/${encodeURIComponent(field)}/options/generate`,
+        { description },
       )
       .then((r) => r.data),
 };

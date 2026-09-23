@@ -34,6 +34,9 @@ from server.models import (
     DeploymentSeedRow,
     DeploymentShareToken,
     FlowSpec,
+    FormFieldConfig,
+    FormLayout,
+    FormOptionItem,
     PageSpec,
     TableSpec,
     User,
@@ -779,6 +782,10 @@ def destroy_deployment(app, deployment_id: int, actor_user_id: int) -> dict:
         s.query(ActivityLog).filter_by(deployment_id=deployment_id).delete(synchronize_session=False)
         s.query(AiGeneration).filter_by(deployment_id=deployment_id).delete(synchronize_session=False)
         s.query(Attachment).filter_by(deployment_id=deployment_id).delete(synchronize_session=False)
+        # 0.13.0 M7-0：表单控件配置随部署级联清除（业务库零 DDL，仅元数据）
+        s.query(FormFieldConfig).filter_by(deployment_id=deployment_id).delete(synchronize_session=False)
+        s.query(FormOptionItem).filter_by(deployment_id=deployment_id).delete(synchronize_session=False)
+        s.query(FormLayout).filter_by(deployment_id=deployment_id).delete(synchronize_session=False)
         s.query(CrudConfig).filter_by(deployment_id=deployment_id).delete(synchronize_session=False)
         s.query(PageSpec).filter_by(deployment_id=deployment_id).delete(synchronize_session=False)
         s.query(FlowSpec).filter_by(deployment_id=deployment_id).delete(synchronize_session=False)

@@ -34,6 +34,7 @@ import {
   EngineerInterfacesPayload,
   FlowApi,
 } from "../../api";
+import FormDesigner from "./FormDesigner";
 
 const { Text } = Typography;
 
@@ -202,6 +203,7 @@ export default function EngineerMenusPage({ deploymentId }: Props) {
   const [entryPath, setEntryPath] = useState("");
   const [adjustPage, setAdjustPage] = useState<EngineerPageCard | null>(null);
   const [adjustTitle, setAdjustTitle] = useState("");
+  const [designerPage, setDesignerPage] = useState<EngineerPageCard | null>(null);
   const [renaming, setRenaming] = useState<{ key: string; value: string } | null>(null);
   const [dropMark, setDropMark] = useState<DropMark | null>(null);
   const dragKey = useRef<string | null>(null);
@@ -562,8 +564,12 @@ export default function EngineerMenusPage({ deploymentId }: Props) {
                   preview={previews[p.id]}
                   onDragStart={(e) => handleCardDragStart(e, p.id)}
                   onAdjust={() => {
-                    setAdjustPage(p);
-                    setAdjustTitle(p.title);
+                    if (p.kind === "crud_list" && p.table) {
+                      setDesignerPage(p);
+                    } else {
+                      setAdjustPage(p);
+                      setAdjustTitle(p.title);
+                    }
                   }}
                 />
               ))}
@@ -597,6 +603,18 @@ export default function EngineerMenusPage({ deploymentId }: Props) {
           maxLength={128}
         />
       </Modal>
+
+      {designerPage && designerPage.table && (
+        <FormDesigner
+          deploymentId={deploymentId}
+          table={designerPage.table}
+          pageId={designerPage.id}
+          title={designerPage.title}
+          open={designerPage !== null}
+          onClose={() => setDesignerPage(null)}
+          onSaved={() => void refresh()}
+        />
+      )}
     </div>
   );
 
@@ -867,9 +885,9 @@ function PageCard({
         )}
       </div>
       <div style={{ marginTop: 8, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-        <Tooltip title="修改页面标题（工作台菜单与页面标题同步；字段编辑在「数据蓝图」）。">
+        <Tooltip title="调整表单：页面标题、控件类型、候选项与布局（数据清单页）；其他页面类型仅改标题。">
           <Button size="small" icon={<EditOutlined />} onClick={onAdjust}>
-            改标题
+            调整
           </Button>
         </Tooltip>
         {!preview?.rows && page.kind === "crud_list" && <CloseOutlined style={{ color: "#d9d9d9" }} />}

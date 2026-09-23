@@ -1,6 +1,8 @@
-import { Space, Tag, Typography } from "antd";
-import { FileOutlined } from "@ant-design/icons";
+import { useState } from "react";
+import { Button, Space, Tag, Typography } from "antd";
+import { EyeOutlined, FileOutlined } from "@ant-design/icons";
 import { FilesApi } from "../api";
+import FilePreviewModal from "./FilePreviewModal";
 
 const { Text } = Typography;
 
@@ -42,29 +44,40 @@ interface Props {
   masked?: boolean;
 }
 
-/** 附件字段的只读展示：文件名 + 预览/下载。 */
+/** 附件字段的只读展示：文件名（下载）+ 预览弹窗（图片/PDF/文本内嵌，其余提示下载）。 */
 export default function FileChip({ deploymentId, value, masked }: Props) {
+  const [preview, setPreview] = useState<FileRef | null>(null);
   const files = parseFileValue(value);
   if (files.length === 0) return <Text type="secondary">—</Text>;
   if (masked) return <Tag>附件 · 已脱敏</Tag>;
   return (
-    <Space size={4} wrap>
-      {files.map((f) => (
-        <Space key={f.token} size={2}>
-          <FileOutlined />
-          <a href={FilesApi.fileUrl(deploymentId, f.token)} target="_blank" rel="noreferrer">
-            {f.name || f.token.slice(0, 8)}
-          </a>
-          <a
-            href={FilesApi.previewUrl(deploymentId, f.token)}
-            target="_blank"
-            rel="noreferrer"
-            style={{ fontSize: 12 }}
-          >
-            预览
-          </a>
-        </Space>
-      ))}
-    </Space>
+    <>
+      <Space size={4} wrap>
+        {files.map((f) => (
+          <Space key={f.token} size={2}>
+            <FileOutlined />
+            <a href={FilesApi.fileUrl(deploymentId, f.token)} target="_blank" rel="noreferrer">
+              {f.name || f.token.slice(0, 8)}
+            </a>
+            <Button
+              type="link"
+              size="small"
+              icon={<EyeOutlined />}
+              style={{ padding: 0, height: "auto" }}
+              onClick={() => setPreview(f)}
+            >
+              预览
+            </Button>
+          </Space>
+        ))}
+      </Space>
+      {preview && (
+        <FilePreviewModal
+          deploymentId={deploymentId}
+          file={preview}
+          onClose={() => setPreview(null)}
+        />
+      )}
+    </>
   );
 }

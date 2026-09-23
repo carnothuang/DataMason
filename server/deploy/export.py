@@ -18,6 +18,9 @@ from server.models import (
     Deployment,
     DeploymentMenu,
     FlowSpec,
+    FormFieldConfig,
+    FormLayout,
+    FormOptionItem,
     PageSpec,
     TableSpec,
     User,
@@ -64,6 +67,20 @@ def build_package(app, deployment_id: int) -> dict:
         flows = (
             s.query(FlowSpec).filter_by(deployment_id=deployment_id)
             .order_by(FlowSpec.id).all()
+        )
+        # 0.13.0 M7-4：界面配置三节（仅导出有配置的表）
+        form_fields = (
+            s.query(FormFieldConfig).filter_by(deployment_id=deployment_id)
+            .order_by(FormFieldConfig.table_name, FormFieldConfig.field_name).all()
+        )
+        form_options = (
+            s.query(FormOptionItem).filter_by(deployment_id=deployment_id)
+            .order_by(FormOptionItem.table_name, FormOptionItem.field_name,
+                      FormOptionItem.order_index).all()
+        )
+        form_layouts = (
+            s.query(FormLayout).filter_by(deployment_id=deployment_id)
+            .order_by(FormLayout.table_name, FormLayout.page_kind).all()
         )
         logs = (
             s.query(ActivityLog)
@@ -157,6 +174,38 @@ def build_package(app, deployment_id: int) -> dict:
                 }
                 for f in flows
             ],
+            "form_field_configs": [
+                {
+                    "table_name": r.table_name,
+                    "field_name": r.field_name,
+                    "control_type": r.control_type,
+                    "time_granularity": r.time_granularity,
+                    "readonly": bool(r.readonly),
+                    "hidden": bool(r.hidden),
+                    "hint": r.hint,
+                }
+                for r in form_fields
+            ],
+            "form_option_items": [
+                {
+                    "table_name": r.table_name,
+                    "field_name": r.field_name,
+                    "value": r.value,
+                    "label": r.label,
+                    "order_index": r.order_index,
+                }
+                for r in form_options
+            ],
+            "form_layouts": [
+                {
+                    "table_name": r.table_name,
+                    "page_kind": r.page_kind,
+                    "columns_per_row": r.columns_per_row,
+                    "order": _jloads(r.order_json, []),
+                    "groups": _jloads(r.groups_json, []),
+                }
+                for r in form_layouts
+            ],
             "activity_logs": [
                 {
                     "id": lg.id,
@@ -182,5 +231,8 @@ def build_package(app, deployment_id: int) -> dict:
             "crud_configs": len(package["crud_configs"]),
             "flow_specs": len(package["flow_specs"]),
             "activity_logs": len(package["activity_logs"]),
+            "form_field_configs": len(package["form_field_configs"]),
+            "form_option_items": len(package["form_option_items"]),
+            "form_layouts": len(package["form_layouts"]),
         }
         return package

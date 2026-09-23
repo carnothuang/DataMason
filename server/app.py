@@ -3,12 +3,50 @@ from __future__ import annotations
 
 import os
 from datetime import date, datetime
+from pathlib import Path
 
 from flask import Flask, jsonify
 from flask.json.provider import DefaultJSONProvider
 
 from server.config import get_config
 from server.models import create_all_lazy
+
+
+def anchor_path(project_root: str, value: str) -> str:
+    """相对路径锚定到项目根（绝对路径原样返回）。"""
+    if not value or Path(value).is_absolute():
+        return value
+    return str((Path(project_root) / value).resolve())
+
+
+def anchor_sqlite_uri(project_root: str, uri: str) -> str:
+    """把相对 sqlite URI 锚定到项目根（绝对 URI 原样返回）。
+
+    避免进程 CWD 不同（如从 server/ 启动）时元数据库/业务库落到不同目录。
+    """
+    prefix = "sqlite:///"
+    if not uri.startswith(prefix):
+        return uri
+    rest = uri[len(prefix):]
+    if not rest or rest.startswith("/"):
+        return uri  # sqlite:////abs 已是绝对路径
+    if Path(rest).is_absolute():
+        return uri  # Windows 盘符（C:/…）已是绝对
+    return prefix + (Path(project_root) / rest).resolve().as_posix()
+
+
+def _anchor_relative_paths(app: Flask) -> None:
+    """把 DATA_ROOT 与相对 sqlite 元数据库 URI 锚定到项目根。
+
+    根因修复：DATA_ROOT 默认 `./data` 相对进程 CWD 解析，导致从不同目录启动时
+    上传与读取落在不同 data/ 目录（附件预览 FileNotFoundError 的根因）。
+    """
+    root = Path(app.root_path).resolve().parent
+    data_root = app.config.get("DATA_ROOT")
+    if data_root:
+        app.config["DATA_ROOT"] = anchor_path(str(root), str(data_root))
+    uri = app.config.get("SQLALCHEMY_DATABASE_URI") or ""
+    app.config["SQLALCHEMY_DATABASE_URI"] = anchor_sqlite_uri(str(root), str(uri))
 
 
 class DatamasonJSONProvider(DefaultJSONProvider):
@@ -32,6 +70,7 @@ def create_app(config_object: object | None = None) -> Flask:
     cfg = get_config(config_object)
     app.config.update(**cfg.as_flask_config())
     app.json = DatamasonJSONProvider(app)
+    _anchor_relative_paths(app)
 
     create_all_lazy(app)
 
@@ -54,6 +93,7 @@ def create_app(config_object: object | None = None) -> Flask:
     from server.files.routes import bp as files_bp
     from server.imports.routes import bp as imports_bp
     from server.apiaccess.routes import bp as apiaccess_bp
+    from server.forms.routes import bp as forms_bp
     from server.qa.routes import bp as qa_bp, engineer_bp as qa_engineer_bp
     from server.ai.routes import settings_bp as ai_settings_bp, deploy_bp as ai_deploy_bp
 
@@ -72,6 +112,7 @@ def create_app(config_object: object | None = None) -> Flask:
     app.register_blueprint(files_bp, url_prefix="/api/v1/app")
     app.register_blueprint(imports_bp, url_prefix="/api/v1/app")
     app.register_blueprint(apiaccess_bp, url_prefix="/api/v1")
+    app.register_blueprint(forms_bp, url_prefix="/api/v1")
 
     _register_auth_guard(app)
     _register_spa(app)

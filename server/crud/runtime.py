@@ -50,12 +50,16 @@ def _registry(app, deployment_id: int, current_user_id: int | None = None) -> tu
     engine = _biz_engine(app, deployment)
     # 仅暴露该部署声明过的表（白名单）；归属列写入身份由会话注入（M2-3）；
     # 操作员「我的记录」强制 owner_only（M2-5，DR-05）；M5-C 起由 action_map/scope_map 细化
+    # 0.13.0 M7-2：注入表单控件写前校验回调（未配置字段零行为变化）
+    from server.forms import service as form_service
+
     registry = CrudRegistry(
         engine, tables=table_names,
         current_user_id=uid or 1,
         owner_only=(uid is not None and role == "operator"),
         action_map=action_map,
         scope_map=scope_map,
+        value_validator=form_service.build_registry_validator(app, deployment_id, table_names),
     )
     return deployment, registry, engine
 
@@ -74,8 +78,11 @@ def registry_for_service(app, deployment_id: int, actor_id: int = 0) -> tuple[De
             t.name for t in s.query(TableSpec).filter_by(deployment_id=deployment_id).all()
         ]
     engine = _biz_engine(app, deployment)
+    from server.forms import service as form_service
+
     registry = CrudRegistry(
         engine, tables=table_names, current_user_id=actor_id, owner_only=False,
+        value_validator=form_service.build_registry_validator(app, deployment_id, table_names),
     )
     return deployment, registry, engine
 
