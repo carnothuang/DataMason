@@ -17,11 +17,11 @@ import uuid
 
 from sqlalchemy import create_engine, inspect, text
 
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "src")))
 
-from server.dataaccess.manager import read_columns  # noqa: E402
-from server.ddl.ddl_builder import build_schema_ddl  # noqa: E402
-from server.ddl.table_spec import ColumnSpec, SchemaSpec, TableSpecModel  # noqa: E402
+from datamason.dataaccess.manager import read_columns  # noqa: E402
+from datamason.ddl.ddl_builder import build_schema_ddl  # noqa: E402
+from datamason.ddl.table_spec import ColumnSpec, SchemaSpec, TableSpecModel  # noqa: E402
 
 ADMIN_URL = os.environ.get(
     "DATAMASON_TEST_PG_URL",

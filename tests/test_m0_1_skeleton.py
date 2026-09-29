@@ -3,8 +3,8 @@ from __future__ import annotations
 
 from sqlalchemy import create_engine, inspect
 
-from server.auth.service import verify_password
-from server.models import User
+from datamason.auth.service import verify_password
+from datamason.models import User
 
 
 def test_meta_tables_created_lazy(app):
@@ -49,8 +49,8 @@ def test_bootstrap_without_env_is_noop(app, client):
 
 
 def test_bootstrap_creates_admin_from_env(tmp_path):
-    from server.app import create_app
-    from server.config import Config
+    from datamason.app import create_app
+    from datamason.config import Config
 
     cfg = Config(
         meta_db_uri=f"sqlite:///{(tmp_path / 'm2.db').as_posix()}",
@@ -81,7 +81,7 @@ def test_bootstrap_creates_admin_from_env(tmp_path):
 
 
 def test_create_all_lazy_is_idempotent(app):
-    from server.models import create_all_lazy
+    from datamason.models import create_all_lazy
 
     create_all_lazy(app)  # 不应抛错
     create_all_lazy(app)

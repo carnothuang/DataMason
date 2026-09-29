@@ -49,8 +49,10 @@ def main() -> int:
     spec_arg = sys.argv[1] if len(sys.argv) > 1 else ""
     SPEC = str(spec_path(spec_arg))
 
+    serve_name = os.environ.get("DATAMASON_E2E_SERVE", "serve_for_e2e.py")
+    serve_script = ROOT / "scripts" / "e2e" / serve_name
     server = subprocess.Popen(
-        [sys.executable, str(ROOT / "scripts" / "e2e" / "serve_for_e2e.py")],
+        [sys.executable, str(serve_script)],
         cwd=str(ROOT), env=dict(os.environ),
         stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
         encoding="utf-8", errors="replace",

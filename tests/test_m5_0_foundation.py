@@ -10,9 +10,9 @@ from __future__ import annotations
 
 from sqlalchemy import inspect as sa_inspect
 
-from server.ddl.ddl_builder import build_table_ddl
-from server.ddl.table_spec import ColumnSpec, TableSpecModel
-from server.models import Attachment, DeploymentMenuGrant
+from datamason.ddl.ddl_builder import build_table_ddl
+from datamason.ddl.table_spec import ColumnSpec, TableSpecModel
+from datamason.models import Attachment, DeploymentMenuGrant
 
 
 def test_attachments_table_created(app):

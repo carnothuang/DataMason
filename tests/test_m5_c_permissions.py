@@ -10,8 +10,8 @@ from __future__ import annotations
 
 import pytest
 
-from server.auth.service import hash_password
-from server.models import DeploymentMenu, User
+from datamason.auth.service import hash_password
+from datamason.models import DeploymentMenu, User
 
 SPEC = {
     "biz_notes": "客户",
@@ -51,7 +51,7 @@ class FakeLlm:
 @pytest.fixture()
 def patch_llm(monkeypatch):
     monkeypatch.setattr(
-        "server.settings.service.get_default_llm_client",
+        "datamason.settings.service.get_default_llm_client",
         lambda _app: FakeLlm(SPEC),
     )
     yield
@@ -253,7 +253,7 @@ def test_api_key_service_identity_bypasses_action_perms(app, env, patch_llm):
 
 def test_operator_without_grants_sees_nothing(app, env, patch_llm):
     """T-7：无任何授权的操作员不得访问任何表（空表白名单不回退为全量反射）。"""
-    from server.models import DeploymentMember
+    from datamason.models import DeploymentMember
     c = env["client"]
     did = _deploy(c)
     uid = _mk_user(app, "noop", display="无授权")

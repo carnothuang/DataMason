@@ -1,0 +1,1718 @@
+import axios from "axios";
+
+// 开发环境经 vite proxy 转发到 Flask；生产同源
+export const http = axios.create({ baseURL: "/api/v1", timeout: 30000 });
+
+// API 文档「试调用」专用：不带全局响应拦截器
+// （无效密钥应原样回显 401/403，而非触发全局跳登录）
+const rawHttp = axios.create({ baseURL: "/api/v1", timeout: 30000 });
+
+// 401 全局拦截：会话失效 → 清缓存并跳登录页（仅浏览器侧；多次跳转去重）
+let redirectingTo = "";
+http.interceptors.response.use(
+  (resp) => resp,
+  (error) => {
+    const status = error?.response?.status;
+    if (status === 401 && typeof window !== "undefined") {
+      // M3-5：访客公开页匿名访问，me() 必然 401——不在此处强制跳登录
+      if (window.location.pathname.startsWith("/public/")) {
+        return Promise.reject(new Error(error?.response?.data?.error || "请求失败"));
+      }
+      const target = "/login";
+      if (redirectingTo !== target) {
+        redirectingTo = target;
+        // 清掉本地缓存的当前用户，避免门卫误判
+        try {
+          sessionStorage.removeItem("datamason_me");
+        } catch {
+          /* ignore */
+        }
+        // 用 location 强制刷新状态，避免 React 树内 401 反复重试
+        if (window.location.pathname !== target) {
+          window.location.href = target;
+        }
+      }
+    }
+    const msg =
+      error?.code === "ECONNABORTED"
+        ? "后端响应超时：服务可能仍在处理或已无响应，请确认后端状态后重试"
+        : error?.response?.data?.error ||
+          error?.message ||
+          "请求失败";
+    // 结构化错误附件：M6-5 合并失败需带表/字段定位清单，供画布回跳修正
+    const failure = new Error(msg) as Error & { errors?: unknown; status?: number };
+    failure.errors = error?.response?.data?.errors;
+    failure.status = status;
+    return Promise.reject(failure);
+  },
+);
+
+// ---------- 类型 ----------
+export interface LlmModel {
+  id: number;
+  name: string;
+  base_url: string;
+  model_name: string;
+  temperature: number;
+  is_default: boolean;
+  has_api_key: boolean;
+  api_key: string;
+}
+
+export interface Connection {
+  id: number;
+  name: string;
+  dialect: "sqlite" | "mysql" | "postgresql";
+  status: string;
+}
+
+export interface RedisConfig {
+  enabled: boolean;
+  host: string;
+  port: number;
+  db: number;
+  password: string;
+}
+
+export interface Deployment {
+  id: number;
+  biz_name: string;
+  purpose: string;
+  status: string;
+  entry_path: string;
+  data_mode: "create" | "link";
+  seed_data: boolean;
+  role?: string;
+  created_at: string;
+}
+
+export interface ProposalTable {
+  name: string;
+  biz_name: string;
+  columns: { name: string; biz_name?: string; type: string; is_pk?: boolean; is_fk?: boolean; ref_table?: string | null }[];
+}
+
+export interface ProposalPage {
+  table: string;
+  title: string;
+  kind: "crud_list" | "public_form" | "dashboard";
+  access: "member" | "public";
+}
+
+export interface Proposal {
+  biz_notes: string;
+  attempts: number;
+  spec_json: Record<string, unknown>;
+  tables: ProposalTable[];
+  pages: ProposalPage[];
+}
+
+export interface DeployResult {
+  deployment_id: number;
+  biz_name: string;
+  status: string;
+  entry_path: string;
+  table_count: number;
+  seeded: boolean;
+  data_mode: "create" | "link";
+}
+
+// M3-6 配置包导出
+export interface DeploymentExport {
+  format: string;
+  version: number;
+  exported_at: string;
+  deployment: {
+    id: number;
+    biz_name: string;
+    purpose: string;
+    data_mode: string;
+    db_name: string;
+    status: string;
+    entry_path: string;
+    seed_data: boolean;
+    created_at: string;
+    owner: { id: number; username: string; display_name: string } | null;
+    connection: { name: string; dialect: string } | null;
+  };
+  table_specs: unknown[];
+  page_specs: unknown[];
+  deployment_menus: unknown[];
+  crud_configs: unknown[];
+  flow_specs: unknown[];
+  activity_logs: unknown[];
+  counts: Record<string, number>;
+}
+
+// ---------- 直连模式（M2-7，接已有的） ----------
+export interface LinkTableInventory {
+  name: string;
+  columns: string[];
+  column_count: number;
+  pk: string | null;
+  single_pk: boolean;
+  has_created_by: boolean;
+  ownership_columns: string[];
+  fk_targets: string[];
+}
+
+export interface LinkSelection {
+  triggered: boolean;
+  trigger_threshold: number;
+  max_tables: number;
+  total: number;
+  selection: string[];
+  no_pk: string[];
+}
+
+export interface LinkProposal extends Proposal {
+  data_mode: "link";
+  connection_id: number;
+  link: {
+    selected_tables: string[];
+    no_pk_tables: string[];
+    missing_tables: string[];
+    dropped_fks: {
+      table: string;
+      column: string;
+      ref_table: string;
+      ref_column: string;
+      reason: string;
+    }[];
+    ownership_missing: string[];
+    enrich_failed?: string;
+  };
+}
+
+// ---------- 工作台运行时（M2-2） ----------
+export interface TableInfo {
+  name: string;
+  biz_name: string;
+  columns: string[];
+}
+
+export interface RowPage {
+  data: Record<string, unknown>[];
+  page: number;
+  page_size: number;
+  total: number;
+  columns: string[];
+  /** 外键列批量标签（0.15.0 M9-5）：{ 列名: { id串: 标签 } }，读侧渲染用。 */
+  ref_labels?: Record<string, Record<string, string>>;
+}
+
+export interface FieldColumn {
+  name: string;
+  biz_name: string;
+  type: string;
+  length: number | null;
+  nullable: boolean;
+  is_pk: boolean;
+  is_fk: boolean;
+  ref_table: string | null;
+  is_ownership: boolean;
+}
+
+export interface TableBlueprint {
+  name: string;
+  biz_name: string;
+  columns: FieldColumn[];
+}
+
+// ---------- M2-8 数据蓝图：结构变更 diff 提案 ----------
+export interface StructureDiff {
+  action: "add" | "drop" | "rename" | "change_type";
+  name: string;
+  old?: string;
+  biz_name?: string;
+  type?: string;
+  length?: number | null;
+}
+
+export interface StructureProposal {
+  table: string;
+  dirty: boolean;
+  diff: StructureDiff[];
+  statements: string[];
+  final_columns: FieldColumn[];
+}
+
+// ---------- 工作台运行时（M2-2） ----------
+export interface WorkspaceMenu {
+  id: number;
+  label: string;
+  kind: string;
+  ref_id: number | null;
+  children: WorkspaceMenu[];
+}
+
+export interface WorkspacePage {
+  id: number;
+  kind: string;
+  access: string;
+  title: string;
+  flow_id: number | null;
+  table: string | null;
+  table_biz_name: string | null;
+  // 0.11.0 M5-C3（DR-30）：该页允许的动作与数据范围，前端据此裁剪按钮
+  actions?: string[];
+  data_scope?: string;
+}
+
+export interface WorkspaceInfo {
+  deployment_id: number;
+  biz_name: string;
+  status: string;
+  entry_path: string;
+  data_mode: "create" | "link";
+  role: "creator" | "admin" | "operator";
+  menus: WorkspaceMenu[];
+  pages: WorkspacePage[];
+}
+
+// ---------- 成员与权限（M2-5 / 0.11.0 M5-C） ----------
+export type ActionKey = "view" | "create" | "update" | "delete" | "export" | "import";
+
+export interface MenuGrantDetail {
+  actions: Partial<Record<ActionKey, boolean>>;
+  data_scope: "" | "all" | "own";
+}
+
+export interface DeploymentMember {
+  user_id: number;
+  username: string;
+  display_name: string;
+  role: "creator" | "admin" | "operator";
+  menu_ids: number[];
+  grants?: Record<string, MenuGrantDetail>;
+  is_self: boolean;
+}
+
+export interface MemberMenusPayload {
+  members: DeploymentMember[];
+  menus: { id: number; label: string; parent_id: number | null }[];
+}
+
+export const MembersApi = {
+  list: (deploymentId: number) =>
+    http
+      .get<MemberMenusPayload>(`/deployments/${deploymentId}/members`)
+      .then((r) => r.data),
+  candidates: (deploymentId: number) =>
+    http
+      .get<CurrentUser[]>(`/deployments/${deploymentId}/members/candidates`)
+      .then((r) => ensureArray<CurrentUser>(r.data, "候选成员")),
+  add: (
+    deploymentId: number,
+    payload: {
+      username: string;
+      role: "admin" | "operator";
+      menu_ids?: number[];
+      actions?: Record<string, Partial<Record<ActionKey, boolean>>>;
+      data_scope?: Record<string, "" | "all" | "own">;
+    },
+  ) =>
+    http
+      .post<{ ok: boolean }>(`/deployments/${deploymentId}/members`, payload)
+      .then((r) => r.data),
+  update: (
+    deploymentId: number,
+    userId: number,
+    payload: {
+      role?: "admin" | "operator";
+      menu_ids?: number[];
+      actions?: Record<string, Partial<Record<ActionKey, boolean>>>;
+      data_scope?: Record<string, "" | "all" | "own">;
+    },
+  ) =>
+    http
+      .put<{ ok: boolean }>(`/deployments/${deploymentId}/members/${userId}`, payload)
+      .then((r) => r.data),
+  remove: (deploymentId: number, userId: number) =>
+    http
+      .delete<{ ok: boolean }>(`/deployments/${deploymentId}/members/${userId}`)
+      .then((r) => r.data),
+};
+
+// ---------- CRUD 元数据（M2-3/M2-4） ----------
+export interface FkRef {
+  ref_table: string;
+  ref_column: string;
+}
+
+export interface MetaColumn {
+  name: string;
+  biz_name: string;
+  type: string;
+  length: number | null;
+  nullable: boolean;
+  pk: boolean;
+  unique: boolean;
+  fk: FkRef | null;
+  is_ownership: boolean;
+}
+
+export interface TableMeta {
+  columns: MetaColumn[];
+  // 0.11.0 M5-C3：该表允许的动作与数据范围（会话用户；API key 通道不下发）
+  actions?: string[];
+  data_scope?: string;
+}
+
+export interface RefOption {
+  value: number | string;
+  label: string;
+}
+
+export interface RefPage {
+  ref_table: string;
+  ref_column: string;
+  label_column: string | null;
+  options: RefOption[];
+  page: number;
+  page_size: number;
+  total: number;
+}
+
+export interface CrudRowFilters {
+  page?: number;
+  page_size?: number;
+  sort?: string;
+  order?: string;
+  search?: string;
+  [col: string]: string | number | undefined;
+}
+
+// ---------- 工作台运行时（M2-2） ----------
+export const WorkspaceApi = {
+  info: (deploymentId: number) =>
+    http.get<WorkspaceInfo>(`/app/${deploymentId}`).then((r) => r.data),
+};
+
+// ---------- 问数据（M4-1/M4-2，P3） ----------
+export interface QaChart {
+  type: "bar" | "line" | "pie";
+  x: string;
+  y: string;
+}
+
+export interface QaAnswer {
+  question: string;
+  title: string;
+  sql: string;
+  row_limit: number;
+  columns: string[];
+  rows: Record<string, unknown>[];
+  row_count: number;
+  conclusion: string;
+  chart: QaChart | null;
+  attempts: number;
+}
+
+export const QaApi = {
+  /** 问一句业务问题：只读 SELECT → 结论 + 行集 + 可选图表规格（服务端已过只读门/白名单）。 */
+  ask: (deploymentId: number, question: string) =>
+    http
+      .post<QaAnswer>(`/app/${deploymentId}/qa/ask`, { question }, { timeout: 120_000 })
+      .then((r) => r.data),
+  /** M4-3 钉住报表：写 dashboard 页 + 菜单（创建人/管理员；同一 SQL 幂等）。 */
+  pin: (
+    deploymentId: number,
+    payload: { title: string; sql: string; chart?: QaChart | null; question?: string },
+  ) =>
+    http
+      .post<{ page_id: number; menu_id: number | null; title: string; duplicate: boolean }>(
+        `/deployments/${deploymentId}/qa/pin`,
+        payload,
+      )
+      .then((r) => r.data),
+  /** M4-3 报表清单。 */
+  pins: (deploymentId: number) =>
+    http
+      .get<{ pins: QaPin[] }>(`/deployments/${deploymentId}/qa/pins`)
+      .then((r) => r.data.pins),
+  /** M4-3 取消钉住：页面 + 菜单 + 授权一并清理。 */
+  unpin: (deploymentId: number, pageId: number) =>
+    http
+      .delete<{ ok: boolean }>(`/deployments/${deploymentId}/qa/pins/${pageId}`)
+      .then((r) => r.data),
+};
+
+export interface QaPin {
+  page_id: number;
+  menu_id: number | null;
+  title: string;
+  sql: string;
+  chart: QaChart | null;
+  question: string;
+}
+
+export interface DashboardRun {
+  page_id: number;
+  title: string;
+  sql: string;
+  chart: QaChart | null;
+  columns: string[];
+  rows: Record<string, unknown>[];
+  row_count: number;
+}
+
+export const DashboardApi = {
+  /** M4-3 运行态重跑钉住的报表（只读门复检 + 白名单后执行，数据为最新）。 */
+  run: (deploymentId: number, pageId: number) =>
+    http
+      .get<DashboardRun>(`/app/${deploymentId}/dashboards/${pageId}`, { timeout: 60_000 })
+      .then((r) => r.data),
+};
+
+// ---------- M4-4 AI 生成历史治理 ----------
+export interface AiGenerationItem {
+  id: number;
+  kind: string;
+  status: string;
+  prompt_summary: string;
+  result_summary: string;
+  tokens_in: number;
+  tokens_out: number;
+  duration_ms: number;
+  deployment_id: number;
+  deployment_name: string;
+  created_at: string;
+}
+
+export interface AiGenerationsPage {
+  items: AiGenerationItem[];
+  page: number;
+  page_size: number;
+  total: number;
+  deployments: { id: number; name: string }[];
+  stats: {
+    total: number;
+    tokens_in: number;
+    tokens_out: number;
+    avg_duration_ms: number;
+    by_kind: Record<string, number>;
+  };
+}
+
+export interface AiGenFilters {
+  kind?: string;
+  deployment_id?: number;
+  status?: string;
+  page?: number;
+  page_size?: number;
+}
+
+export const AiGenApi = {
+  /** 平台管理员：全量生成历史（筛选 + 统计）。 */
+  list: (params: AiGenFilters = {}) =>
+    http.get<AiGenerationsPage>("/settings/ai-generations", { params }).then((r) => r.data),
+  /** 平台管理员：清理（必须给条件）。 */
+  cleanup: (payload: { ids?: number[]; kind?: string; status?: string; deployment_id?: number; older_than_days?: number }) =>
+    http
+      .post<{ deleted: number }>("/settings/ai-generations/cleanup", payload)
+      .then((r) => r.data),
+  remove: (id: number) =>
+    http.delete<{ ok: boolean }>(`/settings/ai-generations/${id}`).then((r) => r.data),
+  /** 工程室：本部署生成历史（创建人/管理员）。 */
+  forDeployment: (deploymentId: number, params: AiGenFilters = {}) =>
+    http
+      .get<AiGenerationsPage>(`/deployments/${deploymentId}/ai-generations`, { params })
+      .then((r) => r.data),
+};
+
+// ---------- 附件（0.11.0 M5-B1） ----------
+export interface AttachmentInfo {
+  id: number;
+  token: string;
+  filename: string;
+  mime: string;
+  size: number;
+  table_name: string;
+  row_pk: string;
+  field_name: string;
+  status: string;
+}
+
+export const FilesApi = {
+  upload: (
+    deploymentId: number,
+    file: File,
+    meta: { table?: string; row_pk?: string; field?: string } = {},
+  ) => {
+    const fd = new FormData();
+    fd.append("file", file);
+    if (meta.table) fd.append("table", meta.table);
+    if (meta.row_pk) fd.append("row_pk", String(meta.row_pk));
+    if (meta.field) fd.append("field", meta.field);
+    return http
+      .post<AttachmentInfo>(`/app/${deploymentId}/api/files`, fd, { timeout: 120000 })
+      .then((r) => r.data);
+  },
+  fileUrl: (deploymentId: number, token: string) =>
+    `/api/v1/app/${deploymentId}/api/files/${encodeURIComponent(token)}`,
+  previewUrl: (deploymentId: number, token: string) =>
+    `/api/v1/app/${deploymentId}/api/files/${encodeURIComponent(token)}/preview`,
+  /** 文本类附件预览：取纯文本内容（图片/PDF 走 previewUrl 直接内嵌）。 */
+  fetchPreviewText: (deploymentId: number, token: string) =>
+    http
+      .get<string>(`/app/${deploymentId}/api/files/${encodeURIComponent(token)}/preview`, {
+        responseType: "text",
+      })
+      .then((r) => r.data),
+  remove: (deploymentId: number, token: string) =>
+    http.delete<{ deleted: boolean }>(`/app/${deploymentId}/api/files/${encodeURIComponent(token)}`).then((r) => r.data),
+};
+
+// ---------- 导入（0.11.0 M5-B3） ----------
+export interface ImportPreview {
+  upload_token: string;
+  headers: string[];
+  mapping: Record<string, number>;
+  columns: {
+    name: string; biz_name: string; type: string; nullable: boolean;
+    unique: boolean; is_fk: boolean; is_ownership: boolean; is_pk: boolean;
+  }[];
+  sample: Record<string, unknown>[];
+  total: number;
+  valid: number;
+  error_count: number;
+  errors: { row: number; column: string; message: string }[];
+}
+
+export const ImportApi = {
+  preview: (deploymentId: number, table: string, file: File) => {
+    const fd = new FormData();
+    fd.append("file", file);
+    return http
+      .post<ImportPreview>(
+        `/app/${deploymentId}/api/tables/${encodeURIComponent(table)}/import/preview`,
+        fd,
+        { timeout: 120000 },
+      )
+      .then((r) => r.data);
+  },
+  commit: (
+    deploymentId: number,
+    table: string,
+    upload_token: string,
+    mapping: Record<string, number>,
+    mode: "strict" | "skip_errors",
+  ) =>
+    http
+      .post<{ inserted: number; skipped: number; total: number }>(
+        `/app/${deploymentId}/api/tables/${encodeURIComponent(table)}/import/commit`,
+        { upload_token, mapping, mode },
+        { timeout: 120000 },
+      )
+      .then((r) => r.data),
+  templateUrl: (deploymentId: number, table: string) =>
+    `/api/v1/app/${deploymentId}/api/tables/${encodeURIComponent(table)}/import/template`,
+};
+
+function _exportUrl(
+  kind: "csv" | "xlsx",
+  deploymentId: number,
+  table: string,
+  params: CrudRowFilters = {},
+): string {
+  const qs = new URLSearchParams(
+    Object.entries(params).reduce<Record<string, string>>((acc, [k, v]) => {
+      if (v !== undefined && v !== null && v !== "") acc[k] = String(v);
+      return acc;
+    }, {}),
+  ).toString();
+  return `/api/v1/app/${deploymentId}/api/tables/${encodeURIComponent(table)}/rows.${kind}${
+    qs ? `?${qs}` : ""
+  }`;
+}
+
+// ---------- 工作台业务 CRUD（M2-3/M2-4，挂 /app/{id}/api/） ----------
+export const CrudApi = {
+  meta: (deploymentId: number) =>
+    http.get<Record<string, TableMeta>>(`/app/${deploymentId}/api/meta`).then((r) => r.data),
+  rows: (deploymentId: number, table: string, params: CrudRowFilters) =>
+    http
+      .get<RowPage>(`/app/${deploymentId}/api/tables/${encodeURIComponent(table)}/rows`, { params })
+      .then((r) => r.data),
+  exportCsvUrl: (deploymentId: number, table: string, params: CrudRowFilters = {}) =>
+    _exportUrl("csv", deploymentId, table, params),
+  exportXlsxUrl: (deploymentId: number, table: string, params: CrudRowFilters = {}) =>
+    _exportUrl("xlsx", deploymentId, table, params),
+  create: (deploymentId: number, table: string, values: Record<string, unknown>) =>
+    http
+      .post<{ id: string | number }>(
+        `/app/${deploymentId}/api/tables/${encodeURIComponent(table)}/rows`,
+        values,
+      )
+      .then((r) => r.data),
+  update: (
+    deploymentId: number,
+    table: string,
+    pk: string | number,
+    values: Record<string, unknown>,
+  ) =>
+    http
+      .put<{ updated: boolean }>(
+        `/app/${deploymentId}/api/tables/${encodeURIComponent(table)}/rows/${pk}`,
+        values,
+      )
+      .then((r) => r.data),
+  remove: (deploymentId: number, table: string, pk: string | number) =>
+    http
+      .delete<{ deleted: boolean }>(
+        `/app/${deploymentId}/api/tables/${encodeURIComponent(table)}/rows/${pk}`,
+      )
+      .then((r) => r.data),
+  refs: (
+    deploymentId: number,
+    table: string,
+    fkCol: string,
+    params: { search?: string; page?: number; page_size?: number },
+  ) =>
+    http
+      .get<RefPage>(
+        `/app/${deploymentId}/api/tables/${encodeURIComponent(table)}/refs/${encodeURIComponent(fkCol)}`,
+        { params },
+      )
+      .then((r) => r.data),
+};
+
+// ---------- 操作日志（M2-6） ----------
+export interface ActivityLog {
+  id: number;
+  occurred_at: string;
+  actor_user_id: number | null;
+  actor_display: string;
+  action: "create" | "update" | "delete" | "deploy" | "member" | "structure" | "flow" | "apikey" | "stop" | "start" | "seed";
+  object_kind: string;
+  object_table: string;
+  object_pk: string;
+  object_label: string;
+  object_biz_name: string;
+  changes: Record<string, { old: unknown; new: unknown }>;
+}
+
+export interface LogsPage {
+  logs: ActivityLog[];
+  page: number;
+  page_size: number;
+  total: number;
+  filter_options?: { actors: { id: number; name: string }[]; tables: string[] };
+}
+
+export interface LogFilters {
+  action?: string;
+  actor_user_id?: number;
+  object_table?: string;
+  object_pk?: string;
+  from?: string;
+  to?: string;
+  page?: number;
+  page_size?: number;
+}
+
+export const LogsApi = {
+  list: (deploymentId: number, params: LogFilters = {}) =>
+    http
+      .get<LogsPage>(`/app/${deploymentId}/api/activity-logs`, { params })
+      .then((r) => r.data),
+};
+
+// ---------- M3-2 界面与菜单（工程室，创建人独有 DR-14） ----------
+export interface EngineerMenuItem {
+  id: number;
+  label: string;
+  kind: string;
+  ref_id: number | null;
+  parent_id: number | null;
+}
+
+export interface EngineerPageCard {
+  id: number;
+  kind: string;
+  access: string;
+  title: string;
+  flow_id: number | null;
+  table: string | null;
+  table_biz_name: string | null;
+}
+
+export interface EngineerInterfacesPayload {
+  menus: EngineerMenuItem[];
+  pages: EngineerPageCard[];
+  granted_menu_ids: number[];
+  entry_path: string;
+}
+
+export interface EntryLookupResult {
+  found: boolean;
+  deployment_id?: number;
+  entry_path?: string;
+  status?: string;
+  biz_name?: string;
+  role?: string;
+}
+
+export const EngineerApi = {
+  /** 工程室「界面与菜单」数据：菜单（平铺）+ 页面卡 + 已授权菜单 id + 入口路径。 */
+  interfaces: (deploymentId: number) =>
+    http
+      .get<EngineerInterfacesPayload>(`/deployments/${deploymentId}/interfaces`)
+      .then((r) => r.data),
+  /** 整组保存菜单树（即拖即存）；nodes 按菜单树前序拍平，父引用 parent_id（-1/-2… 指列表位置）。 */
+  saveMenus: (
+    deploymentId: number,
+    nodes: Array<{
+      id?: number | null;
+      label: string;
+      kind?: string;
+      ref_id?: number | null;
+      parent_id?: number | null;
+    }>,
+  ) =>
+    http
+      .put<{ ok: boolean; nodes: EngineerMenuItem[] }>(
+        `/deployments/${deploymentId}/menus`,
+        { nodes },
+      )
+      .then((r) => r.data),
+  /** 界面卡「调整」：改页面标题（页面编辑器整体在后续里程碑）。 */
+  updatePageTitle: (deploymentId: number, pageId: number, title: string) =>
+    http
+      .put<{ ok: boolean }>(`/deployments/${deploymentId}/pages/${pageId}`, { title })
+      .then((r) => r.data),
+  /** 自定义入口路径（DR-15）：留空恢复到 /app/{id}。 */
+  setEntryPath: (deploymentId: number, path: string) =>
+    http
+      .put<{ deployment_id: number; entry_path: string }>(
+        `/deployments/${deploymentId}/entry_path`,
+        { path },
+      )
+      .then((r) => r.data),
+};
+
+export const EntryApi = {
+  /** 自定义入口解析：path=精确匹配 entry_path（成员才返回，防泄露）。 */
+  lookup: (path: string) =>
+    http
+      .get<EntryLookupResult>("/entry/lookup", { params: { path } })
+      .then((r) => r.data),
+};
+
+// ---------- M3-4 流程向导 v0（DR-06，向导式流程非工作流引擎） ----------
+export interface FlowStep {
+  index: number;
+  name: string;
+  page_id: number | null;
+  page_title: string;
+  kind: string;
+  table: string | null;
+  table_biz_name: string | null;
+  done_when: { type: string; min: number };
+  status_field: string | null;
+  status_value: string | null;
+}
+
+export interface FlowSpec {
+  id: number;
+  name: string;
+  version: number;
+  /** 流程页 page_specs.id（菜单 kind=flow 的 ref_id 指向它）。 */
+  page_id: number | null;
+  steps: FlowStep[];
+}
+
+export interface FlowRuntimeStep extends FlowStep {
+  condition: string;
+  state: "done" | "current" | "pending";
+  met: boolean;
+}
+
+export interface FlowRuntime {
+  id: number;
+  name: string;
+  version: number;
+  done: boolean;
+  current_index: number;
+  page_id: number | null;
+  steps: FlowRuntimeStep[];
+}
+
+export interface FlowStepInput {
+  name: string;
+  page_id: number;
+  done_when?: { type: string; min: number };
+  status_field?: string | null;
+  status_value?: string | null;
+}
+
+export const FlowApi = {
+  /** 流程清单（工程室，创建人独有 DR-14）。 */
+  list: (deploymentId: number) =>
+    http
+      .get<{ flows: FlowSpec[] }>(`/deployments/${deploymentId}/flows`)
+      .then((r) => r.data.flows),
+  create: (deploymentId: number, payload: { name: string; steps: FlowStepInput[] }) =>
+    http
+      .post<FlowSpec>(`/deployments/${deploymentId}/flows`, payload)
+      .then((r) => r.data),
+  update: (deploymentId: number, flowId: number, payload: { name: string; steps: FlowStepInput[] }) =>
+    http
+      .put<FlowSpec>(`/deployments/${deploymentId}/flows/${flowId}`, payload)
+      .then((r) => r.data),
+  remove: (deploymentId: number, flowId: number) =>
+    http
+      .delete<{ ok: boolean }>(`/deployments/${deploymentId}/flows/${flowId}`)
+      .then((r) => r.data),
+};
+
+export const FlowRuntimeApi = {
+  /** 运行态：游标推导 已完成/当前/待做 + 当前步完成条件。 */
+  get: (deploymentId: number, flowId: number) =>
+    http
+      .get<FlowRuntime>(`/app/${deploymentId}/flows/${flowId}`)
+      .then((r) => r.data),
+  /** 下一步：完成条件不满足 → 409（error 提示）；满足则推进状态字段并写日志。 */
+  advance: (deploymentId: number, flowId: number) =>
+    http
+      .post<{ ok: boolean; step: string; current_index: number; done: boolean; records_advanced: number }>(
+        `/app/${deploymentId}/flows/${flowId}/advance`,
+      )
+      .then((r) => r.data),
+};
+
+// ---------- M3-5 访客公开页 + 分享链接（DR-04） ----------
+export interface PublicField {
+  name: string;
+  biz_name: string;
+  type: string;
+  length: number | null;
+  nullable: boolean;
+  is_pk: boolean;
+  is_ownership: boolean;
+  // 0.13.0 M7-4：公开表单配置（可选，缺省时按默认映射渲染）
+  control_type?: string | null;
+  time_granularity?: "date" | "datetime" | null;
+  readonly?: boolean;
+  hidden?: boolean;
+  hint?: string;
+  options?: { value: string; label: string }[];
+}
+
+export interface PublicLayout {
+  columns_per_row: number;
+  order: string[];
+  groups: { title: string; field_names: string[] }[];
+}
+
+export interface PublicPageMeta {
+  deployment_id: number;
+  biz_name: string;
+  page_id: number;
+  title: string;
+  kind: string;
+  table: string;
+  fields: PublicField[];
+  layout?: PublicLayout;
+}
+
+export const PublicApi = {
+  /** 匿名读取公开表单元数据（访客仅能提交，看不到菜单与数据）。 */
+  page: (deploymentId: number, pageId: number) =>
+    http
+      .get<PublicPageMeta>(`/public/${deploymentId}/pages/${pageId}`)
+      .then((r) => r.data),
+  /** 匿名提交到公开表单（走 CRUD 写路径，归属记系统，进操作日志）。 */
+  submit: (deploymentId: number, pageId: number, values: Record<string, unknown>) =>
+    http
+      .post<{ ok: boolean; id: string | number }>(
+        `/public/${deploymentId}/pages/${pageId}/submit`,
+        values,
+      )
+      .then((r) => r.data),
+};
+
+// ---------- 0.13.0 M7 表单控件与界面配置 ----------
+export type FormControlType =
+  | "text"
+  | "textarea"
+  | "number"
+  | "boolean"
+  | "radio"
+  | "checkbox"
+  | "date"
+  | "datetime"
+  | "ref"
+  | "file"
+  // 0.15.0 M9-3：新增五类
+  | "switch"
+  | "slider"
+  | "rate"
+  | "select"
+  | "cascader";
+
+/** 控件参数（0.15.0 M9-3）：仅 slider/rate/cascader 有意义。 */
+export interface FormControlConfig {
+  min?: number | null;
+  max?: number | null;
+  step?: number | null;
+  max_stars?: number;
+  allow_half?: boolean;
+  expand_trigger?: "click" | "hover";
+}
+
+export interface FormOptionItem {
+  value: string;
+  label: string;
+  /** 级联层级父值（0.15.0 M9-3）：仅 cascader 候选项存在。 */
+  parent_value?: string | null;
+}
+
+export interface FormFieldConfig {
+  field_name: string;
+  biz_name: string;
+  data_type: string;
+  length: number | null;
+  nullable: boolean;
+  is_pk: boolean;
+  is_ownership: boolean;
+  is_fk: boolean;
+  ref_table?: string | null;
+  control_type: FormControlType | null;
+  control_config: FormControlConfig;
+  time_granularity: "date" | "datetime" | null;
+  readonly: boolean;
+  hidden: boolean;
+  hint: string;
+  options: FormOptionItem[];
+  configured: boolean;
+}
+
+export interface FormLayout {
+  columns_per_row: number;
+  order: string[];
+  groups: { title: string; field_names: string[] }[];
+}
+
+export interface FormConfigResponse {
+  deployment_id: number;
+  table: string;
+  page_kind: string;
+  fields: FormFieldConfig[];
+  options: Record<string, FormOptionItem[]>;
+  layout: FormLayout;
+  degraded: boolean;
+}
+
+export interface FormConfigPayload {
+  fields: {
+    field_name: string;
+    control_type: FormControlType | null;
+    control_config?: FormControlConfig;
+    time_granularity?: "date" | "datetime" | null;
+    readonly?: boolean;
+    hidden?: boolean;
+    hint?: string;
+    options?: FormOptionItem[];
+  }[];
+  layout?: {
+    columns_per_row: number;
+    order: { field_name: string }[];
+    groups: { title: string; field_names: string[] }[];
+  } | null;
+}
+
+export const FormsApi = {
+  /** 读取工作台表单配置（配置者：创建人/平台管理员）。 */
+  getConfig: (deploymentId: number, table: string) =>
+    http
+      .get<FormConfigResponse>(`/deployments/${deploymentId}/forms/${encodeURIComponent(table)}`)
+      .then((r) => r.data),
+  /** 整表覆盖保存（单事务）。 */
+  saveConfig: (deploymentId: number, table: string, payload: FormConfigPayload) =>
+    http
+      .put<{ saved: boolean }>(
+        `/deployments/${deploymentId}/forms/${encodeURIComponent(table)}`,
+        payload,
+      )
+      .then((r) => r.data),
+  /** 恢复单字段默认。 */
+  resetField: (deploymentId: number, table: string, field: string) =>
+    http
+      .delete<{ reset: boolean }>(
+        `/deployments/${deploymentId}/forms/${encodeURIComponent(table)}/fields/${encodeURIComponent(field)}`,
+      )
+      .then((r) => r.data),
+  /** 运行态只读配置（任意成员；失败时前端走默认映射降级）。 */
+  runtimeConfig: (deploymentId: number, table: string) =>
+    http
+      .get<FormConfigResponse>(`/app/${deploymentId}/api/forms/${encodeURIComponent(table)}`)
+      .then((r) => r.data),
+  /** NL 生成候选项候选清单（不落库，确认后才随保存写入）。 */
+  generateOptions: (deploymentId: number, table: string, field: string, description: string) =>
+    http
+      .post<{ items: FormOptionItem[]; attempts: number }>(
+        `/deployments/${deploymentId}/forms/${encodeURIComponent(table)}/fields/${encodeURIComponent(field)}/options/generate`,
+        { description },
+      )
+      .then((r) => r.data),
+};
+
+// ---------- 0.15.0 M9-6/M9-7 页面布局 ----------
+
+export interface LayoutBlockProps {
+  table?: string;
+  columns?: string[];
+  col_widths?: Record<string, number>;
+  show_actions?: boolean;
+  default_view?: "table" | "card";
+  show_filters?: boolean;
+  aggregation?: "count" | "sum" | "avg";
+  column?: string | null;
+  title?: string;
+  filter?: string;
+  content?: string;
+}
+
+export interface PageLayoutBlock {
+  key: string;
+  x_component: "table" | "detail" | "stat" | "html";
+  props: LayoutBlockProps;
+  layout?: { x: number; y: number; w: number; h: number };
+}
+
+export interface PageLayout {
+  version: number;
+  blocks: PageLayoutBlock[];
+  degraded?: boolean;
+}
+
+export interface RuntimePageLayout extends PageLayout {
+  ui_configs: Record<string, TableUiConfigPayload>;
+}
+
+export interface TableUiConfigPayload {
+  version?: number;
+  list?: {
+    visible_columns?: string[];
+    col_widths?: Record<string, number>;
+    show_actions?: boolean;
+    default_view?: "table" | "card";
+    show_filters?: boolean;
+  };
+  detail?: {
+    fields?: string[];
+    groups?: { title: string; field_names: string[] }[];
+    columns_per_row?: number;
+  };
+  degraded?: boolean;
+}
+
+export interface StatResult {
+  aggregation: string;
+  column: string | null;
+  value: number | null;
+}
+
+export const LayoutApi = {
+  /** 读页面级布局（配置者）。 */
+  getPageLayout: (deploymentId: number, pageId: number) =>
+    http
+      .get<PageLayout>(`/deployments/${deploymentId}/pages/${pageId}/layout`)
+      .then((r) => r.data),
+  /** 保存页面级布局（配置者）。 */
+  savePageLayout: (deploymentId: number, pageId: number, payload: PageLayout) =>
+    http
+      .put<{ saved: boolean; blocks: number }>(
+        `/deployments/${deploymentId}/pages/${pageId}/layout`,
+        payload,
+      )
+      .then((r) => r.data),
+  /** 还原页面布局为默认（清空）。 */
+  resetPageLayout: (deploymentId: number, pageId: number) =>
+    http
+      .delete<{ reset: boolean }>(`/deployments/${deploymentId}/pages/${pageId}/layout`)
+      .then((r) => r.data),
+  /** 读表级 UI 配置（配置者）。 */
+  getTableUiConfig: (deploymentId: number, table: string) =>
+    http
+      .get<TableUiConfigPayload>(
+        `/deployments/${deploymentId}/tables/${encodeURIComponent(table)}/ui-config`,
+      )
+      .then((r) => r.data),
+  /** 保存表级 UI 配置（配置者）。 */
+  saveTableUiConfig: (deploymentId: number, table: string, payload: TableUiConfigPayload) =>
+    http
+      .put<{ saved: boolean }>(
+        `/deployments/${deploymentId}/tables/${encodeURIComponent(table)}/ui-config`,
+        payload,
+      )
+      .then((r) => r.data),
+  /** 运行态只读布局（任意成员）：页面布局 + 涉及表的表级 UI 配置合并。 */
+  runtimePageLayout: (deploymentId: number, pageId: number) =>
+    http
+      .get<RuntimePageLayout>(`/app/${deploymentId}/api/pages/${pageId}/layout`)
+      .then((r) => r.data),
+  /** 统计卡单值聚合（只读）。 */
+  stat: (deploymentId: number, table: string, params: { aggregation: string; column?: string }) =>
+    http
+      .get<StatResult>(
+        `/app/${deploymentId}/api/tables/${encodeURIComponent(table)}/stat`,
+        { params },
+      )
+      .then((r) => r.data),
+};
+
+export interface ShareLink {
+  id: number;
+  token: string;
+  role: "admin" | "operator";
+  menu_ids: number[];
+  created_by: number;
+  created_by_display: string;
+  created_at: string;
+}
+
+export interface ShareLinksPayload {
+  links: ShareLink[];
+  menus: { id: number; label: string; parent_id: number | null }[];
+  public_pages: { id: number; title: string }[];
+}
+
+export interface ShareAcceptResult {
+  deployment_id: number;
+  entry_path: string;
+  biz_name: string;
+  role: string;
+}
+
+export const ShareApi = {
+  /** 分享链接列表 + 可选菜单 + 公开页（创建人独有 DR-14）。 */
+  list: (deploymentId: number) =>
+    http
+      .get<ShareLinksPayload>(`/deployments/${deploymentId}/share-links`)
+      .then((r) => r.data),
+  create: (deploymentId: number, payload: { role: "admin" | "operator"; menu_ids?: number[] }) =>
+    http
+      .post<ShareLink>(`/deployments/${deploymentId}/share-links`, payload)
+      .then((r) => r.data),
+  revoke: (deploymentId: number, linkId: number) =>
+    http
+      .delete<{ ok: boolean }>(`/deployments/${deploymentId}/share-links/${linkId}`)
+      .then((r) => r.data),
+  /** 进入分享链接即绑定为该部署成员（需登录）。 */
+  accept: (token: string) =>
+    http
+      .post<ShareAcceptResult>(`/share/${encodeURIComponent(token)}/accept`)
+      .then((r) => r.data),
+};
+
+// ---------- M3-8 API 开放（DR-11） ----------
+export interface ApiKeyItem {
+  id: number;
+  name: string;
+  prefix: string;
+  masked: string;
+  status: string;
+  created_by: number;
+  created_by_display: string;
+  created_at: string;
+  last_used_at: string;
+}
+
+export interface ApiKeyCreated {
+  id: number;
+  name: string;
+  key: string;
+  prefix: string;
+  status: string;
+}
+
+export const ApiKeyApi = {
+  /** 密钥清单（掩码回读，创建人独有）。 */
+  list: (deploymentId: number) =>
+    http
+      .get<{ keys: ApiKeyItem[] }>(`/deployments/${deploymentId}/api-keys`)
+      .then((r) => r.data.keys),
+  /** 发放密钥：明文仅此响应回显一次。 */
+  create: (deploymentId: number, name: string) =>
+    http
+      .post<ApiKeyCreated>(`/deployments/${deploymentId}/api-keys`, { name })
+      .then((r) => r.data),
+  /** 吊销密钥：立即失效。 */
+  revoke: (deploymentId: number, keyId: number) =>
+    http
+      .delete<{ ok: boolean }>(`/deployments/${deploymentId}/api-keys/${keyId}`)
+      .then((r) => r.data),
+  /** M3-8 试调用：原样返回 HTTP 状态与响应体（会话 / X-API-Key / Bearer 三种方式）。 */
+  tryRows: (
+    deploymentId: number,
+    table: string,
+    opts: { mode: "session" | "key" | "bearer"; key?: string },
+  ) => {
+    const headers: Record<string, string> = {};
+    const key = (opts.key || "").trim();
+    if (key && opts.mode === "key") headers["X-API-Key"] = key;
+    else if (key && opts.mode === "bearer") headers["Authorization"] = `Bearer ${key}`;
+    return rawHttp
+      .get<unknown>(`/app/${deploymentId}/api/tables/${encodeURIComponent(table)}/rows`, {
+        params: { page_size: 3 },
+        headers,
+        validateStatus: () => true,
+      })
+      .then((r) => ({ status: r.status, body: r.data }));
+  },
+};
+
+// ---------- 认证 ----------
+export interface CurrentUser {
+  id: number;
+  username: string;
+  display_name: string;
+  is_platform_admin: boolean;
+}
+
+export interface AuthApi {
+  login: (payload: { username: string; password: string }) => Promise<CurrentUser>;
+  logout: () => Promise<void>;
+  me: () => Promise<CurrentUser>;
+  setupStatus: () => Promise<{
+    needs_setup: boolean;
+    llm_configured: boolean;
+    user_count: number;
+  }>;
+  bootstrap: () => Promise<{ created?: string[]; skipped?: boolean; [k: string]: unknown }>;
+  setup: (payload: {
+    username: string;
+    password: string;
+    display_name?: string;
+    llm?: { name?: string; base_url?: string; api_key?: string; model_name?: string };
+  }) => Promise<{ id: number; username: string; llm_configured: boolean }>;
+  listUsers: () => Promise<CurrentUser[]>;
+  createUser: (payload: {
+    username: string;
+    password: string;
+    display_name?: string;
+    is_platform_admin?: boolean;
+  }) => Promise<CurrentUser>;
+  updateUser: (
+    id: number,
+    payload: { display_name?: string; password?: string; is_platform_admin?: boolean },
+  ) => Promise<CurrentUser>;
+}
+
+export type ColumnOp =
+  | { action: "add"; name: string; biz_name?: string; type: string; length?: number | null }
+  | { action: "drop"; name: string }
+  | { action: "rename"; name: string; new_name: string }
+  | { action: "change_type"; name: string; type: string; length?: number | null };
+
+// ---------- 工具 ----------
+/** M3-6：把 JSON 数据下载为文件（离线可打开）。 */
+export function downloadJson(filename: string, data: unknown): void {
+  const blob = new Blob([JSON.stringify(data, null, 2)], {
+    type: "application/json;charset=utf-8",
+  });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+// 列表接口统一校验：后端未正确运行 / 被网关返回 HTML 或错误对象时，
+// 抛出可读错误交给页面 catch 提示，避免渲染层 .find/.map 直接白屏。
+function ensureArray<T>(data: unknown, what: string): T[] {
+  if (!Array.isArray(data)) {
+    throw new Error(`${what}返回数据格式异常（应为数组），请确认后端服务已正确启动`);
+  }
+  return data;
+}
+
+// ---------- 结构演化（0.11.0 M5-A） ----------
+export interface NewTableColumnSpec {
+  name: string;
+  biz_name?: string;
+  type: string;
+  length?: number | null;
+  nullable?: boolean;
+  is_pk?: boolean;
+  autoincrement?: boolean;
+  unique?: boolean;
+  is_fk?: boolean;
+  ref_table?: string | null;
+  ref_column?: string | null;
+  is_ownership?: boolean;
+}
+
+export interface NewTableSpec {
+  name: string;
+  biz_name?: string;
+  columns: NewTableColumnSpec[];
+  indexes?: number[][];
+  biz_notes?: string;
+}
+
+export interface AddTableProposal {
+  table: string;
+  biz_name: string;
+  columns: FieldColumn[];
+  relations: { column: string; ref_table: string | null; ref_column: string | null }[];
+  statements: string[];
+  pages: { kind: string; access: string; title: string }[];
+  valid: boolean;
+}
+
+export interface DropImpact {
+  table: string;
+  biz_name: string;
+  row_count: number;
+  referenced_by: { table: string; column: string }[];
+  pages: { id: number; title: string; kind: string }[];
+  menus: { id: number; label: string }[];
+  grants: number;
+  flows: string[];
+  reports: string[];
+  seeds: number;
+  blocked: boolean;
+  reason: string;
+}
+
+// ---------- 部署 ----------
+export const DeployApi = {
+  list: () =>
+    http.get<Deployment[]>("/deployments").then((r) => ensureArray<Deployment>(r.data, "部署清单")),
+  preview: (description: string) =>
+    // LLM 生成结构实测 20s+，自检重试最多 3 次（每次服务端上限 60s），
+    // 前端 30s 默认超时会在正常耗时内误报 timeout，此处放宽到 240s。
+    http.post<Proposal>("/deployments/preview", { description }, { timeout: 240_000 })
+      .then((r) => r.data),
+  confirm: (payload: {
+    spec_json: Record<string, unknown>;
+    biz_name: string;
+    description: string;
+    seed_data: boolean;
+    mode?: "create" | "link";
+    connection_id?: number;
+    target_connection_id?: number;
+  }) => http.post<DeployResult>("/deployments/confirm", payload).then((r) => r.data),
+  tables: (id: number) =>
+    http.get<TableInfo[]>(`/deployments/${id}/tables`).then((r) => ensureArray<TableInfo>(r.data, "数据表")),
+  rows: (
+    id: number,
+    table: string,
+    params: { page?: number; page_size?: number; sort?: string; order?: string; search?: string },
+  ) =>
+    http
+      .get<RowPage>(`/deployments/${id}/tables/${encodeURIComponent(table)}/rows`, { params })
+      .then((r) => r.data),
+  blueprint: (id: number) =>
+    http.get<TableBlueprint[]>(`/deployments/${id}/blueprint`).then((r) => ensureArray<TableBlueprint>(r.data, "字段蓝图")),
+  /** M2-8：结构变更 diff 提案（只算不执行；确认仍走 alterColumns 落地）。 */
+  proposeStructure: (id: number, table: string, ops: ColumnOp[]) =>
+    http
+      .post<StructureProposal>(`/deployments/${id}/structure/propose`, { table, ops })
+      .then((r) => r.data),
+  alterColumns: (id: number, table: string, ops: ColumnOp[]) =>
+    http
+      .post<{ name: string; columns: FieldColumn[]; statements?: string[] }>(
+        `/deployments/${id}/tables/${encodeURIComponent(table)}/columns`,
+        { ops },
+      )
+      .then((r) => r.data),
+  /** 0.11.0 M5-A：增表提案 / 确认（创建模式自建库；直连模式拒绝）。 */
+  proposeAddTable: (id: number, spec: NewTableSpec) =>
+    http
+      .post<AddTableProposal>(`/deployments/${id}/tables/propose`, { spec })
+      .then((r) => r.data),
+  applyAddTable: (id: number, spec: NewTableSpec) =>
+    http
+      .post<{ table: string; page_id: number; menu_id: number; statements: string[] }>(
+        `/deployments/${id}/tables/apply`,
+        { spec },
+      )
+      .then((r) => r.data),
+  /** 0.11.0 M5-A：删表影响面 / 确认。 */
+  proposeDropTable: (id: number, table: string) =>
+    http
+      .post<DropImpact>(`/deployments/${id}/tables/${encodeURIComponent(table)}/drop/propose`)
+      .then((r) => r.data),
+  dropTable: (id: number, table: string) =>
+    http
+      .post<{ dropped: boolean; table: string; cascade: Record<string, number> }>(
+        `/deployments/${id}/tables/${encodeURIComponent(table)}/drop`,
+        { confirm: table },
+      )
+      .then((r) => r.data),
+  /** M3-1：生命周期 停止/再启动（创建人独有） */
+  stop: (id: number) =>
+    http.post<DeployResult>(`/deployments/${id}/stop`).then((r) => r.data),
+  start: (id: number) =>
+    http.post<DeployResult>(`/deployments/${id}/start`).then((r) => r.data),
+  /** DR-08：一键清空演示数据（创建人/管理员）；只删种子行、不动真实数据。 */
+  clearSeed: (id: number) =>
+    http
+      .post<{ deployment_id: number; deleted: number; failed: number; tables: number; already_empty: boolean }>(
+        `/deployments/${id}/seed/clear`,
+      )
+      .then((r) => r.data),
+  /** M3-6：导出配置包（部署元信息 + 表/页面/菜单/流程 + crud_configs + 全量日志）。 */
+  exportPackage: (id: number) =>
+    http.get<DeploymentExport>(`/deployments/${id}/export`).then((r) => r.data),
+  /** M3-7：销毁部署（创建人独有）；创建模式连物理库一起清，直连模式只清元数据。 */
+  destroy: (id: number) =>
+    http
+      .post<{
+        deployment_id: number;
+        biz_name: string;
+        data_mode: string;
+        destroyed: boolean;
+        db_file_removed: boolean;
+        external_preserved: boolean;
+      }>(`/deployments/${id}/destroy`)
+      .then((r) => r.data),
+};
+
+// ---------- 混合建库（M6 / 0.12.0，DR-34~39） ----------
+export interface SkeletonRelation {
+  to_table: string;
+  note?: string;
+}
+
+export interface SkeletonTableJson {
+  name: string;
+  biz_name?: string;
+  biz_notes?: string;
+  relations?: SkeletonRelation[];
+}
+
+export interface SkeletonJson {
+  biz_notes: string;
+  tables: SkeletonTableJson[];
+}
+
+export interface SkeletonColumn {
+  name: string;
+  biz_name?: string;
+  type: string;
+  length?: number | null;
+  nullable?: boolean;
+  unique?: boolean;
+  is_pk?: boolean;
+  autoincrement?: boolean;
+  is_fk?: boolean;
+  ref_table?: string | null;
+  ref_column?: string | null;
+  is_ownership?: boolean;
+}
+
+export interface SkeletonProposeResult {
+  biz_notes: string;
+  attempts: number;
+  skeleton_json: SkeletonJson;
+  columns: Record<string, SkeletonColumn[]>;
+}
+
+export interface SkeletonColumnsResult {
+  table: string;
+  attempts: number;
+  columns: SkeletonColumn[];
+  unguided_tables: string[];
+}
+
+export interface SkeletonMergeResult {
+  biz_notes: string;
+  table_count: number;
+  spec_json: Record<string, unknown>;
+}
+
+export interface MergeIssue {
+  table?: string | null;
+  column?: string | null;
+  message: string;
+}
+
+/** 混合建库两段式接口（仅创建模式；link 由后端 400 拒绝，DR-39）。 */
+export const SkeletonApi = {
+  propose: (description: string, mode: "create" | "link" = "create") =>
+    http
+      .post<SkeletonProposeResult>(
+        "/deployments/skeleton/propose",
+        { description, mode },
+        { timeout: 240_000 },
+      )
+      .then((r) => r.data),
+  columns: (
+    table: string,
+    payload: {
+      skeleton: SkeletonJson;
+      nl: string;
+      mode?: "overwrite" | "append";
+      existing_columns?: SkeletonColumn[];
+      guided_tables?: string[];
+    },
+  ) =>
+    http
+      .post<SkeletonColumnsResult>(
+        `/deployments/skeleton/tables/${encodeURIComponent(table)}/columns`,
+        payload,
+        { timeout: 240_000 },
+      )
+      .then((r) => r.data),
+  merge: (skeleton: SkeletonJson, columns: Record<string, SkeletonColumn[]>) =>
+    http
+      .post<SkeletonMergeResult>("/deployments/skeleton/merge", { skeleton, columns })
+      .then((r) => r.data),
+};
+
+// ---------- 专业建库（M8 / 0.14.0，DR-41~45） ----------
+export type ManualDialect = "sqlite" | "mysql" | "postgresql";
+
+export interface ManualColumnSpec {
+  name: string;
+  biz_name?: string;
+  type: string;
+  length?: number | null;
+  nullable?: boolean;
+  default?: string | number | boolean | null;
+  is_pk?: boolean;
+  autoincrement?: boolean;
+  unique?: boolean;
+  is_fk?: boolean;
+  ref_table?: string | null;
+  ref_column?: string | null;
+  is_ownership?: boolean;
+}
+
+export interface ManualTableSpec {
+  name: string;
+  biz_name?: string;
+  columns: ManualColumnSpec[];
+  indexes?: string[][];
+  biz_notes?: string;
+}
+
+export interface ManualSchemaSpec {
+  tables: ManualTableSpec[];
+  biz_notes?: string;
+}
+
+export interface ManualParseResult {
+  dialect: ManualDialect;
+  table_count: number;
+  spec_json: ManualSchemaSpec;
+}
+
+/** 专业建库：CREATE TABLE 解析为结构提案（不执行、不落库、不调 LLM，DR-42）。 */
+export const ManualApi = {
+  parseSql: (payload: {
+    sql: string;
+    dialect: ManualDialect;
+    mode?: "create";
+    target_connection_id?: number;
+  }) =>
+    http
+      .post<ManualParseResult>("/deployments/manual/sql/parse", payload)
+      .then((r) => r.data),
+};
+
+// ---------- 模型 ----------
+export const ModelsApi = {
+  list: () =>
+    http.get<LlmModel[]>("/settings/models").then((r) => ensureArray<LlmModel>(r.data, "模型列表")),
+  create: (data: Partial<LlmModel> & { api_key: string }) =>
+    http.post<LlmModel>("/settings/models", data).then((r) => r.data),
+  update: (id: number, data: Partial<LlmModel>) =>
+    http.put<LlmModel>(`/settings/models/${id}`, data).then((r) => r.data),
+  remove: (id: number) => http.delete(`/settings/models/${id}`),
+  setDefault: (id: number) =>
+    http.post<LlmModel>(`/settings/models/${id}/default`).then((r) => r.data),
+  test: (id: number) =>
+    http.post<{ ok: boolean; reply?: unknown; error?: string }>(
+      `/settings/models/${id}/test`,
+    ).then((r) => r.data),
+};
+
+// ---------- 直连模式（M2-7） ----------
+export const LinkApi = {
+  connections: () =>
+    http
+      .get<Connection[]>("/deployments/link/connections")
+      .then((r) => ensureArray<Connection>(r.data, "可直连连接列表")),
+  inventory: (connectionId: number) =>
+    http
+      .post<LinkTableInventory[]>("/deployments/link/inventory", { connection_id: connectionId })
+      .then((r) => ensureArray<LinkTableInventory>(r.data, "表清单")),
+  select: (connectionId: number, purpose: string) =>
+    http
+      .post<LinkSelection>("/deployments/link/select", {
+        connection_id: connectionId,
+        purpose,
+      })
+      .then((r) => r.data),
+  preview: (payload: {
+    connection_id: number;
+    tables: string[];
+    purpose?: string;
+    enhance?: boolean;
+  }) =>
+    http
+      .post<LinkProposal>("/deployments/link/preview", payload, { timeout: 120_000 })
+      .then((r) => r.data),
+};
+
+// ---------- 连接 ----------
+export const ConnectionsApi = {
+  list: () =>
+    http.get<Connection[]>("/settings/connections").then((r) => ensureArray<Connection>(r.data, "连接列表")),
+  create: (data: Record<string, unknown>) =>
+    http.post<Connection>("/settings/connections", data).then((r) => r.data),
+  remove: (id: number) => http.delete(`/settings/connections/${id}`),
+  test: (id: number) =>
+    http.post<{ ok: boolean; status?: string; error?: string }>(
+      `/settings/connections/${id}/test`,
+    ).then((r) => r.data),
+};
+
+// ---------- Redis ----------
+export const RedisApi = {
+  get: () => http.get<RedisConfig>("/settings/redis").then((r) => r.data),
+  save: (data: Partial<RedisConfig>) =>
+    http.put<RedisConfig>("/settings/redis", data).then((r) => r.data),
+  test: () =>
+    http.post<{ ok: boolean; version?: string; error?: string }>(
+      "/settings/redis/test",
+    ).then((r) => r.data),
+};
+
+// ---------- 认证 ----------
+export const AuthApi: AuthApi = {
+  login: (payload) =>
+    http.post<CurrentUser>("/auth/login", payload).then((r) => r.data),
+  logout: () =>
+    http.post("/auth/logout").then(() => {
+      /* noop */
+    }),
+  me: () => http.get<CurrentUser>("/auth/me").then((r) => r.data),
+  setupStatus: () =>
+    http.get<{ needs_setup: boolean; llm_configured: boolean; user_count: number }>(
+      "/auth/setup-status",
+    ).then((r) => r.data),
+  bootstrap: () =>
+    http.post<{ created?: string[]; skipped?: boolean; [k: string]: unknown }>(
+      "/auth/bootstrap",
+    ).then((r) => r.data),
+  setup: (payload) =>
+    http.post<{ id: number; username: string; llm_configured: boolean }>(
+      "/auth/setup", payload).then((r) => r.data),
+  listUsers: () =>
+    http.get<CurrentUser[]>("/auth/users").then((r) => ensureArray<CurrentUser>(r.data, "用户列表")),
+  createUser: (payload) =>
+    http.post<CurrentUser>("/auth/users", payload).then((r) => r.data),
+  updateUser: (id, payload) =>
+    http.put<CurrentUser>(`/auth/users/${id}`, payload).then((r) => r.data),
+};

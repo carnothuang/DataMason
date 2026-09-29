@@ -11,15 +11,15 @@ import httpx
 import pytest
 from pydantic import ValidationError
 
-from server.ddl.skeleton import (
+from datamason.ddl.skeleton import (
     SchemaSkeleton,
     SkeletonMergeError,
     SkeletonTable,
     map_relations_to_columns,
     merge_skeleton_columns,
 )
-from server.llm.client import LlmCallError, LlmConfig, OpenAiCompatibleClient
-from server.llm.structure import generate_skeleton, generate_table_columns
+from datamason.llm.client import LlmCallError, LlmConfig, OpenAiCompatibleClient
+from datamason.llm.structure import generate_skeleton, generate_table_columns
 
 SKELETON = {
     "biz_notes": "客户与订单",

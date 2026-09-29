@@ -9,10 +9,10 @@ import json
 
 import pytest
 
-from server.forms import service as form_service
-from server.forms.service import FormConfigError
-from server.llm.client import LlmCallError
-from server.models import AiGeneration, FormFieldConfig, TableSpec
+from datamason.forms import service as form_service
+from datamason.forms.service import FormConfigError
+from datamason.llm.client import LlmCallError
+from datamason.models import AiGeneration, FormFieldConfig, TableSpec
 
 COLUMNS = [
     {"name": "id", "biz_name": "编号", "type": "INTEGER", "is_pk": True, "nullable": False},
@@ -37,7 +37,7 @@ class FakeLlm:
 
 
 def _seed(app) -> int:
-    from server.models import Deployment
+    from datamason.models import Deployment
 
     Session = app.extensions["datamason_session_factory"]
     with Session() as s:
@@ -52,7 +52,7 @@ def _seed(app) -> int:
 
 def _patch(monkeypatch, llm):
     monkeypatch.setattr(
-        "server.settings.service.get_default_llm_client", lambda _app: llm)
+        "datamason.settings.service.get_default_llm_client", lambda _app: llm)
 
 
 def test_generate_dedup_and_record(app, monkeypatch):
@@ -86,7 +86,7 @@ def test_generate_failure_records_and_reraises(app, monkeypatch):
 def test_not_configured_raises(app, monkeypatch):
     did = _seed(app)
     monkeypatch.setattr(
-        "server.settings.service.get_default_llm_client", lambda _app: None)
+        "datamason.settings.service.get_default_llm_client", lambda _app: None)
     with pytest.raises(FormConfigError):
         form_service.generate_option_items(
             app, field_label="订单状态", description="x", deployment_id=did)
@@ -104,8 +104,8 @@ def test_generation_does_not_write_config(app, monkeypatch):
 
 
 def test_generate_route(app, monkeypatch):
-    from server.auth.service import hash_password
-    from server.models import User
+    from datamason.auth.service import hash_password
+    from datamason.models import User
 
     Session = app.extensions["datamason_session_factory"]
     with Session() as s:

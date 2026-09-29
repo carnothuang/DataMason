@@ -31,14 +31,14 @@ WRAPPER = """\
 import os, sys
 from pathlib import Path
 ROOT = Path(r"{root}")
-sys.path.insert(0, str(ROOT))
+sys.path.insert(0, str(ROOT / "src"))
 import tempfile as _tf
 os.environ.setdefault("DATAMASON_ADMIN_USERNAME", "admin")
 os.environ.setdefault("DATAMASON_ADMIN_PASSWORD", "admin123")
 os.environ.setdefault("DATAMASON_E2E_LLM_STUB", "1")
 ws = Path(os.environ["DATAMASON_M31_WORKSPACE"])
-from server.app import create_app
-from server.config import Config
+from datamason.app import create_app
+from datamason.config import Config
 app = create_app(Config(
     meta_db_uri=f"sqlite:///{{ws/'meta.db'}}",
     data_root=str(ws / "data"),

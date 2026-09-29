@@ -8,7 +8,7 @@ from __future__ import annotations
 import pytest
 from sqlalchemy import inspect
 
-from server.dataaccess.manager import (
+from datamason.dataaccess.manager import (
     DataAccessError,
     check_connection,
     create_database_ddl,

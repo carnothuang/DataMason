@@ -14,8 +14,8 @@ from __future__ import annotations
 
 import pytest
 
-from server.auth.service import hash_password
-from server.models import ActivityLog, DeploymentMember, DeploymentMenu, FlowSpec, PageSpec, User
+from datamason.auth.service import hash_password
+from datamason.models import ActivityLog, DeploymentMember, DeploymentMenu, FlowSpec, PageSpec, User
 
 FLOW_SPEC = {
     "biz_notes": "入库流程：收货登记 → 质检 → 入库确认",
@@ -49,7 +49,7 @@ class FakeLlm:
 @pytest.fixture()
 def patch_llm(monkeypatch):
     monkeypatch.setattr(
-        "server.settings.service.get_default_llm_client",
+        "datamason.settings.service.get_default_llm_client",
         lambda _app: FakeLlm(),
     )
     yield
@@ -310,7 +310,7 @@ def test_flow_operator_visible_after_grant(app, env, patch_llm):
     # 未授权的另一个操作员 → 403（DR-02 功能级裁剪）
     op2_id = _mk_user(app, "op2")
     with _session(app) as s:
-        from server.models import DeploymentMenu as _DM
+        from datamason.models import DeploymentMenu as _DM
         s.add(DeploymentMember(deployment_id=did, user_id=op2_id, role="operator"))
         s.add(_DM(deployment_id=did, label="其他", kind="table"))
         s.commit()
@@ -381,7 +381,7 @@ def test_flow_advance_writes_two_phase_flow_log(app, env, patch_llm):
 
 def test_flow_advance_pending_reconcile(app, env, patch_llm):
     """DR-03 两阶段：流程推进崩溃后，启动对账按边界记录状态收尾/丢弃。"""
-    from server.audit.service import AuditSession, reconcile_pending
+    from datamason.audit.service import AuditSession, reconcile_pending
 
     did = _deploy(env["client"])
     flow = _make_flow(env, did)

@@ -1,0 +1,92 @@
+/* 侧栏垂直拖拽边（移植自 WorkMason RailEdgeControl.module.less） */
+.dm-rail {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 16px;
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: auto;
+}
+
+.dm-rail--end {
+  right: -8px;
+}
+
+.dm-rail--start {
+  left: -8px;
+}
+
+.dm-rail--collapsed {
+  width: 12px;
+}
+
+.dm-rail__line {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 50%;
+  width: 1px;
+  transform: translateX(-50%);
+  background: var(--fn-border-primary);
+  transition: background 0.15s ease, opacity 0.15s ease;
+  pointer-events: none;
+}
+
+.dm-rail__btn {
+  position: absolute;
+  top: 50%;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 36px;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  color: var(--fn-text-tertiary);
+  box-shadow: none;
+  cursor: pointer;
+  opacity: 0;
+  transform: translateY(-50%) scale(0.96);
+  transition: opacity 0.15s ease, transform 0.15s ease, color 0.15s ease;
+  padding: 0;
+}
+
+.dm-rail:hover .dm-rail__btn {
+  opacity: 1;
+  transform: translateY(-50%) scale(1);
+}
+
+.dm-rail:hover .dm-rail__line {
+  background: var(--fn-color-brand);
+  opacity: 0.55;
+}
+
+.dm-rail__btn:hover {
+  color: var(--fn-text-primary);
+}
+
+.dm-rail__btn:focus-visible {
+  outline: 2px solid var(--fn-color-brand);
+  outline-offset: 1px;
+  opacity: 1;
+}
+
+.dm-rail__chevron {
+  display: block;
+  flex-shrink: 0;
+}
+
+.dm-rail--expanded .dm-rail__btn {
+  right: calc(50% + 1px);
+  left: auto;
+}
+
+.dm-rail--collapsed .dm-rail__btn {
+  left: calc(50% + 1px);
+  right: auto;
+}

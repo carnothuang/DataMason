@@ -11,8 +11,8 @@ from __future__ import annotations
 
 import pytest
 
-from server.auth.service import hash_password
-from server.models import ActivityLog, Deployment, DeploymentMember, User
+from datamason.auth.service import hash_password
+from datamason.models import ActivityLog, Deployment, DeploymentMember, User
 
 GUESTBOOK_SPEC = {
     "biz_notes": "访客留言",
@@ -46,7 +46,7 @@ class FakeLlm:
 @pytest.fixture()
 def patch_llm(monkeypatch):
     monkeypatch.setattr(
-        "server.settings.service.get_default_llm_client",
+        "datamason.settings.service.get_default_llm_client",
         lambda _app: FakeLlm(),
     )
     yield
@@ -219,11 +219,11 @@ def test_frontend_logs_action_meta_covers_system_actions():
     """
     from pathlib import Path
 
-    from server.audit.service import SYSTEM_ACTIONS
+    from datamason.audit.service import SYSTEM_ACTIONS
 
     src = (
         Path(__file__).resolve().parent.parent
-        / "web" / "src" / "pages" / "workspace" / "LogsPage.tsx"
+        / "dashboard" / "src" / "pages" / "workspace" / "LogsPage.tsx"
     ).read_text(encoding="utf-8")
     meta = src.split("export const ACTION_META", 1)[1].split("};", 1)[0]
     missing = [a for a in SYSTEM_ACTIONS if f"{a}:" not in meta]

@@ -17,8 +17,8 @@ from pathlib import Path
 import pytest
 from sqlalchemy import create_engine, inspect, text
 
-from server.auth.service import hash_password
-from server.models import Deployment, DeploymentMember, User
+from datamason.auth.service import hash_password
+from datamason.models import Deployment, DeploymentMember, User
 
 GUESTBOOK_SPEC = {
     "biz_notes": "留言",
@@ -117,7 +117,7 @@ def admin(app, client):
 @pytest.fixture()
 def patch_llm(monkeypatch):
     monkeypatch.setattr(
-        "server.settings.service.get_default_llm_client",
+        "datamason.settings.service.get_default_llm_client",
         lambda _app: FakeLlm(GUESTBOOK_SPEC),
     )
     yield
@@ -126,7 +126,7 @@ def patch_llm(monkeypatch):
 @pytest.fixture()
 def patch_llm_inv(monkeypatch):
     monkeypatch.setattr(
-        "server.settings.service.get_default_llm_client",
+        "datamason.settings.service.get_default_llm_client",
         lambda _app: FakeLlm(INVENTORY_SPEC),
     )
     yield
@@ -251,17 +251,17 @@ def test_propose_statements_match_confirm_apply(app, client, admin, patch_llm):
     # 落库：schema 更新 + 蓝图回写
     assert "email" in _inspect_cols(eng, "messages")
     with _session(app) as s:
-        spec = s.query(__import__("server.models", fromlist=["TableSpec"]).TableSpec) \
+        spec = s.query(__import__("datamason.models", fromlist=["TableSpec"]).TableSpec) \
             .filter_by(deployment_id=did, name="messages").one()
         cols = {c["name"]: c for c in json.loads(spec.columns_json)}
         assert cols["email"]["biz_name"] == "邮箱"
 
     # 结构动作写操作日志（审计闭环）
     with _session(app) as s:
-        log = (s.query(__import__("server.models", fromlist=["ActivityLog"]).ActivityLog)
+        log = (s.query(__import__("datamason.models", fromlist=["ActivityLog"]).ActivityLog)
                .filter_by(deployment_id=did, action="structure",
                           object_kind="table", object_table="messages")
-               .order_by(__import__("server.models", fromlist=["ActivityLog"]).ActivityLog.id.desc())
+               .order_by(__import__("datamason.models", fromlist=["ActivityLog"]).ActivityLog.id.desc())
                .first())
         assert log is not None
         assert {"action": "add", "name": "email"} in log.changes.get("ops", [])
@@ -347,7 +347,7 @@ def _snapshot(db_path: str):
 # ---------------- 蓝图数据：多表导航 + ER 指向 ----------------
 
 def test_blueprint_returns_all_tables_and_fk_edges(app, client, admin, patch_llm_inv):
-    from server.ddl.table_spec import SchemaSpec
+    from datamason.ddl.table_spec import SchemaSpec
 
     SchemaSpec.model_validate(INVENTORY_SPEC)
     did = _deploy_with_spec(client, INVENTORY_SPEC, "进销存蓝图")

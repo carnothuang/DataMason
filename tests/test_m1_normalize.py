@@ -1,8 +1,8 @@
 """审计归属列归一化：真实模型常自带 created_at/created_by，解析前静默剥离。"""
 from __future__ import annotations
 
-from server.llm.structure import _normalize_ownership_columns
-from server.ddl.table_spec import SchemaSpec
+from datamason.llm.structure import _normalize_ownership_columns
+from datamason.ddl.table_spec import SchemaSpec
 
 
 def test_normalize_strips_pure_audit_columns():

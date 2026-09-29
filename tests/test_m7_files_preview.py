@@ -5,7 +5,7 @@
 """
 from __future__ import annotations
 
-from server.app import anchor_path, anchor_sqlite_uri
+from datamason.app import anchor_path, anchor_sqlite_uri
 
 
 def test_anchor_path_relative(tmp_path):
@@ -41,8 +41,8 @@ def test_default_app_config_paths_are_absolute(app):
 
 def test_preview_missing_file_returns_404(app):
     """附件记录存在但磁盘文件缺失 → 404（可读提示），不得 500。"""
-    from server.auth.service import hash_password
-    from server.models import Attachment, Deployment, User
+    from datamason.auth.service import hash_password
+    from datamason.models import Attachment, Deployment, User
 
     Session = app.extensions["datamason_session_factory"]
     with Session() as s:

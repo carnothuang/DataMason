@@ -7,10 +7,10 @@ from __future__ import annotations
 
 import json
 
-from server.deploy import export as export_service
-from server.forms import service as form_service
-from server.models import PageSpec, TableSpec
-from server.public import service as public_service
+from datamason.deploy import export as export_service
+from datamason.forms import service as form_service
+from datamason.models import PageSpec, TableSpec
+from datamason.public import service as public_service
 
 COLUMNS = [
     {"name": "id", "biz_name": "编号", "type": "INTEGER", "is_pk": True, "nullable": False},
@@ -20,7 +20,7 @@ COLUMNS = [
 
 
 def _seed(app, running=True) -> tuple[int, int, int]:
-    from server.models import Deployment
+    from datamason.models import Deployment
 
     Session = app.extensions["datamason_session_factory"]
     with Session() as s:

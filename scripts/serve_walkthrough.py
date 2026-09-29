@@ -1,4 +1,4 @@
-"""本地功能走查/演示服务：waitress 正式 WSGI，托管 Flask API + web/dist 单页应用。
+"""本地功能走查/演示服务：waitress 正式 WSGI，托管 Flask API + dashboard/dist 单页应用。
 
 用法（项目根目录，managed venv）：
     python scripts/serve_walkthrough.py            # 0.0.0.0:8765
@@ -15,15 +15,15 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 os.chdir(ROOT)
-sys.path.insert(0, str(ROOT))
+sys.path.insert(0, str(ROOT / "src"))
 
 
 def main() -> int:
     port = int(sys.argv[1]) if len(sys.argv) > 1 else 8765
-    from server.app import create_app
+    from datamason.app import create_app
 
-    if not (ROOT / "web" / "dist" / "index.html").exists():
-        print("[serve] 未找到 web/dist，请先在 web/ 执行 npm run build", flush=True)
+    if not (ROOT / "dashboard" / "dist" / "index.html").exists():
+        print("[serve] 未找到 dashboard/dist，请先在 dashboard/ 执行 npm run build", flush=True)
 
     app = create_app()
     try:

@@ -121,7 +121,7 @@
 ## 四、轻微噪音（D 类，不影响落地，建议顺手修）
 
 - **D1** 表名不一致：§〇 称 `LlmModel`，§八 写 `llm_models`。统一为表名 `llm_models`（类 `LlmModel`）。
-- **D2** §九 目录树未列 `table_spec.py` 模块位置（§四 末尾引用了"对齐文件 table_spec.py"），建议补到 `server/meta/` 或 `server/llm/`。
+- **D2** §九 目录树未列 `table_spec.py` 模块位置（§四 末尾引用了"对齐文件 table_spec.py"），建议补到 `src/datamason/meta/` 或 `src/datamason/llm/`。
 - **D3** §八 `table_specs.status` 仅列 `(applied/...)`，与「提案留痕 / 草稿态仅会话内」表述轻微冲突；建议补 `draft` 或注释"提案态不落此表"。
 - **D4** 体验 §4.2 工程室左栏含「构建对象（蓝图/界面/流程）+ 已生成菜单」，技术路线 §七 称 left menu =「部署时生成的菜单树」——工程室态左栏界定略不同，建议统一"工程室左栏=构建对象树，展厅左栏=菜单树"。
 

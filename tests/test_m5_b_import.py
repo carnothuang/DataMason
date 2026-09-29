@@ -12,8 +12,8 @@ import io
 import pytest
 from openpyxl import load_workbook
 
-from server.auth.service import hash_password
-from server.models import ActivityLog, User
+from datamason.auth.service import hash_password
+from datamason.models import ActivityLog, User
 
 SPEC = {
     "biz_notes": "客户",
@@ -38,7 +38,7 @@ class FakeLlm:
 
 @pytest.fixture()
 def patch_llm(monkeypatch):
-    monkeypatch.setattr("server.settings.service.get_default_llm_client",
+    monkeypatch.setattr("datamason.settings.service.get_default_llm_client",
                         lambda _app: FakeLlm())
     yield
 

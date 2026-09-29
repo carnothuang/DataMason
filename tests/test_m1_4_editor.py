@@ -10,10 +10,10 @@ from pathlib import Path
 import pytest
 from sqlalchemy import create_engine, inspect, text
 
-from server.auth.service import hash_password
-from server.ddl.migration import build_migration
-from server.ddl.table_spec import TableSpecModel
-from server.models import Deployment, User
+from datamason.auth.service import hash_password
+from datamason.ddl.migration import build_migration
+from datamason.ddl.table_spec import TableSpecModel
+from datamason.models import Deployment, User
 
 # 留言板单表
 GUESTBOOK_SPEC = {
@@ -96,7 +96,7 @@ def admin(app, client):
 @pytest.fixture()
 def patch_llm(monkeypatch):
     monkeypatch.setattr(
-        "server.settings.service.get_default_llm_client",
+        "datamason.settings.service.get_default_llm_client",
         lambda _app: FakeLlm(GUESTBOOK_SPEC),
     )
     yield
@@ -105,7 +105,7 @@ def patch_llm(monkeypatch):
 @pytest.fixture()
 def patch_llm_inv(monkeypatch):
     monkeypatch.setattr(
-        "server.settings.service.get_default_llm_client",
+        "datamason.settings.service.get_default_llm_client",
         lambda _app: FakeLlm(INVENTORY_SPEC),
     )
     yield
@@ -344,7 +344,7 @@ def _guest_model():
 
 
 def test_mysql_add_drop_rename_change_sql():
-    from server.ddl.ddl_builder import inject_ownership_columns
+    from datamason.ddl.ddl_builder import inject_ownership_columns
     t = inject_ownership_columns(_guest_model())
     ops = [
         {"action": "add", "name": "email", "type": "VARCHAR", "length": 128},
@@ -365,7 +365,7 @@ def test_mysql_add_drop_rename_change_sql():
 
 
 def test_pg_add_drop_rename_change_sql():
-    from server.ddl.ddl_builder import inject_ownership_columns
+    from datamason.ddl.ddl_builder import inject_ownership_columns
     t = inject_ownership_columns(_guest_model())
     ops = [
         {"action": "drop", "name": "content"},
@@ -379,7 +379,7 @@ def test_pg_add_drop_rename_change_sql():
 
 
 def test_sqlite_add_uses_lightweight_alter():
-    from server.ddl.ddl_builder import inject_ownership_columns
+    from datamason.ddl.ddl_builder import inject_ownership_columns
     t = inject_ownership_columns(_guest_model())
     _final, stmts = build_migration(
         t, [{"action": "add", "name": "email", "type": "TEXT"}], [t], "sqlite"

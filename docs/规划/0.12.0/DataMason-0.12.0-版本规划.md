@@ -13,7 +13,7 @@
 
 ### 1.1 现状：一句话 → 全自动，一步到位
 
-当前创建模式（数据从零建）的链路（`server/deploy/service.py::preview/confirm` + `web/src/pages/deploy/DeployWizard.tsx`）：
+当前创建模式（数据从零建）的链路（`src/datamason/deploy/service.py::preview/confirm` + `dashboard/src/pages/deploy/DeployWizard.tsx`）：
 
 ```
 一句话描述 → LLM 一次生成完整 table_spec（表+字段+关系+页面）→ 只读提案卡 → 就这么部署
@@ -139,7 +139,7 @@ Step 4 确认落库 ── 骨架 + 各表字段合并为完整 SchemaSpec → �
 
 ### 3.5 交互式 ER 画布（前端核心，自研）
 
-在只读 `ErGraph` 基础上扩展为可交互组件 `ErCanvas`（`web/src/components/`）：
+在只读 `ErGraph` 基础上扩展为可交互组件 `ErCanvas`（`dashboard/src/components/`）：
 
 | 能力 | 说明 |
 |---|---|
@@ -151,7 +151,7 @@ Step 4 确认落库 ── 骨架 + 各表字段合并为完整 SchemaSpec → �
 
 ### 3.6 中间规格与合并（后端）
 
-**新增 pydantic 模型（`server/ddl/skeleton.py`）**：
+**新增 pydantic 模型（`src/datamason/ddl/skeleton.py`）**：
 
 ```python
 class RelationSpec(BaseModel):
@@ -177,7 +177,7 @@ class SchemaSkeleton(BaseModel):
 
 ### 3.7 落库：完全复用
 
-合并出的完整 `spec_json` 直接走既有 `POST /deployments/confirm`（`server/deploy/service.py::confirm`），页面派生（`_derive_pages`）、演示种子、菜单注册、入口注册全部沿用——混合模式**只改"造 spec 的过程"，不改"落库的过程"**。
+合并出的完整 `spec_json` 直接走既有 `POST /deployments/confirm`（`src/datamason/deploy/service.py::confirm`），页面派生（`_derive_pages`）、演示种子、菜单注册、入口注册全部沿用——混合模式**只改"造 spec 的过程"，不改"落库的过程"**。
 
 ---
 
@@ -185,15 +185,15 @@ class SchemaSkeleton(BaseModel):
 
 | 现有资产 | 混合模式复用方式 |
 |---|---|
-| `server/llm/structure.py::generate_schema` | 不直接复用整库生成；拆出骨架 prompt（新增 `generate_skeleton`）与字段级 prompt（新增 `generate_table_columns`，输入注入骨架上下文） |
-| `server/llm/client.py::chat_json` | 不变，两段式都走它 + pydantic 校验 + 重试回喂 |
-| `server/ddl/table_spec.py`（ColumnSpec/TableSpecModel/SchemaSpec） | 字段级与最终合并直接用；新增 `SchemaSkeleton` 作为骨架中间态 |
-| `web/src/components/ErGraph.tsx` | 扩展为可交互 `ErCanvas`（布局算法、节点/连线渲染复用） |
-| `web/src/pages/deploy/FieldEditor.tsx` / `NewTableModal.tsx` | 字段行编辑交互平移进 Step 3；「一句话生成单表」的做法（`preview` 取 `tables[0]`）被字段级接口取代 |
-| `web/src/pages/deploy/DeployWizard.tsx` | 入口增加模式选择；混合模式为向导内新增的四步面板 |
-| `server/deploy/service.py::confirm` / `_derive_pages` | 落库与页面派生零改动 |
-| `server/deploy/structure.py`（M5-A 增表） | 混合模式是"部署前草稿"，不落库，与其（已部署系统增表）互不影响 |
-| AI 生成历史（`server/ai/service.py`） | 两段式分别埋点 `kind=deploy`（骨架 ok/error、字段 ok/error），治理页可见 |
+| `src/datamason/llm/structure.py::generate_schema` | 不直接复用整库生成；拆出骨架 prompt（新增 `generate_skeleton`）与字段级 prompt（新增 `generate_table_columns`，输入注入骨架上下文） |
+| `src/datamason/llm/client.py::chat_json` | 不变，两段式都走它 + pydantic 校验 + 重试回喂 |
+| `src/datamason/ddl/table_spec.py`（ColumnSpec/TableSpecModel/SchemaSpec） | 字段级与最终合并直接用；新增 `SchemaSkeleton` 作为骨架中间态 |
+| `dashboard/src/components/ErGraph.tsx` | 扩展为可交互 `ErCanvas`（布局算法、节点/连线渲染复用） |
+| `dashboard/src/pages/deploy/FieldEditor.tsx` / `NewTableModal.tsx` | 字段行编辑交互平移进 Step 3；「一句话生成单表」的做法（`preview` 取 `tables[0]`）被字段级接口取代 |
+| `dashboard/src/pages/deploy/DeployWizard.tsx` | 入口增加模式选择；混合模式为向导内新增的四步面板 |
+| `src/datamason/deploy/service.py::confirm` / `_derive_pages` | 落库与页面派生零改动 |
+| `src/datamason/deploy/structure.py`（M5-A 增表） | 混合模式是"部署前草稿"，不落库，与其（已部署系统增表）互不影响 |
+| AI 生成历史（`src/datamason/ai/service.py`） | 两段式分别埋点 `kind=deploy`（骨架 ok/error、字段 ok/error），治理页可见 |
 | 归属列注入（`inject_ownership_columns`） | 字段级生成后与合并时统一注入，LLM 不产归属列（DR-05） |
 
 ---
@@ -204,12 +204,12 @@ class SchemaSkeleton(BaseModel):
 
 | 任务 | 内容 | 主要落点 | 验收（离线 + 真实） |
 |---|---|---|---|
-| **M6-0 地基** | `SchemaSkeleton`/`RelationSpec` 模型 + 骨架 prompt + 字段级 prompt + 合并器 `merge_skeleton_columns`；骨架与字段生成函数（含重试回喂） | `server/ddl/skeleton.py`（新）、`server/llm/structure.py` | pytest：骨架强校验（重名/关系悬空/自环拒绝）、字段级外键只指已存在表主键、合并后过 SchemaSpec 全校验 |
-| **M6-1 骨架后端** | `POST /deployments/skeleton/propose`（NL→骨架，relations→外键列占位，确定性映射）+ AI 埋点 | `server/deploy/routes.py`、`service.py` | pytest：语句确定性、LLM 失败回喂、映射后无重名列、埋点记录 |
-| **M6-2 字段级后端** | `POST /deployments/skeleton/tables/<name>/columns`（body: nl, mode=overwrite/append；注入骨架表清单）；未引导表识别 | `server/deploy/routes.py`、`service.py` | pytest：overwrite/append、外键悬空拒绝、append 冲突列处理、无字段表不可进入落库 |
-| **M6-3 交互式 ER 画布** | `ErCanvas`：节点增删/改名、连线增删（弹层定外键列名）、字段展开渲染、折叠；单一数据源草稿 state（useReducer） | `web/src/components/ErCanvas.tsx`（新） | 真浏览器：加表删表、画线删线、节点展开字段、折叠；前端 `tsc && build` 通过 |
-| **M6-4 混合向导前端** | DeployWizard 增加模式选择；四步面板（意图→骨架图示→逐表字段→全量确认）；字段行编辑（复用 FieldEditor 交互）；刷新前离开提示 | `web/src/pages/deploy/DeployWizard.tsx`、`web/src/pages/deploy/HybridBuilder.tsx`（新） | 真浏览器：完整四步可走通；未引导字段表被拦截提示 |
-| **M6-5 确认链路** | 骨架+字段合并为完整 spec → 复用 confirm；合并校验失败返回可读错误并定位回画布节点 | `server/deploy/service.py`、前端 Step 4 | pytest + 真浏览器：合并校验失败回画布修正→成功落库→工作台菜单出现 |
+| **M6-0 地基** | `SchemaSkeleton`/`RelationSpec` 模型 + 骨架 prompt + 字段级 prompt + 合并器 `merge_skeleton_columns`；骨架与字段生成函数（含重试回喂） | `src/datamason/ddl/skeleton.py`（新）、`src/datamason/llm/structure.py` | pytest：骨架强校验（重名/关系悬空/自环拒绝）、字段级外键只指已存在表主键、合并后过 SchemaSpec 全校验 |
+| **M6-1 骨架后端** | `POST /deployments/skeleton/propose`（NL→骨架，relations→外键列占位，确定性映射）+ AI 埋点 | `src/datamason/deploy/routes.py`、`service.py` | pytest：语句确定性、LLM 失败回喂、映射后无重名列、埋点记录 |
+| **M6-2 字段级后端** | `POST /deployments/skeleton/tables/<name>/columns`（body: nl, mode=overwrite/append；注入骨架表清单）；未引导表识别 | `src/datamason/deploy/routes.py`、`service.py` | pytest：overwrite/append、外键悬空拒绝、append 冲突列处理、无字段表不可进入落库 |
+| **M6-3 交互式 ER 画布** | `ErCanvas`：节点增删/改名、连线增删（弹层定外键列名）、字段展开渲染、折叠；单一数据源草稿 state（useReducer） | `dashboard/src/components/ErCanvas.tsx`（新） | 真浏览器：加表删表、画线删线、节点展开字段、折叠；前端 `tsc && build` 通过 |
+| **M6-4 混合向导前端** | DeployWizard 增加模式选择；四步面板（意图→骨架图示→逐表字段→全量确认）；字段行编辑（复用 FieldEditor 交互）；刷新前离开提示 | `dashboard/src/pages/deploy/DeployWizard.tsx`、`dashboard/src/pages/deploy/HybridBuilder.tsx`（新） | 真浏览器：完整四步可走通；未引导字段表被拦截提示 |
+| **M6-5 确认链路** | 骨架+字段合并为完整 spec → 复用 confirm；合并校验失败返回可读错误并定位回画布节点 | `src/datamason/deploy/service.py`、前端 Step 4 | pytest + 真浏览器：合并校验失败回画布修正→成功落库→工作台菜单出现 |
 | **M6-6 版本 E2E 验收** | 真浏览器混合模式剧本（描述→骨架图示→改关系→逐表 NL 字段→图上可见→改字段→部署→菜单出现）+ 独立验收报告 | `scripts/e2e/browser_e2e_m6.cjs`、`docs/验收/` | ≤5 分钟剧本通过；全量 pytest + 前端构建全绿 |
 
 **数量级参考**：M6 是**中等偏小**的次版本——单轨、复用面大（落库链路零改动、画布基于 ErGraph、字段编辑交互已有），主要增量在「两段式 LLM」与「交互式画布」。

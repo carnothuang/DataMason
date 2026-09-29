@@ -11,9 +11,9 @@ from __future__ import annotations
 
 import pytest
 
-from server.auth.service import hash_password
-from server.llm.client import Usage
-from server.models import AiGeneration, DeploymentMember, User
+from datamason.auth.service import hash_password
+from datamason.llm.client import Usage
+from datamason.models import AiGeneration, DeploymentMember, User
 
 SPEC = {
     "biz_notes": "留言板",
@@ -52,7 +52,7 @@ def fake_llm(monkeypatch):
             return FakeLlm().chat_json(sp, up)
 
     monkeypatch.setattr(
-        "server.settings.service.get_default_llm_client", lambda _app: _C())
+        "datamason.settings.service.get_default_llm_client", lambda _app: _C())
     yield
 
 

@@ -3,8 +3,8 @@ from __future__ import annotations
 
 import pytest
 
-from server.auth.service import hash_password
-from server.models import User
+from datamason.auth.service import hash_password
+from datamason.models import User
 
 SKELETON = {
     "biz_notes": "客户与订单",

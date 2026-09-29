@@ -7,8 +7,8 @@ from __future__ import annotations
 
 import pytest
 
-from server.auth.service import hash_password
-from server.models import AiGeneration, User
+from datamason.auth.service import hash_password
+from datamason.models import AiGeneration, User
 
 SKELETON = {
     "biz_notes": "客户、订单与明细",
@@ -67,7 +67,7 @@ def patch_llm(monkeypatch):
     def _client_for(_app):
         return holder["fn"]()
 
-    monkeypatch.setattr("server.settings.service.get_default_llm_client", _client_for)
+    monkeypatch.setattr("datamason.settings.service.get_default_llm_client", _client_for)
     return lambda fn: holder.__setitem__("fn", fn)
 
 
@@ -116,7 +116,7 @@ def test_propose_skeleton_requires_description(app, client, admin, patch_llm):
 
 
 def test_propose_skeleton_without_llm_config(app, client, admin, monkeypatch):
-    monkeypatch.setattr("server.settings.service.get_default_llm_client",
+    monkeypatch.setattr("datamason.settings.service.get_default_llm_client",
                         lambda _app: None)
     resp = client.post("/api/v1/deployments/skeleton/propose",
                        json={"description": "客户下单"})

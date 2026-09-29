@@ -6,8 +6,8 @@ from __future__ import annotations
 
 import pytest
 
-from server.auth.service import hash_password
-from server.models import Deployment, User
+from datamason.auth.service import hash_password
+from datamason.models import Deployment, User
 
 LINKED_SPEC = {
     "biz_notes": "进销存：客户与订单",
@@ -104,7 +104,7 @@ def _api(did: int, table: str):
 
 def test_search_across_text_columns(app, client, admin, monkeypatch):
     monkeypatch.setattr(
-        "server.settings.service.get_default_llm_client",
+        "datamason.settings.service.get_default_llm_client",
         lambda _app: FakeLlm(LINKED_SPEC),
     )
     did = _deploy(client)
@@ -140,7 +140,7 @@ def test_search_across_text_columns(app, client, admin, monkeypatch):
 def test_search_no_text_columns_ignored(app, client, admin, monkeypatch):
     """orders 表只有整数列，search 参数被忽略，返回全部行。"""
     monkeypatch.setattr(
-        "server.settings.service.get_default_llm_client",
+        "datamason.settings.service.get_default_llm_client",
         lambda _app: FakeLlm(LINKED_SPEC),
     )
     did = _deploy(client)
@@ -161,7 +161,7 @@ def test_search_no_text_columns_ignored(app, client, admin, monkeypatch):
 
 def test_meta_unique_flag_reflected(app, client, admin, monkeypatch):
     monkeypatch.setattr(
-        "server.settings.service.get_default_llm_client",
+        "datamason.settings.service.get_default_llm_client",
         lambda _app: FakeLlm(UNIQUE_MSG_SPEC),
     )
     did = _deploy(client, biz_name="唯一验证")
@@ -179,7 +179,7 @@ def test_meta_unique_flag_reflected(app, client, admin, monkeypatch):
 
 def test_meta_unique_false_when_not_declared(app, client, admin, monkeypatch):
     monkeypatch.setattr(
-        "server.settings.service.get_default_llm_client",
+        "datamason.settings.service.get_default_llm_client",
         lambda _app: FakeLlm(LINKED_SPEC),
     )
     did = _deploy(client)
@@ -193,7 +193,7 @@ def test_meta_unique_false_when_not_declared(app, client, admin, monkeypatch):
 
 def test_create_row_boolean_and_datetime(app, client, admin, monkeypatch):
     monkeypatch.setattr(
-        "server.settings.service.get_default_llm_client",
+        "datamason.settings.service.get_default_llm_client",
         lambda _app: FakeLlm(UNIQUE_MSG_SPEC),
     )
     did = _deploy(client, biz_name="类型语义")
@@ -219,7 +219,7 @@ def test_create_row_boolean_and_datetime(app, client, admin, monkeypatch):
 
 def test_meta_biz_name_and_length_enriched(app, client, admin, monkeypatch):
     monkeypatch.setattr(
-        "server.settings.service.get_default_llm_client",
+        "datamason.settings.service.get_default_llm_client",
         lambda _app: FakeLlm(LINKED_SPEC),
     )
     did = _deploy(client)
@@ -239,7 +239,7 @@ def test_meta_biz_name_and_length_enriched(app, client, admin, monkeypatch):
 
 def test_meta_is_ownership_marked(app, client, admin, monkeypatch):
     monkeypatch.setattr(
-        "server.settings.service.get_default_llm_client",
+        "datamason.settings.service.get_default_llm_client",
         lambda _app: FakeLlm(LINKED_SPEC),
     )
     did = _deploy(client)

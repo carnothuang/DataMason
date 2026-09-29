@@ -11,8 +11,8 @@ import io
 
 import pytest
 
-from server.auth.service import hash_password
-from server.models import DeploymentMember, DeploymentMenu, User
+from datamason.auth.service import hash_password
+from datamason.models import DeploymentMember, DeploymentMenu, User
 
 SPEC = {
     "biz_notes": "客户",
@@ -36,7 +36,7 @@ class FakeLlm:
 
 @pytest.fixture()
 def patch_llm(monkeypatch):
-    monkeypatch.setattr("server.settings.service.get_default_llm_client",
+    monkeypatch.setattr("datamason.settings.service.get_default_llm_client",
                         lambda _app: FakeLlm())
     yield
 
@@ -127,7 +127,7 @@ def test_operator_cannot_download_others_attachment(app, env, patch_llm):
         op_id = uid.id
         menu = s.query(DeploymentMenu).filter_by(deployment_id=did).first()
         s.add(DeploymentMember(deployment_id=did, user_id=op_id, role="operator"))
-        from server.models import DeploymentMenuGrant
+        from datamason.models import DeploymentMenuGrant
         s.add(DeploymentMenuGrant(menu_id=menu.id, user_id=op_id))
         s.commit()
     op = app.test_client()
@@ -184,7 +184,7 @@ def test_api_key_cannot_reach_files(app, env, patch_llm):
 def test_destroy_cleans_attachments_and_files_dir(app, env, patch_llm):
     """D-1：销毁级联清 attachments 行与附件目录。"""
     from pathlib import Path
-    from server.models import Attachment
+    from datamason.models import Attachment
     c = env["client"]
     did = _deploy(c)
     assert _upload(c, did, "a.txt", b"hello").status_code == 201

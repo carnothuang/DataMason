@@ -259,11 +259,11 @@ superset-lite 用一套可复用的方法把「AI 生成」落到了可治理的
 
 | superset-lite 资产 | 移植到 | 能力契约（不可得时按此自实现） |
 |---|---|---|
-| `superset/llm/api.py`（网关设计） | `server/llm/` | OpenAI 兼容端点、temperature=0、schema context 注入、自检重试、token 埋点 |
-| generate_sql 链路（schema context + sqlglot 只读门） | `server/llm/` + `server/qa/` | NL → 只读 SELECT，执行前安全审查 |
-| `_select_relevant_tables`（两段式选表） | `server/dataaccess/` | 直连模式 schema 过大时的相关表筛选 |
+| `superset/llm/api.py`（网关设计） | `src/datamason/llm/` | OpenAI 兼容端点、temperature=0、schema context 注入、自检重试、token 埋点 |
+| generate_sql 链路（schema context + sqlglot 只读门） | `src/datamason/llm/` + `src/datamason/qa/` | NL → 只读 SELECT，执行前安全审查 |
+| `_select_relevant_tables`（两段式选表） | `src/datamason/dataaccess/` | 直连模式 schema 过大时的相关表筛选 |
 | `AiGeneration` / AiAssets 页设计 | `ai_generations` 表 + web 生成历史页 | kind 扩展、token/duration/status 埋点、生成资产清理 |
-| 惰性建表手法（`checkfirst=True`） | `server/models/` | 全元数据表免 alembic 启动建齐 |
+| 惰性建表手法（`checkfirst=True`） | `src/datamason/models/` | 全元数据表免 alembic 启动建齐 |
 
 ---
 
@@ -512,7 +512,7 @@ DBX 不是底座，是**能力对照表**。以下每行都是「DBX 做了什�
 
 ```
 DataMason-AI/
-├── server/                         # Python 3.13 + Flask（managed venv）
+├── src/datamason/                         # Python 3.13 + Flask（managed venv）
 │   ├── app.py                      #   应用工厂 + 蓝图注册 + 启动对账任务挂载（DR-03）+ 首次启动拦截
 │   ├── config.py                   #   配置（元数据库/数据根/环境变量 LLM）
 │   ├── models/                     #   元数据模型（§八 + app_settings/share_tokens/api_keys/seed_rows），惰性建表
@@ -531,7 +531,7 @@ DataMason-AI/
 │   ├── apiaccess/                  #   部署级 API key（DR-11）
 │   ├── qa/                         #   P3：问数据（只读 SQL + 视图卡 + 图表规格 + 钉住报表）
 │   └── ai/                         #   AI 生成历史治理（AiAssets 对齐）
-├── web/                            # React 18 + TS + antd + Vite
+├── dashboard/                            # React 18 + TS + antd + Vite
 │   └── src/
 │       ├── pages/                  #   部署清单/设置/登录/首启向导/公开页/工作台…（不再用 shell|builder|runtime 分层）
 │       ├── pages/workspace/        #   运行态（CRUD 列表/表单/流程向导/报表/问数据/日志/成员/工程室）

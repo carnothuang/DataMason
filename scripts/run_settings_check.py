@@ -20,7 +20,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 os.chdir(ROOT)
-sys.path.insert(0, str(ROOT))
+sys.path.insert(0, str(ROOT / "src"))
 
 from werkzeug.serving import make_server  # noqa: E402
 
@@ -76,7 +76,7 @@ def wait_for_health(timeout: float = 30.0) -> bool:
 
 
 def main() -> int:
-    from server.app import create_app
+    from datamason.app import create_app
 
     app = create_app()
     server = make_server(HOST, PORT, app, threaded=True)

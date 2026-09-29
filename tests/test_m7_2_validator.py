@@ -7,9 +7,9 @@ from __future__ import annotations
 
 import pytest
 
-from server.auth.service import hash_password
-from server.forms import service as form_service
-from server.models import PageSpec, TableSpec, User
+from datamason.auth.service import hash_password
+from datamason.forms import service as form_service
+from datamason.models import PageSpec, TableSpec, User
 
 SPEC = {
     "biz_notes": "客户与订单",
@@ -58,7 +58,7 @@ def admin(app, client):
 @pytest.fixture()
 def patch_llm(monkeypatch):
     monkeypatch.setattr(
-        "server.settings.service.get_default_llm_client",
+        "datamason.settings.service.get_default_llm_client",
         lambda _app: FakeLlm(),
     )
     yield

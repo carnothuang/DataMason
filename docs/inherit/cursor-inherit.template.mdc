@@ -1,0 +1,35 @@
+---
+description: <PROJECT> 前端交互与布局继承规则（WorkMason 规范）
+globs:
+  - "src/pages/**"
+  - "src/components/**"
+  - "src/layouts/**"
+  - "src/styles/**"
+  - "src/api/**"
+alwaysApply: false
+---
+
+# 前端交互与布局继承规则
+
+编辑本规则覆盖的文件前，先读：
+
+- 真相源：`DESIGN.md`
+- 完整 MUST 清单：`AGENTS.md`
+
+## 硬约束（违反即返工）
+
+- 颜色 / 圆角 / 间距 / 阴影用 `--fn-*` 变量，禁止硬编码 `#hex` / `rgb()` / 魔法 px。
+- 组件禁止直接 `fetch` / `WebSocket`，走 `src/api/`。
+- 用户可见文案走 i18n，`en` / `zh` 键对齐。
+- 时间显示用服务端时区（`formatServer*`），禁止裸 `toLocaleString()`。
+- 权限走 `permissions.ts` 的 `userCan` / `RequirePermission`。
+- API 错误走 `parseApiError` / `apiErrorMessage`。
+
+## 交互范式（照抄，不要重新发明）
+
+- 新建页面：`PageShell` + `MainLayout`，路由注册到 `routes/index.tsx`。
+- 实体 CRUD：优先 antd `Drawer`，而非新路由。
+- 列表：默认卡片 / 表格切换并持久化。
+- 流式面板：keep-alive（`display:none`），避免重拉流。
+
+不确定时查真相源，不要自行发挥；查不到就停下来问。

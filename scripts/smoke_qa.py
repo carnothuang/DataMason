@@ -20,7 +20,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 os.chdir(ROOT)
-sys.path.insert(0, str(ROOT))
+sys.path.insert(0, str(ROOT / "src"))
 
 import httpx  # noqa: E402
 
@@ -55,18 +55,18 @@ def main() -> int:
     model = os.environ.get("DATAMASON_LLM_MODEL", "ark-code-latest")
 
     ws = Path(tempfile.mkdtemp(prefix="m41_real_"))
-    from server.app import create_app
-    from server.config import Config
+    from datamason.app import create_app
+    from datamason.config import Config
 
     app = create_app(Config(
         meta_db_uri=f"sqlite:///{ws/'meta.db'}",
         data_root=str(ws / "data"),
     ))
     with app.app_context():
-        from server.auth.service import hash_password
-        from server.deploy import service as deploy_service
-        from server.models import User
-        from server.settings import service as settings_service
+        from datamason.auth.service import hash_password
+        from datamason.deploy import service as deploy_service
+        from datamason.models import User
+        from datamason.settings import service as settings_service
 
         Session = app.extensions["datamason_session_factory"]
         with Session() as s:
@@ -121,7 +121,7 @@ def main() -> int:
                   f"（400=只读门拦截；200=退化为只读）数据行数不变")
 
         with app.app_context():
-            from server.models import AiGeneration
+            from datamason.models import AiGeneration
             with app.extensions["datamason_session_factory"]() as s:
                 gens = s.query(AiGeneration).filter_by(kind="qa").all()
                 ok = [g for g in gens if g.status == "ok"]

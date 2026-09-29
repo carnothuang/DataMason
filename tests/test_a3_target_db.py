@@ -11,9 +11,9 @@ import os
 import pytest
 from sqlalchemy import create_engine, inspect, text
 
-from server.auth.service import hash_password
-from server.deploy import service as deploy_service
-from server.models import Connection, Deployment, User
+from datamason.auth.service import hash_password
+from datamason.deploy import service as deploy_service
+from datamason.models import Connection, Deployment, User
 
 SPEC = {
     "biz_notes": "留言板",
@@ -47,7 +47,7 @@ class FakeLlm:
 @pytest.fixture()
 def patch_llm(monkeypatch):
     monkeypatch.setattr(
-        "server.settings.service.get_default_llm_client",
+        "datamason.settings.service.get_default_llm_client",
         lambda _app: FakeLlm(),
     )
     yield

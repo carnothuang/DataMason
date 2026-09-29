@@ -37,7 +37,7 @@
 
 ### 2.2 明确不做（边界，防止无声膨胀）
 
-- **直连（link）模式的任何 DDL**：外部库蓝图仍**只读**，`editor._assert_editable` 红线（`server/deploy/editor.py:111-117`）保持。增删表只对**创建模式（DataMason 自建库）**开放。理由与替代路径见 §三·3.3。
+- **直连（link）模式的任何 DDL**：外部库蓝图仍**只读**，`editor._assert_editable` 红线（`src/datamason/deploy/editor.py:111-117`）保持。增删表只对**创建模式（DataMason 自建库）**开放。理由与替代路径见 §三·3.3。
 - **BLOB/大字段落库**：附件一律走"文件存储 + 元数据表"，绝不在业务表里存二进制；不为追求"单文件"而引入 BLOB 列。
 - **Office 文档在线预览**：不引入任何在线预览服务/转换器（与"零运行时依赖、可离线"冲突）；docx/xlsx/pptx 给下载，图片/PDF/文本给内嵌预览。
 - **复杂行级权限**：不引入组织树、部门维度、权限表达式引擎；数据范围 v0 只做「全部 / 仅自己」两档（字段级只读/隐藏为可选增强，见 §五·5.3）。
@@ -97,14 +97,14 @@
 1. **被其他表外键引用的表，禁止删除**——沿用 `migration.py._protected_reason` 的既有哲学（"FK 列/被引用列受保护"）。提示用户先处理引用方（本版不提供"级联删引用方"）。这条同时绕开了跨库/方言下"先删约束再删表"的复杂度。
 2. **被流程步骤引用的表，禁止删除**——先移除相关步骤/流程；避免流程指向不存在的页面。
 3. **必须二次确认**（输入表名或勾选确认），并在确认前提示「建议先导出配置包/数据」（复用 0.10.0 已有的导出入口）。
-4. **删除是物理且级联的**：`DROP TABLE` + 清理该表的 `PageSpec`（连带其挂载菜单、菜单授权、dashboard 引用）、`CrudConfig`、`deployment_seed_rows`、以及指向它的外键下拉缓存（无缓存则无）。级联顺序沿用 `destroy_deployment` 的"先子后父"手法（`server/deploy/service.py:643-668`）。
+4. **删除是物理且级联的**：`DROP TABLE` + 清理该表的 `PageSpec`（连带其挂载菜单、菜单授权、dashboard 引用）、`CrudConfig`、`deployment_seed_rows`、以及指向它的外键下拉缓存（无缓存则无）。级联顺序沿用 `destroy_deployment` 的"先子后父"手法（`src/datamason/deploy/service.py:643-668`）。
 5. **日志留痕**：`action=structure`，可读摘要含"删除表 X（N 行、M 个页面）"。
 
 ### 3.5 与现有资产的关系
 
-- `ErGraph` / 蓝图页刷新即可反映新表与新关系；提案卡沿用现有 `StructureProposal` 的卡片语言（`web/src/pages/deploy/BlueprintPage.tsx`、`FieldEditor.tsx`）。
-- 运行时白名单来自 `table_specs`（`server/crud/runtime.py:38-44`），**新增 `table_specs` 行即自动暴露物理表**；删除行即隐藏——但**必须**同时处理页面/菜单/授权，否则会留下"空菜单指向不存在表"的悬垂。
-- 操作员的表范围 `member_service.allowed_table_names`（`server/members/service.py:104-135`）走"菜单→页面→表"，新表默认不可见即由此保证。
+- `ErGraph` / 蓝图页刷新即可反映新表与新关系；提案卡沿用现有 `StructureProposal` 的卡片语言（`dashboard/src/pages/deploy/BlueprintPage.tsx`、`FieldEditor.tsx`）。
+- 运行时白名单来自 `table_specs`（`src/datamason/crud/runtime.py:38-44`），**新增 `table_specs` 行即自动暴露物理表**；删除行即隐藏——但**必须**同时处理页面/菜单/授权，否则会留下"空菜单指向不存在表"的悬垂。
+- 操作员的表范围 `member_service.allowed_table_names`（`src/datamason/members/service.py:104-135`）走"菜单→页面→表"，新表默认不可见即由此保证。
 
 ---
 
@@ -115,7 +115,7 @@
 **形态**：`table_spec` 类型白名单新增逻辑类型 **`FILE`**（"附件"），DDL 侧确定性映射为 `VARCHAR/TEXT`（**存附件 token，不存二进制**），真正的文件落"每部署独立文件目录"，附件元数据落元数据表 `attachments`。这样既让 LLM/表单/列表都按类型识别，又不把大对象塞进业务库。
 
 - **单文件 vs 多附件**：列存 token（单文件）或 token 数组（多附件，JSON 串）。UI 上传按列配置渲染；v0 默认单文件、可选多文件。
-- **存储隔离**：`DATA_ROOT/deployments/<部署库文件名去后缀>.files/<随机 token>.<ext>`，与部署的 `.db` 同源同级——天然做到"一套部署一个文件域"。删库/销毁时按 `DATA_ROOT` 守卫整目录清理（复用 `destroy_deployment` 的路径守卫手法 `server/deploy/service.py:619,627-634`）。
+- **存储隔离**：`DATA_ROOT/deployments/<部署库文件名去后缀>.files/<随机 token>.<ext>`，与部署的 `.db` 同源同级——天然做到"一套部署一个文件域"。删库/销毁时按 `DATA_ROOT` 守卫整目录清理（复用 `destroy_deployment` 的路径守卫手法 `src/datamason/deploy/service.py:619,627-634`）。
 - **安全**：随机 token 命名（不暴露原始文件名/路径）、扩展名与 MIME 白名单、单文件与单请求大小上限（当前全站未设 `MAX_CONTENT_LENGTH`，需在本版显式配置）、`Content-Disposition` 默认 `attachment`（可内嵌预览的仅限图片/PDF/文本）、路径穿越防护。
 - **权限**：上传/下载/删除都走成员鉴权；操作员的下载仍受**数据范围**约束（不能下载别人的附件）；**API key 通道默认不开放文件接口**（API key 前缀白名单只放行 `/tables/` 与 `/meta`，文件接口天然不在内，保持默认安全）。
 - **日志**：附件的增删随所属行的"新增/修改"以字段级变化留痕（`changes` 里体现附件字段由 A→B）；附件本身不单设监控型日志。**游离附件的清理**：行删除/字段清空时，对应附件标记待回收，由启动对账/懒清理任务回收（不阻塞主流程）。
@@ -159,8 +159,8 @@
 
 0.10.0 的权限是「**菜单级功能授权**」+「操作员硬编码只看自己」：
 - 存储只有 `deployment_menu_grants(menu_id, user_id)`；`crud_configs.api_config_json/ui_config_json` 字段存在但**始终为 `{}`、运行时从不读取**（纯占位）。
-- 运行时 CRUD 引擎只有两个权限旋钮：`current_user_id` 与 `owner_only`（`server/crud/engine.py:45-62`、`_owner_condition:204-211`）。
-- 前端列表页的"新增/编辑/删除"按钮**完全不看角色**，只要能看到表就能操作（`web/src/pages/workspace/CrudListPage.tsx:133-162`）。
+- 运行时 CRUD 引擎只有两个权限旋钮：`current_user_id` 与 `owner_only`（`src/datamason/crud/engine.py:45-62`、`_owner_condition:204-211`）。
+- 前端列表页的"新增/编辑/删除"按钮**完全不看角色**，只要能看到表就能操作（`dashboard/src/pages/workspace/CrudListPage.tsx:133-162`）。
 
 **目标**：把"能做什么"从角色档位里**拆出来**，做成可配置的两维：
 - **操作权限**：同一个功能，不同人可做不同动作（查看 / 新增 / 修改 / 删除 / 导出 / 导入）。
@@ -170,7 +170,7 @@
 
 - **交互语言**：沿用「把功能分给人」，**不做 RBAC 矩阵**（体验纪律）。在成员配置里，每个勾选的功能后面跟一排**动作开关**（可看/可增/可改/可删/可导出/可导入），默认值 = 当前行为（不破坏存量）。
 - **存储**：扩展 `deployment_menu_grants`，新增 `actions_json`（惰性 `ADD COLUMN` 回填，沿用 M3-2 的 `_backfill_missing_columns` 手法）。空值表示"按角色默认"。
-- **强制点**：**服务端统一强制**，不依赖前端隐藏。落点是工作台 CRUD 路由（`server/workspace/routes.py:217-323`）与 `CrudRegistry`——为 registry 增加 `allowed_actions`，各 handler（create/update/delete/export/import）先校验再执行；create/update/delete 已过 DR-03 日志钩子，权限校验放在钩子之前。前端仅做"按权限隐藏/置灰按钮"，**不作为安全边界**。
+- **强制点**：**服务端统一强制**，不依赖前端隐藏。落点是工作台 CRUD 路由（`src/datamason/workspace/routes.py:217-323`）与 `CrudRegistry`——为 registry 增加 `allowed_actions`，各 handler（create/update/delete/export/import）先校验再执行；create/update/delete 已过 DR-03 日志钩子，权限校验放在钩子之前。前端仅做"按权限隐藏/置灰按钮"，**不作为安全边界**。
 - **角色默认**：创建人 = 全部动作；管理员 = 全部业务动作（沿用 DR-14，不含工程/停止/销毁/分享）；操作员 = 显式配置（默认给存量操作员回填当前实际能力，避免升级即失效）。
 
 ### 5.3 数据权限
@@ -183,7 +183,7 @@
 ### 5.4 与既有能力的关系
 
 - **操作日志**：权限变更（授权/动作/数据范围）本身是 `action=member` 的系统动作，继续留痕。
-- **API 开放（API key）**：API key 通道是**服务身份**（`registry_for_service`，全表、无归属过滤，`server/crud/runtime.py:56-73`）。明确：API key **不受**操作权限与数据权限约束（它是系统对系统的通道），但所有 key 动作已标记 `actor_label`；此点写进文档避免误解。
+- **API 开放（API key）**：API key 通道是**服务身份**（`registry_for_service`，全表、无归属过滤，`src/datamason/crud/runtime.py:56-73`）。明确：API key **不受**操作权限与数据权限约束（它是系统对系统的通道），但所有 key 动作已标记 `actor_label`；此点写进文档避免误解。
 - **流程向导**：`flow/service.py` 的推进逻辑自带 `_scope_cond`（操作员仅自己）——若某功能的数据范围被改为"全部"，流程步骤的范围应随之一致（实现闭环里统一到一个"数据范围解析器"）。
 - **公开表单（访客）**：访客提交走系统身份写路径，不受成员操作权限影响；字段级"隐藏"对公开表单的含义（不渲染该字段）需在实现闭环中定义。
 
@@ -195,19 +195,19 @@
 
 | 任务 | 内容 | 主要落点 | 验收（离线 + 真实） |
 |---|---|---|---|
-| **M5-0 地基** | 元数据变更：`attachments` 表、`deployment_menu_grants.actions_json`/`data_scope`、`ColumnType` 增 `FILE`、`MAX_CONTENT_LENGTH`；DR-26~33 回写《产品一页纸》§九；依赖 `openpyxl` 入 `requirements.txt` | `server/models/`、`server/ddl/`、`server/config.py` | 惰性建表/回填跑通；旧库升级无破坏；全量 pytest 全绿 |
-| **M5-C1 权限存储与强制** | 动作与数据范围存储 + 统一"权限解析器"；registry `allowed_actions` + 数据范围；服务端 403 强制（含导入/导出） | `server/members/`、`server/crud/`、`server/workspace/routes.py` | pytest：无权限动作 403、数据范围生效、默认回填兼容、API key 不受限 |
-| **M5-C2 权限下发与前端裁剪** | `workspace`/`meta` 下发每页 `actions` 与 `data_scope`；列表/表单按权限隐藏或置灰；"只读"明确提示 | `server/workspace/routes.py`、`web/src/pages/workspace/CrudListPage.tsx`、`CrudForm.tsx` | 真浏览器：无删除权者看不到删除按钮且直调 API 403 |
-| **M5-C3 成员页交互升级** | 「把功能分给人」每项带动作开关 + 数据范围选择；默认值兼容 | `web/src/pages/workspace/MembersPage.tsx`、`server/members/routes.py` | 真浏览器：勾选动作后换人登录生效；授权变更进日志 |
-| **M5-A1 增表后端** | 单表 add 提案/确认：表单式 + 一句话式；归属列注入、外键校验、查重、自动建页面/菜单/配置、structure 日志 | `server/ddl/`、`server/deploy/editor.py`、`deploy/routes.py` | pytest：悬空 FK 拒绝、重名拒绝、link 模式 400、非创建人 403、提案语句==执行语句 |
+| **M5-0 地基** | 元数据变更：`attachments` 表、`deployment_menu_grants.actions_json`/`data_scope`、`ColumnType` 增 `FILE`、`MAX_CONTENT_LENGTH`；DR-26~33 回写《产品一页纸》§九；依赖 `openpyxl` 入 `requirements.txt` | `src/datamason/models/`、`src/datamason/ddl/`、`src/datamason/config.py` | 惰性建表/回填跑通；旧库升级无破坏；全量 pytest 全绿 |
+| **M5-C1 权限存储与强制** | 动作与数据范围存储 + 统一"权限解析器"；registry `allowed_actions` + 数据范围；服务端 403 强制（含导入/导出） | `src/datamason/members/`、`src/datamason/crud/`、`src/datamason/workspace/routes.py` | pytest：无权限动作 403、数据范围生效、默认回填兼容、API key 不受限 |
+| **M5-C2 权限下发与前端裁剪** | `workspace`/`meta` 下发每页 `actions` 与 `data_scope`；列表/表单按权限隐藏或置灰；"只读"明确提示 | `src/datamason/workspace/routes.py`、`dashboard/src/pages/workspace/CrudListPage.tsx`、`CrudForm.tsx` | 真浏览器：无删除权者看不到删除按钮且直调 API 403 |
+| **M5-C3 成员页交互升级** | 「把功能分给人」每项带动作开关 + 数据范围选择；默认值兼容 | `dashboard/src/pages/workspace/MembersPage.tsx`、`src/datamason/members/routes.py` | 真浏览器：勾选动作后换人登录生效；授权变更进日志 |
+| **M5-A1 增表后端** | 单表 add 提案/确认：表单式 + 一句话式；归属列注入、外键校验、查重、自动建页面/菜单/配置、structure 日志 | `src/datamason/ddl/`、`src/datamason/deploy/editor.py`、`deploy/routes.py` | pytest：悬空 FK 拒绝、重名拒绝、link 模式 400、非创建人 403、提案语句==执行语句 |
 | **M5-A2 删表后端** | 影响面计算（行数/外键引用/页面/菜单/授权/流程/种子）+ 守卫 + 级联清理 + 物理 DROP | 同上 + `deploy/service.py` | pytest：被引用禁删、流程引用禁删、级联后无悬垂、外部库零变化 |
-| **M5-A3 结构演化前端** | 蓝图页「+ 新建表」「删除表」；表级提案卡（结构/关系/影响面）；确认交互（二次确认） | `web/src/pages/deploy/BlueprintPage.tsx`、新提案卡组件 | 真浏览器：加表→菜单出现→可录数据；删表→影响面卡→确认→菜单与页面消失 |
-| **M5-B1 附件后端** | `attachments` 模型 + 每部署文件目录 + 上传/下载/预览/删除接口 + 安全（大小/类型/token/路径）+ 级联清理 + 游离回收 | `server/files/`（新）、`server/models/`、`server/deploy/service.py` | pytest：越权下载 403、跨部署隔离、路径穿越拦截、超大文件拒绝、销毁清目录 |
-| **M5-B2 附件前端** | `FILE` 字段控件（上传/多附件）、`FileChip`、列表展示、图片/PDF/文本预览 | `web/src/pages/workspace/CrudForm.tsx`、`CrudListPage.tsx`、`components/` | 真浏览器：上传→列表可见→预览→下载→删除；操作员不能下载他人附件 |
-| **M5-B3 导入后端** | 解析（csv/xlsx）、列映射、模板下载、校验（必填/类型/长度/唯一/文件内重复/FK）、预览、事务提交/跳过错误、聚合日志 | `server/imports/`（新）、`crud/engine.py` | pytest：各校验分支、事务回滚、外键、错误清单、日志为 1 条聚合 |
-| **M5-B4 导入前端** | 四步向导：上传→映射→校验预览→确认→结果/错误清单下载 | `web/src/pages/workspace/`（新导入组件） | 真浏览器：导 20 行成功、导含错文件给错误清单 |
-| **M5-B5 导出增强** | XLSX 导出、选择导出列、上限提示；导出走动作权限 | `server/workspace/routes.py`、`server/crud/engine.py` | pytest + 真浏览器：xlsx 可打开、列选择生效、无导出权 403 |
-| **M5-C4 字段级权限（可选）** | 启用 `crud_configs.ui_config_json` 做字段隐藏/只读；服务端过滤返回列、拒绝写只读列；成员页字段策略 | `server/members/`、`crud/`、`web/.../MembersPage.tsx`、`CrudForm.tsx` | pytest：隐藏列不返回、只读列写被拒；真浏览器：字段呈现差异 |
+| **M5-A3 结构演化前端** | 蓝图页「+ 新建表」「删除表」；表级提案卡（结构/关系/影响面）；确认交互（二次确认） | `dashboard/src/pages/deploy/BlueprintPage.tsx`、新提案卡组件 | 真浏览器：加表→菜单出现→可录数据；删表→影响面卡→确认→菜单与页面消失 |
+| **M5-B1 附件后端** | `attachments` 模型 + 每部署文件目录 + 上传/下载/预览/删除接口 + 安全（大小/类型/token/路径）+ 级联清理 + 游离回收 | `src/datamason/files/`（新）、`src/datamason/models/`、`src/datamason/deploy/service.py` | pytest：越权下载 403、跨部署隔离、路径穿越拦截、超大文件拒绝、销毁清目录 |
+| **M5-B2 附件前端** | `FILE` 字段控件（上传/多附件）、`FileChip`、列表展示、图片/PDF/文本预览 | `dashboard/src/pages/workspace/CrudForm.tsx`、`CrudListPage.tsx`、`components/` | 真浏览器：上传→列表可见→预览→下载→删除；操作员不能下载他人附件 |
+| **M5-B3 导入后端** | 解析（csv/xlsx）、列映射、模板下载、校验（必填/类型/长度/唯一/文件内重复/FK）、预览、事务提交/跳过错误、聚合日志 | `src/datamason/imports/`（新）、`crud/engine.py` | pytest：各校验分支、事务回滚、外键、错误清单、日志为 1 条聚合 |
+| **M5-B4 导入前端** | 四步向导：上传→映射→校验预览→确认→结果/错误清单下载 | `dashboard/src/pages/workspace/`（新导入组件） | 真浏览器：导 20 行成功、导含错文件给错误清单 |
+| **M5-B5 导出增强** | XLSX 导出、选择导出列、上限提示；导出走动作权限 | `src/datamason/workspace/routes.py`、`src/datamason/crud/engine.py` | pytest + 真浏览器：xlsx 可打开、列选择生效、无导出权 403 |
+| **M5-C4 字段级权限（可选）** | 启用 `crud_configs.ui_config_json` 做字段隐藏/只读；服务端过滤返回列、拒绝写只读列；成员页字段策略 | `src/datamason/members/`、`crud/`、`dashboard/.../MembersPage.tsx`、`CrudForm.tsx` | pytest：隐藏列不返回、只读列写被拒；真浏览器：字段呈现差异 |
 | **M5-9 版本 E2E 验收** | 单/多角色真浏览器剧本 + 独立验收报告 | `scripts/e2e/`、`docs/验收/` | ≤5 分钟剧本；M5 验收线全绿 |
 
 **数量级参考**：M5 是**中等偏大**的次版本——三轨各自都有独立价值，若实际排期紧，可先交付 **M5-C + M5-A**，把 **M5-B 拆到 0.12.0**（在 DR-26 里预留 M6）。这种"可裁剪"是本规划刻意的设计。

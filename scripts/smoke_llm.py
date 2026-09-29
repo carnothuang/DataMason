@@ -9,11 +9,11 @@ import json
 import os
 import sys
 
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "src")))
 
-from server.ddl.ddl_builder import build_schema_ddl  # noqa: E402
-from server.llm.client import LlmConfig, OpenAiCompatibleClient  # noqa: E402
-from server.llm.structure import generate_schema  # noqa: E402
+from datamason.ddl.ddl_builder import build_schema_ddl  # noqa: E402
+from datamason.llm.client import LlmConfig, OpenAiCompatibleClient  # noqa: E402
+from datamason.llm.structure import generate_schema  # noqa: E402
 
 
 def main() -> int:

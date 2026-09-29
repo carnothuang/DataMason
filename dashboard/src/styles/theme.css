@@ -1,0 +1,394 @@
+/* ===================================================================
+   DataMason Design Tokens（对齐 WorkMason Design System v3）
+   Default brand: Graphite #4C545E
+   Mode via html[data-theme="light|dark"]
+   =================================================================== */
+
+/* ---------- LIGHT ---------- */
+:root,
+html[data-theme="light"] {
+  --fn-bg-primary: #ffffff;
+  --fn-bg-secondary: #f7f8fa;
+  --fn-bg-tertiary: #f0f1f3;
+  --fn-bg-elevated: #ffffff;
+  --fn-bg-layout: #f5f6f8;
+  --fn-bg-hover: rgba(76, 84, 94, 0.04);
+  --fn-bg-active: rgba(76, 84, 94, 0.08);
+  --fn-bg-selected: rgba(76, 84, 94, 0.06);
+  --fn-bg-code: #f5f6f8;
+  --fn-bg-success-light: #ecfdf5;
+  --fn-bg-danger-light: #fef2f2;
+  --fn-bg-warning-light: #fffbeb;
+  --fn-bg-info-light: #eff6ff;
+  --fn-bg-sidebar: #ffffff;
+
+  --fn-text-primary: #111827;
+  --fn-text-secondary: #4b5563;
+  --fn-text-tertiary: #9ca3af;
+  --fn-text-quaternary: #d1d5db;
+  --fn-text-placeholder: #c0c5ce;
+  --fn-text-disabled: #d1d5db;
+  --fn-text-inverse: #ffffff;
+  --fn-text-brand: #4c545e;
+
+  --fn-border-primary: #e5e7eb;
+  --fn-border-secondary: #f3f4f6;
+  --fn-border-tertiary: #f9fafb;
+  --fn-border-input: #d1d5db;
+  --fn-border-focus: #4c545e;
+
+  --fn-color-brand: #4c545e;
+  --fn-color-brand-hover: #3e464f;
+  --fn-color-on-brand: #ffffff;
+  --fn-color-brand-bg: rgba(76, 84, 94, 0.06);
+  --fn-color-brand-light: #e9ecef;
+  --fn-color-brand-shadow: rgba(76, 84, 94, 0.15);
+
+  --fn-color-success: #10b981;
+  --fn-color-danger: #ef4444;
+  --fn-color-warning: #f59e0b;
+  --fn-color-warning-text: #d97706;
+  --fn-color-info: #3b82f6;
+
+  --fn-shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.04);
+  --fn-shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.06), 0 1px 2px rgba(0, 0, 0, 0.03);
+  --fn-shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.06),
+    0 2px 4px -2px rgba(0, 0, 0, 0.04);
+  --fn-shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.07),
+    0 4px 6px -4px rgba(0, 0, 0, 0.04);
+  --fn-shadow-xl: 0 20px 25px -5px rgba(0, 0, 0, 0.07),
+    0 8px 10px -6px rgba(0, 0, 0, 0.04);
+  --fn-shadow-brand: 0 4px 14px rgba(76, 84, 94, 0.18);
+  --fn-overlay: rgba(0, 0, 0, 0.4);
+
+  --fn-card-border-normal: #e5e7eb;
+  --fn-card-shadow-normal: 0 1px 3px rgba(0, 0, 0, 0.04);
+  --fn-card-radius: 12px;
+
+  --fn-sidebar-bg: #ffffff;
+  --fn-sidebar-border: #ebebeb;
+  --fn-sidebar-item-hover: #f5f5f5;
+  --fn-sidebar-item-active-bg: #edf0f2;
+  --fn-sidebar-item-active-text: #4c545e;
+  --fn-sidebar-group-text: #b0b5be;
+
+  --fn-header-height: 56px;
+  --fn-header-bg: rgba(255, 255, 255, 0.95);
+  --fn-header-blur: 12px;
+
+  --fn-transition-fast: 0.12s cubic-bezier(0.4, 0, 0.2, 1);
+  --fn-transition: 0.18s cubic-bezier(0.4, 0, 0.2, 1);
+  --fn-transition-slow: 0.28s cubic-bezier(0.4, 0, 0.2, 1);
+
+  --fn-radius-sm: 5px;
+  --fn-radius-md: 8px;
+  --fn-radius-lg: 12px;
+  --fn-radius-xl: 18px;
+  --fn-radius-full: 9999px;
+}
+
+/* ---------- DARK ---------- */
+html[data-theme="dark"] {
+  --fn-bg-primary: #141414;
+  --fn-bg-secondary: #1a1a1a;
+  --fn-bg-tertiary: #222222;
+  --fn-bg-elevated: #1e1e1e;
+  --fn-bg-layout: #0e0e0e;
+  --fn-bg-hover: rgba(167, 176, 185, 0.1);
+  --fn-bg-active: rgba(167, 176, 185, 0.16);
+  --fn-bg-selected: rgba(167, 176, 185, 0.12);
+  --fn-bg-code: #1e1e1e;
+  --fn-bg-success-light: rgba(16, 185, 129, 0.08);
+  --fn-bg-danger-light: rgba(239, 68, 68, 0.08);
+  --fn-bg-warning-light: rgba(245, 158, 11, 0.08);
+  --fn-bg-info-light: rgba(59, 130, 246, 0.08);
+  --fn-bg-sidebar: #141414;
+
+  --fn-text-primary: rgba(255, 255, 255, 0.9);
+  --fn-text-secondary: rgba(255, 255, 255, 0.6);
+  --fn-text-tertiary: rgba(255, 255, 255, 0.35);
+  --fn-text-quaternary: rgba(255, 255, 255, 0.2);
+  --fn-text-placeholder: rgba(255, 255, 255, 0.16);
+  --fn-text-disabled: rgba(255, 255, 255, 0.16);
+  --fn-text-inverse: #0e0e0e;
+  --fn-text-brand: #a7b0b9;
+
+  --fn-border-primary: rgba(255, 255, 255, 0.08);
+  --fn-border-secondary: rgba(255, 255, 255, 0.05);
+  --fn-border-tertiary: rgba(255, 255, 255, 0.03);
+  --fn-border-input: rgba(255, 255, 255, 0.12);
+  --fn-border-focus: #a7b0b9;
+
+  --fn-color-brand: #a7b0b9;
+  --fn-color-brand-hover: #c4cbd1;
+  --fn-color-on-brand: #141414;
+  --fn-color-brand-bg: rgba(167, 176, 185, 0.12);
+  --fn-color-brand-light: rgba(167, 176, 185, 0.16);
+  --fn-color-brand-shadow: rgba(167, 176, 185, 0.25);
+
+  --fn-color-success: #34d399;
+  --fn-color-danger: #f87171;
+  --fn-color-warning: #fbbf24;
+  --fn-color-warning-text: #fbbf24;
+  --fn-color-info: #60a5fa;
+
+  --fn-shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.25);
+  --fn-shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.3), 0 1px 2px rgba(0, 0, 0, 0.18);
+  --fn-shadow-md: 0 4px 6px rgba(0, 0, 0, 0.35), 0 2px 4px rgba(0, 0, 0, 0.22);
+  --fn-shadow-lg: 0 10px 15px rgba(0, 0, 0, 0.35), 0 4px 6px rgba(0, 0, 0, 0.22);
+  --fn-shadow-xl: 0 20px 25px rgba(0, 0, 0, 0.4), 0 8px 10px rgba(0, 0, 0, 0.25);
+  --fn-shadow-brand: 0 4px 14px rgba(167, 176, 185, 0.22);
+  --fn-overlay: rgba(0, 0, 0, 0.55);
+
+  --fn-card-border-normal: rgba(255, 255, 255, 0.07);
+  --fn-card-shadow-normal: 0 1px 3px rgba(0, 0, 0, 0.35);
+  --fn-card-radius: 12px;
+
+  --fn-sidebar-bg: #141414;
+  --fn-sidebar-border: rgba(255, 255, 255, 0.06);
+  --fn-sidebar-item-hover: rgba(255, 255, 255, 0.05);
+  --fn-sidebar-item-active-bg: rgba(167, 176, 185, 0.14);
+  --fn-sidebar-item-active-text: #a7b0b9;
+  --fn-sidebar-group-text: rgba(255, 255, 255, 0.28);
+
+  --fn-header-height: 56px;
+  --fn-header-bg: rgba(14, 14, 14, 0.9);
+  --fn-header-blur: 12px;
+
+  --fn-transition-fast: 0.12s cubic-bezier(0.4, 0, 0.2, 1);
+  --fn-transition: 0.18s cubic-bezier(0.4, 0, 0.2, 1);
+  --fn-transition-slow: 0.28s cubic-bezier(0.4, 0, 0.2, 1);
+
+  --fn-radius-sm: 5px;
+  --fn-radius-md: 8px;
+  --fn-radius-lg: 12px;
+  --fn-radius-xl: 18px;
+  --fn-radius-full: 9999px;
+}
+
+/* ---------- Global ---------- */
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+}
+
+html,
+body {
+  overflow: hidden;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Inter",
+    "Noto Sans SC", sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  -webkit-tap-highlight-color: transparent;
+  overscroll-behavior: none;
+}
+
+#root {
+  overflow: hidden;
+  overscroll-behavior: none;
+}
+
+body {
+  background-color: var(--fn-bg-layout);
+  color: var(--fn-text-primary);
+  transition: background-color var(--fn-transition),
+    color var(--fn-transition);
+}
+
+button,
+a,
+[role="button"] {
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+}
+
+.ant-layout {
+  min-height: 0;
+  max-height: 100%;
+}
+
+/* ---------- Page structure ---------- */
+.page-container {
+  height: 100%;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  background: var(--fn-bg-layout);
+  transition: background var(--fn-transition);
+}
+
+.page-content {
+  flex: 1 1 auto;
+  overflow: hidden;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+/* ---------- Sidebar transition ---------- */
+.ant-layout-sider {
+  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1) !important;
+}
+
+/* ---------- Selection ---------- */
+::selection {
+  background: var(--fn-color-brand);
+  color: #ffffff;
+}
+
+/* ---------- Scrollbar ---------- */
+::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--fn-text-quaternary);
+  border-radius: var(--fn-radius-full);
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--fn-text-tertiary);
+}
+
+html[data-theme="dark"] ::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.18);
+}
+html[data-theme="dark"] ::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.28);
+}
+
+/* ---------- Dark: antd component overrides ---------- */
+html[data-theme="dark"] .ant-card {
+  background-color: var(--fn-bg-elevated) !important;
+  border-color: var(--fn-border-primary) !important;
+}
+
+html[data-theme="dark"] .ant-table-wrapper {
+  background-color: transparent !important;
+}
+
+html[data-theme="dark"] .ant-table {
+  background-color: transparent !important;
+}
+
+html[data-theme="dark"] .ant-table-container {
+  border-color: var(--fn-border-primary) !important;
+}
+
+html[data-theme="dark"] .ant-table-thead > tr > th,
+html[data-theme="dark"] .ant-table-thead > tr > td {
+  background-color: var(--fn-bg-tertiary) !important;
+  border-color: var(--fn-border-primary) !important;
+  color: var(--fn-text-secondary) !important;
+}
+
+html[data-theme="dark"] .ant-table-tbody > tr > td {
+  border-color: var(--fn-border-primary) !important;
+  color: var(--fn-text-primary) !important;
+  background-color: transparent !important;
+}
+
+html[data-theme="dark"] .ant-table-tbody > tr.ant-table-row:hover > td,
+html[data-theme="dark"] .ant-table-cell-row-hover {
+  background-color: var(--fn-bg-hover) !important;
+}
+
+html[data-theme="dark"] .ant-table-placeholder,
+html[data-theme="dark"] .ant-table-placeholder td {
+  background-color: transparent !important;
+}
+
+html[data-theme="dark"] .ant-empty-description {
+  color: var(--fn-text-tertiary) !important;
+}
+
+html[data-theme="dark"] .ant-input,
+html[data-theme="dark"] .ant-input-affix-wrapper {
+  background-color: var(--fn-bg-primary) !important;
+  border-color: var(--fn-border-input) !important;
+  color: var(--fn-text-primary) !important;
+}
+
+html[data-theme="dark"] .ant-input::placeholder {
+  color: var(--fn-text-placeholder) !important;
+}
+
+html[data-theme="dark"] .ant-select-selector {
+  background-color: var(--fn-bg-primary) !important;
+  border-color: var(--fn-border-input) !important;
+  color: var(--fn-text-primary) !important;
+}
+
+html[data-theme="dark"] .ant-select-dropdown {
+  background-color: var(--fn-bg-elevated) !important;
+}
+
+html[data-theme="dark"] .ant-select-item-option-active {
+  background-color: var(--fn-bg-hover) !important;
+}
+
+html[data-theme="dark"] .ant-select-item-option-selected {
+  background-color: var(--fn-bg-active) !important;
+}
+
+html[data-theme="dark"] .ant-input-number {
+  background-color: var(--fn-bg-primary) !important;
+  border-color: var(--fn-border-input) !important;
+  color: var(--fn-text-primary) !important;
+}
+
+html[data-theme="dark"] .ant-modal-content,
+html[data-theme="dark"] .ant-modal-header {
+  background-color: var(--fn-bg-elevated) !important;
+}
+
+html[data-theme="dark"] .ant-form-item-label > label {
+  color: var(--fn-text-secondary) !important;
+}
+
+html[data-theme="dark"] .ant-drawer-content {
+  background-color: var(--fn-bg-elevated) !important;
+}
+
+html[data-theme="dark"] .ant-pagination-item {
+  background-color: transparent !important;
+  border-color: var(--fn-border-input) !important;
+}
+
+html[data-theme="dark"] .ant-pagination-item a {
+  color: var(--fn-text-primary) !important;
+}
+
+html[data-theme="dark"] .ant-checkbox-inner {
+  background-color: transparent !important;
+  border-color: var(--fn-border-input) !important;
+}
+
+html[data-theme="dark"] .ant-tabs-tab {
+  color: var(--fn-text-secondary) !important;
+}
+
+html[data-theme="dark"] .ant-tooltip-inner {
+  background-color: var(--fn-bg-tertiary) !important;
+}
+
+html[data-theme="dark"] .ant-popover-inner {
+  background-color: var(--fn-bg-elevated) !important;
+}
+
+html[data-theme="dark"] .ant-tag {
+  border-color: var(--fn-border-primary) !important;
+}
+
+html[data-theme="dark"] .ant-switch {
+  background: var(--fn-text-quaternary) !important;
+}
+
+html[data-theme="dark"] .ant-switch-checked {
+  background: var(--fn-color-brand) !important;
+}

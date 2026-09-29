@@ -8,8 +8,8 @@ from __future__ import annotations
 
 import pytest
 
-from server.auth.service import hash_password
-from server.models import (
+from datamason.auth.service import hash_password
+from datamason.models import (
     DeploymentMenu,
     DeploymentSeedRow,
     FlowSpec,
@@ -63,7 +63,7 @@ class FakeLlm:
 @pytest.fixture()
 def patch_llm(monkeypatch):
     monkeypatch.setattr(
-        "server.settings.service.get_default_llm_client",
+        "datamason.settings.service.get_default_llm_client",
         lambda _app: FakeLlm(SPEC),
     )
     yield
@@ -183,7 +183,7 @@ def test_add_table_requires_creator(app, env, patch_llm):
     did = _deploy(c)
     _mk_user(app, "op")
     # 直接塞一个 operator 成员（无授权）即可验证工程室动作被拒
-    from server.models import DeploymentMember
+    from datamason.models import DeploymentMember
     Session = app.extensions["datamason_session_factory"]
     with Session() as s:
         uid = s.query(User).filter_by(username="op").first().id
@@ -247,7 +247,7 @@ def test_link_mode_rejects_all_structure_ops(app, env, patch_llm):
     c = env["client"]
     did = _deploy(c)
     Session = app.extensions["datamason_session_factory"]
-    from server.models import Deployment
+    from datamason.models import Deployment
     with Session() as s:
         d = s.get(Deployment, did)
         d.data_mode = "link"
@@ -301,7 +301,7 @@ def test_link_mode_structure_ops_leave_external_db_untouched(app, env, patch_llm
     """T-1/T-3 强化：真直连外部库上所有结构操作 400，DDL/行数快照零变化。"""
     import sqlite3
 
-    from server.models import Connection
+    from datamason.models import Connection
     ext = str(tmp_path / "ext.db")
     con = sqlite3.connect(ext)
     con.executescript(

@@ -12,8 +12,8 @@ from __future__ import annotations
 
 import pytest
 
-from server.auth.service import hash_password
-from server.models import ActivityLog, Deployment, DeploymentMember, DeploymentMenu, User
+from datamason.auth.service import hash_password
+from datamason.models import ActivityLog, Deployment, DeploymentMember, DeploymentMenu, User
 
 GUESTBOOK_SPEC = {
     "biz_notes": "访客留言",
@@ -47,7 +47,7 @@ class FakeLlm:
 @pytest.fixture()
 def patch_llm(monkeypatch):
     monkeypatch.setattr(
-        "server.settings.service.get_default_llm_client",
+        "datamason.settings.service.get_default_llm_client",
         lambda _app: FakeLlm(),
     )
     yield
@@ -351,7 +351,7 @@ def test_rename_page_title_and_hidden_from_non_creator(app, env, patch_llm):
 
 def test_entry_lookup_service_rejects_anonymous(app, env, patch_llm):
     """服务层：无会话时不解析入口（B5：不泄露部署存在性）。"""
-    from server.deploy import service as deploy_service
+    from datamason.deploy import service as deploy_service
 
     did = _deploy(env["client"])
     with app.test_request_context("/"):

@@ -15,9 +15,9 @@ from datetime import datetime
 import pytest
 from sqlalchemy import create_engine, text
 
-from server.auth.service import hash_password
-from server.llm.client import Usage
-from server.models import (
+from datamason.auth.service import hash_password
+from datamason.llm.client import Usage
+from datamason.models import (
     ActivityLog,
     AiGeneration,
     Connection,
@@ -73,7 +73,7 @@ class FakeLlm:
 def fake_llm(monkeypatch):
     inst = FakeLlm()
     monkeypatch.setattr(
-        "server.settings.service.get_default_llm_client",
+        "datamason.settings.service.get_default_llm_client",
         lambda _app: inst,
     )
     return inst
@@ -223,7 +223,7 @@ def test_qa_execution_failure_recorded(app, env, fake_llm, monkeypatch):
     def _boom(*_a, **_k):
         raise RuntimeError("模拟执行失败")
 
-    monkeypatch.setattr("server.qa.service._execute", _boom)
+    monkeypatch.setattr("datamason.qa.service._execute", _boom)
     resp = _ask(env["client"], did)
     assert resp.status_code == 400
     with _session(app) as s:
@@ -235,7 +235,7 @@ def test_qa_execution_failure_recorded(app, env, fake_llm, monkeypatch):
 
 def test_validate_chart_structure():
     """E2：图表规格纯函数离线单测（类型白名单 / x,y 必须是结果列 / 不同列）。"""
-    from server.qa.service import _validate_chart
+    from datamason.qa.service import _validate_chart
 
     cols = ["vip", "cnt", "name"]
     assert _validate_chart({"type": "pie", "x": "vip", "y": "cnt"}, cols) == {
@@ -336,14 +336,14 @@ def test_qa_not_logged_into_activity_logs(app, env, fake_llm):
 def test_qa_requires_configured_llm(app, env, fake_llm, monkeypatch):
     did = _deploy(env["client"], seed=True)
     monkeypatch.setattr(
-        "server.settings.service.get_default_llm_client", lambda _app: None)
+        "datamason.settings.service.get_default_llm_client", lambda _app: None)
     resp = _ask(env["client"], did)
     assert resp.status_code == 400
     assert "尚未配置默认 LLM" in resp.get_json()["error"]
 
 
 def test_qa_gate_unit_and_wrap_limit():
-    from server.qa import service as qa_service
+    from datamason.qa import service as qa_service
 
     assert qa_service._wrap_limit("SELECT 1") == "SELECT * FROM (SELECT 1) AS _dm_qa LIMIT 200"
     # CTE 中的表名不算白名单来源

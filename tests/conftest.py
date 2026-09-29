@@ -3,8 +3,8 @@ from __future__ import annotations
 
 import pytest
 
-from server.app import create_app
-from server.config import Config
+from datamason.app import create_app
+from datamason.config import Config
 
 
 @pytest.fixture()

@@ -16,8 +16,8 @@ from pathlib import Path
 
 import pytest
 
-from server.auth.service import hash_password
-from server.models import Connection, Deployment, TableSpec, User
+from datamason.auth.service import hash_password
+from datamason.models import Connection, Deployment, TableSpec, User
 
 EXTERNAL_DDL = """
 CREATE TABLE customers (
@@ -180,7 +180,7 @@ def test_select_recommend_chinese_falls_back_to_connectivity(app, env, ext_db):
 
 def test_select_relevant_tables_contract_pure(app):
     """契约纯函数：有界、确定性、邻居收敛、零命中全剔除。"""
-    from server.dataaccess.select_tables import (
+    from datamason.dataaccess.select_tables import (
         SELECT_MAX_TABLES,
         TableInventory,
         select_relevant_tables,
@@ -203,7 +203,7 @@ def test_select_relevant_tables_contract_pure(app):
 
 
 def test_select_relevant_tables_fallback_bounded(app):
-    from server.dataaccess.select_tables import (
+    from datamason.dataaccess.select_tables import (
         SELECT_MAX_TABLES,
         TableInventory,
         select_relevant_tables,
@@ -281,7 +281,7 @@ def test_link_preview_enhance_labels(app, env, ext_db, monkeypatch):
         "tables": [{"name": "customers", "biz_name": "客户表"},
                    {"name": "orders", "biz_name": "订单表"}],
     })
-    monkeypatch.setattr("server.settings.service.get_default_llm_client",
+    monkeypatch.setattr("datamason.settings.service.get_default_llm_client",
                         lambda _app: fake)
     body = env["client"].post("/api/v1/deployments/link/preview", json={
         "connection_id": conn_id, "tables": ["orders", "customers"],

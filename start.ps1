@@ -4,16 +4,17 @@
     DataMason 快速启动：前后端依赖安装、编译与部署。
 
 .DESCRIPTION
-    统一封装项目所需的专属 venv（.venv）与前端（web）构建流程：
+    统一封装项目所需的专属 venv（.venv）与前端（dashboard）构建流程：
       dev   启动 Flask 后端(8765) + Vite 前端(5173)，Vite 实时编译，日常开发/测试用。
       prod  先构建前端(tsc --noEmit && vite build)，再由后端 waitress 单端口托管 dist。
       build 仅安装依赖并构建前端（后端为纯 Python，无需编译）。
+    dev/prod 启动前会自动停止占用目标端口的旧实例，实现冷启动。
 
 .PARAMETER Mode
     运行模式：dev（默认）/ prod / build。
 
 .PARAMETER Port
-    后端端口，默认 8765。dev 模式下 Vite 代理固定指向 8765，改端口需同步改 web/vite.config.ts。
+    后端端口，默认 8765。dev 模式下 Vite 代理固定指向 8765，改端口需同步改 dashboard/vite.config.ts。
 
 .PARAMETER WebPort
     前端 dev server 端口，默认 5173。
@@ -22,7 +23,7 @@
     跳过依赖安装检查/安装。
 
 .PARAMETER SkipBuild
-    prod 模式跳过前端构建（复用已有 web/dist）。
+    prod 模式跳过前端构建（复用已有 dashboard/dist）。
 
 .PARAMETER NoBrowser
     启动后不自动打开浏览器。
@@ -65,7 +66,8 @@ try {
 
 $Root       = $PSScriptRoot
 $VenvPython = Join-Path $Root ".venv\Scripts\python.exe"
-$WebDir     = Join-Path $Root "web"
+$env:PYTHONPATH = Join-Path $Root "src"
+$WebDir     = Join-Path $Root "dashboard"
 $ShellExe   = if (Get-Command pwsh -ErrorAction SilentlyContinue) { "pwsh" } else { "powershell" }
 
 function Write-Step([string]$Message) { Write-Host "==> $Message" -ForegroundColor Cyan }
@@ -74,7 +76,7 @@ function Write-Warn2([string]$Message){ Write-Host "  !!  $Message" -ForegroundC
 
 function Assert-Prereqs {
     if (-not (Test-Path -LiteralPath $VenvPython)) {
-        throw "未找到专属虚拟环境：$VenvPython`n请先在项目根目录执行：E:\python\3.12.9\python.exe -m venv .venv"
+        throw "未找到专属虚拟环境：$VenvPython`n请先在项目根目录执行：python -m venv .venv"
     }
     if (-not (Get-Command node -ErrorAction SilentlyContinue)) {
         throw "未找到 Node.js，请安装 Node >= 18。"
@@ -109,12 +111,30 @@ function Build-Web {
     Write-Step "构建前端 (tsc --noEmit && vite build)"
     npm --prefix $WebDir run build
     if ($LASTEXITCODE -ne 0) { throw "前端构建失败。" }
-    Write-Ok "前端构建完成 -> web/dist"
+    Write-Ok "前端构建完成 -> dashboard/dist"
 }
 
 function Start-Terminal([string]$Title, [string]$Command) {
     $wrapped = "`$Host.UI.RawUI.WindowTitle = '$Title'; $Command"
     Start-Process -FilePath $ShellExe -ArgumentList "-NoExit", "-Command", $wrapped -WorkingDirectory $Root | Out-Null
+}
+
+function Stop-OldPort([int]$StopPort) {
+    Write-Step "检查端口 $StopPort 上的旧实例"
+    try {
+        $conns = Get-NetTCPConnection -LocalPort $StopPort -State Listen -ErrorAction Stop
+        foreach ($c in $conns) {
+            $p = Get-Process -Id $c.OwningProcess -ErrorAction SilentlyContinue
+            if ($p) {
+                Write-Warn2 "停止旧实例 PID=$($p.Id) ($($p.ProcessName))"
+                Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue
+            }
+        }
+    } catch {
+        Write-Ok "端口 $StopPort 未被占用"
+        return
+    }
+    Start-Sleep -Milliseconds 800
 }
 
 function Wait-Health([int]$HealthPort, [int]$TimeoutSec = 45) {
@@ -143,16 +163,18 @@ switch ($Mode) {
 
     "dev" {
         if ($Port -ne 8765) {
-            Write-Warn2 "dev 模式下 Vite 代理固定指向 8765，改 -Port 需同步修改 web/vite.config.ts"
+            Write-Warn2 "dev 模式下 Vite 代理固定指向 8765，改 -Port 需同步修改 dashboard/vite.config.ts"
         }
+        Stop-OldPort $Port
+        Stop-OldPort $WebPort
         Write-Step "启动后端 Flask (http://127.0.0.1:$Port)"
-        Start-Terminal "DataMason-Backend" "& '$VenvPython' -m flask --app server.app:create_app run --port $Port"
+        Start-Terminal "DataMason-Backend" "& '$VenvPython' -m flask --app datamason.app:create_app run --port $Port --no-reload"
         $health = Wait-Health $Port
         if ($health) { Write-Ok "后端就绪（版本 $($health.version)）" }
         else { Write-Warn2 "后端健康检查超时，请查看 DataMason-Backend 窗口日志" }
 
         Write-Step "启动前端 Vite (http://127.0.0.1:$WebPort)"
-        Start-Terminal "DataMason-Frontend" "npm --prefix '$WebDir' run dev -- --port $WebPort --host 127.0.0.1"
+        Start-Terminal "DataMason-Frontend" "npm --prefix '$WebDir' run dev -- --port $WebPort --host 127.0.0.1 --strictPort"
 
         $url = "http://127.0.0.1:$WebPort"
         if (-not $NoBrowser) { Start-Process $url | Out-Null }
@@ -162,6 +184,7 @@ switch ($Mode) {
     "prod" {
         if ($SkipBuild) { Write-Warn2 "已跳过前端构建 (-SkipBuild)" } else { Build-Web }
 
+        Stop-OldPort $Port
         Write-Step "启动后端 waitress (http://127.0.0.1:$Port)"
         Start-Terminal "DataMason-Prod" "& '$VenvPython' scripts\serve_walkthrough.py $Port"
         $health = Wait-Health $Port

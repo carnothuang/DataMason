@@ -12,8 +12,8 @@ from __future__ import annotations
 
 import pytest
 
-from server.auth.service import hash_password
-from server.models import (
+from datamason.auth.service import hash_password
+from datamason.models import (
     ActivityLog,
     DeploymentMember,
     DeploymentMenu,

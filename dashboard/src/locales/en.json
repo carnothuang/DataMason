@@ -1,0 +1,52 @@
+{
+  "common": {
+    "loading": "Loading..."
+  },
+  "header": {
+    "openNav": "Open navigation"
+  },
+  "sidebar": {
+    "collapse": "Collapse sidebar"
+  },
+  "nav": {
+    "deployments": "Deployments",
+    "management": "Management",
+    "settings": "Settings"
+  },
+  "account": {
+    "language": "Language",
+    "appearance": "Appearance",
+    "currentVersion": "Current version: {{version}}",
+    "themeLight": "Light mode",
+    "themeDark": "Dark mode",
+    "themeSystem": "Follow system",
+    "switchTheme": "Switch theme",
+    "logout": "Sign out",
+    "admin": "Admin"
+  },
+  "shell": {
+    "logoutSuccess": "Signed out"
+  },
+  "login": {
+    "title": "DataMason · Sign in",
+    "heading": "Sign in",
+    "username": "Username or email",
+    "usernameRequired": "Please enter your username",
+    "password": "Password",
+    "passwordRequired": "Please enter your password",
+    "slideHint": "Drag the slider to the far right to verify",
+    "slideVerified": "Verified",
+    "submit": "Sign in",
+    "welcome": "Welcome, {{name}}",
+    "firstRunSetup": "First run: create an admin account",
+    "bootstrapFromEnv": "Or initialize an admin from environment variables",
+    "bootstrapExists": "An admin already exists; nothing to initialize",
+    "bootstrapCreated": "Created admin: {{names}} (sign in with the password from the environment)",
+    "bootstrapDone": "Done"
+  },
+  "entry": {
+    "notFoundTitle": "Entry not found",
+    "notFoundSubtitle": "This entry does not exist or has moved (after a custom-entry path change, the old path is no longer exposed).",
+    "backToConsole": "Back to console"
+  }
+}

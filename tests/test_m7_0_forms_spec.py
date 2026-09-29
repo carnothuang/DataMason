@@ -8,7 +8,7 @@ import pytest
 from pydantic import ValidationError
 from sqlalchemy.exc import IntegrityError
 
-from server.forms.spec import (
+from datamason.forms.spec import (
     MAX_OPTIONS_PER_FIELD,
     FieldConfigSpec,
     FormConfigPayload,
@@ -19,13 +19,13 @@ from server.forms.spec import (
 
 
 def test_create_all_lazy_idempotent(app):
-    from server.models import create_all_lazy
+    from datamason.models import create_all_lazy
 
     create_all_lazy(app)
     create_all_lazy(app)
     Session = app.extensions["datamason_session_factory"]
     with Session() as s:
-        from server.models import FormFieldConfig, FormLayout, FormOptionItem
+        from datamason.models import FormFieldConfig, FormLayout, FormOptionItem
 
         assert s.query(FormFieldConfig).count() == 0
         assert s.query(FormOptionItem).count() == 0
@@ -33,7 +33,7 @@ def test_create_all_lazy_idempotent(app):
 
 
 def test_form_field_config_unique(app):
-    from server.models import FormFieldConfig
+    from datamason.models import FormFieldConfig
 
     Session = app.extensions["datamason_session_factory"]
     with Session() as s:
@@ -48,7 +48,7 @@ def test_form_field_config_unique(app):
 
 
 def test_form_option_item_unique(app):
-    from server.models import FormOptionItem
+    from datamason.models import FormOptionItem
 
     Session = app.extensions["datamason_session_factory"]
     with Session() as s:
@@ -63,7 +63,7 @@ def test_form_option_item_unique(app):
 
 
 def test_form_layout_unique(app):
-    from server.models import FormLayout
+    from datamason.models import FormLayout
 
     Session = app.extensions["datamason_session_factory"]
     with Session() as s:
@@ -144,7 +144,7 @@ def test_field_config_rejects_too_many_options():
 
 def test_field_config_rejects_unknown_control():
     with pytest.raises(ValidationError):
-        FieldConfigSpec(field_name="f", control_type="slider")
+        FieldConfigSpec(field_name="f", control_type="unknown_control")
 
 
 def test_field_config_rejects_long_hint():

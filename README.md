@@ -21,13 +21,13 @@ DataMason 不是写代码的工具，而是把「想法 → 数据 → 界面 �
 | 前端 | React 18 + antd 5 + Vite 5 + ECharts + react-router |
 | 后端 | Flask 3 + SQLAlchemy 2 + pydantic + httpx（含 LLM 网关） |
 | 元数据库 | SQLite（`datamason_meta.db`）；每套部署一个独立物理库（`data/`） |
-| LLM | 通过 `server/settings` 配置的 OpenAI 兼容端点（base_url / key / model） |
+| LLM | 通过 `src/datamason/settings` 配置的 OpenAI 兼容端点（base_url / key / model） |
 
 ## 目录结构
 
 ```
-├── server/       # Flask 后端（app factory，蓝图为模块：auth/deploy/workspace/crud/flow/…）
-├── web/          # React 前端（Vite，Node ≥ 18）
+├── src/datamason/       # Flask 后端（app factory，蓝图为模块：auth/deploy/workspace/crud/flow/…）
+├── dashboard/          # React 前端（Vite，Node ≥ 18）
 ├── tests/        # pytest 离线测试
 ├── scripts/      # 冒烟 / E2E / 服务脚本（scripts/e2e/ 含 Playwright 真浏览器验收）
 ├── data/         # 各部署的独立物理库（SQLite）
@@ -62,13 +62,13 @@ E:\python\3.12.9\python.exe -m venv .venv
 
 ```powershell
 # 1) 安装前端依赖（一次）
-npm --prefix web install
+npm --prefix dashboard install
 
 # 2) 启动后端（终端 A，显式引用专属 venv）
-.\.venv\Scripts\python.exe -m flask --app server.app:create_app run --port 8765
+.\.venv\Scripts\python.exe -m flask --app datamason.app:create_app run --port 8765
 
 # 3) 启动前端（终端 B，Node ≥ 18）
-npm --prefix web run dev
+npm --prefix dashboard run dev
 ```
 
 访问 http://127.0.0.1:5173
@@ -90,7 +90,7 @@ Invoke-RestMethod http://127.0.0.1:8765/api/v1/health   # 应返回 {"status":"o
 
 ```powershell
 .\.venv\Scripts\python.exe -m pytest      # 离线全量（tests/）
-npm --prefix web run build               # 前端类型检查 + 构建
+npm --prefix dashboard run build               # 前端类型检查 + 构建
 ```
 
-生产模式：`npm --prefix web run build` 后仅启动后端（专属 venv）即可单端口托管（Flask 自动托管 `web/dist`）。
+生产模式：`npm --prefix dashboard run build` 后仅启动后端（专属 venv）即可单端口托管（Flask 自动托管 `dashboard/dist`）。

@@ -1,0 +1,31 @@
+---
+description: DataMason 前端交互与布局继承规则（WorkMason 规范）
+globs:
+  - "dashboard/src/**"
+alwaysApply: false
+---
+
+# 前端交互与布局继承规则
+
+编辑本规则覆盖的文件前，先读：
+
+- 真相源：`DESIGN.md`（从 WorkMason 继承的前端业务交互设计）
+- 适配与 MUST 清单：`AGENTS.md` §12「前端交互继承」
+
+## 硬约束（违反即返工）
+
+- 颜色 / 圆角 / 间距 / 阴影用 `--fn-*` 变量（`dashboard/src/styles/theme.css`），禁止硬编码 `#hex` / `rgb()` / 魔法 px；ECharts/canvas 与 antd token 经 `dashboard/src/styles/tokens.ts` 运行时读取。
+- 组件禁止直接 `fetch` / `axios` / `WebSocket`，走 `dashboard/src/api.ts`。
+- 用户可见文案走 i18n（`dashboard/src/locales/{en,zh}.json`），zh/en 键对齐；禁止硬编码用户可见中文。
+- 实体 CRUD 用 antd `Drawer`，不要为实体新增路由。
+- 列表默认卡片 / 表格切换并 `localStorage` 持久化；重度面板用 keep-alive（`display:none`）。
+- 只编辑 `dashboard/src/`；不要手改 `dashboard/dist/`；改 UI 后 `npm --prefix dashboard run build`。
+
+## 交互范式（照抄，不要重新发明）
+
+- 页面骨架：`dashboard/src/layouts/PageShell.tsx`（标题行 + 内容卡）。
+- 主题 / 品牌色：`dashboard/src/context/ThemeContext.tsx` + `dashboard/src/styles/theme.css`。
+- HTTP / 鉴权封装：`dashboard/src/api.ts`。
+- 关系图 / 字段表：`dashboard/src/components/ErGraph.tsx`、`dashboard/src/components/ErCanvas.tsx`。
+
+不确定时查真相源，不要自行发挥；查不到就停下来问。

@@ -9,7 +9,7 @@ import json
 
 import pytest
 
-from server.forms.service import (
+from datamason.forms.service import (
     FormConfigError,
     get_form_config,
     reset_field_config,
@@ -18,7 +18,7 @@ from server.forms.service import (
 
 
 def _seed(app) -> int:
-    from server.models import Deployment, TableSpec
+    from datamason.models import Deployment, TableSpec
 
     cols = [
         {"name": "id", "biz_name": "编号", "type": "INTEGER", "is_pk": True,
@@ -87,7 +87,7 @@ def test_save_and_read_back(app):
 def test_blueprint_new_field_uses_default(app):
     did = _seed(app)
     save_form_config(app, did, "orders", _payload())
-    from server.models import TableSpec
+    from datamason.models import TableSpec
 
     Session = app.extensions["datamason_session_factory"]
     with Session() as s:
@@ -105,7 +105,7 @@ def test_blueprint_new_field_uses_default(app):
 
 def test_deleted_field_config_ignored(app):
     did = _seed(app)
-    from server.models import FormFieldConfig
+    from datamason.models import FormFieldConfig
 
     Session = app.extensions["datamason_session_factory"]
     with Session() as s:
@@ -119,12 +119,12 @@ def test_deleted_field_config_ignored(app):
 
 def test_corrupt_config_degrades(app):
     did = _seed(app)
-    from server.models import FormFieldConfig
+    from datamason.models import FormFieldConfig
 
     Session = app.extensions["datamason_session_factory"]
     with Session() as s:
         s.add(FormFieldConfig(deployment_id=did, table_name="orders",
-                              field_name="status", control_type="slider"))
+                              field_name="status", control_type="unknown_ctrl"))
         s.commit()
     cfg = get_form_config(app, did, "orders")
     assert cfg["degraded"] is True
@@ -134,7 +134,7 @@ def test_corrupt_config_degrades(app):
 def test_atomic_rollback_keeps_old(app, monkeypatch):
     did = _seed(app)
     save_form_config(app, did, "orders", _payload())
-    import server.forms.service as svc
+    import datamason.forms.service as svc
 
     def _boom(*args, **kwargs):
         raise RuntimeError("boom")
@@ -152,7 +152,7 @@ def test_atomic_rollback_keeps_old(app, monkeypatch):
 def test_audit_written(app):
     did = _seed(app)
     save_form_config(app, did, "orders", _payload(), actor_user_id=7)
-    from server.models import ActivityLog
+    from datamason.models import ActivityLog
 
     Session = app.extensions["datamason_session_factory"]
     with Session() as s:

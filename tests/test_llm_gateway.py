@@ -10,9 +10,9 @@ import json
 import httpx
 import pytest
 
-from server.config import Config, get_config
-from server.llm.client import LlmConfig, OpenAiCompatibleClient, _loads_llm_json
-from server.llm.structure import generate_schema
+from datamason.config import Config, get_config
+from datamason.llm.client import LlmConfig, OpenAiCompatibleClient, _loads_llm_json
+from datamason.llm.structure import generate_schema
 
 PAYLOAD = {"tables": [{"name": "t", "biz_name": "表", "columns": [
     {"name": "id", "type": "INTEGER", "is_pk": True, "autoincrement": True},
@@ -91,7 +91,7 @@ def test_get_config_llm_timeout_invalid_env_defaults(monkeypatch):
 
 
 def test_settings_service_timeout_propagates(app):
-    from server.settings.service import get_default_llm_client
+    from datamason.settings.service import get_default_llm_client
 
     app.config["DATAMASON_LLM_TIMEOUT"] = 120
     client = get_default_llm_client(app)

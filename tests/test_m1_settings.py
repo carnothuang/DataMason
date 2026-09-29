@@ -12,8 +12,8 @@ import os
 
 import pytest
 
-from server.models import Connection, LlmModel
-from server.settings import service
+from datamason.models import Connection, LlmModel
+from datamason.settings import service
 
 
 def _s(app):
@@ -23,8 +23,8 @@ def _s(app):
 @pytest.fixture(autouse=True)
 def _login_admin(app, client):
     """M2-1 起设置接口需平台管理员登录；本文件全部用例共享登录态。"""
-    from server.auth.service import hash_password
-    from server.models import User
+    from datamason.auth.service import hash_password
+    from datamason.models import User
 
     with _s(app) as s:
         s.add(User(username="laomao", display_name="老猫",

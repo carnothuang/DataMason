@@ -12,12 +12,12 @@ import pytest
 from flask import Flask
 from sqlalchemy import text
 
-from server.crud.engine import CrudRegistry, create_crud_blueprint
-from server.dataaccess.manager import execute_ddl, make_engine
-from server.ddl.ddl_builder import build_schema_ddl
-from server.ddl.table_spec import SchemaSpec
-from server.llm.client import LlmConfig, LlmNotConfiguredError, OpenAiCompatibleClient
-from server.llm.structure import generate_schema, generate_seed_rows
+from datamason.crud.engine import CrudRegistry, create_crud_blueprint
+from datamason.dataaccess.manager import execute_ddl, make_engine
+from datamason.ddl.ddl_builder import build_schema_ddl
+from datamason.ddl.table_spec import SchemaSpec
+from datamason.llm.client import LlmConfig, LlmNotConfiguredError, OpenAiCompatibleClient
+from datamason.llm.structure import generate_schema, generate_seed_rows
 
 GUESTBOOK_LLM_JSON = {
     "biz_notes": "访客留言收集",

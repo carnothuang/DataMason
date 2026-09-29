@@ -2,7 +2,7 @@
 
 凭证从环境变量读（绝不硬编码）。直接在 app context 内调用 service，
 不走 HTTP 自连接（避免 serve_forever 前无 accept、以及本机代理拦截 127.0.0.1）。
-启动后在 8765 提供「Flask API + web/dist 单页应用」，供 Playwright 同源访问。
+启动后在 8765 提供「Flask API + dashboard/dist 单页应用」，供 Playwright 同源访问。
 环境变量：
   DATAMASON_ADMIN_USERNAME / DATAMASON_ADMIN_PASSWORD
   DATAMASON_LLM_BASE_URL / DATAMASON_LLM_API_KEY / DATAMASON_LLM_MODEL
@@ -16,7 +16,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent.parent
 os.chdir(ROOT)
-sys.path.insert(0, str(ROOT))
+sys.path.insert(0, str(ROOT / "src"))
 
 from werkzeug.serving import make_server  # noqa: E402  # noqa: F401 回退路径使用
 
@@ -69,7 +69,7 @@ def _install_stub_llm(app) -> None:
     """
     import re
 
-    from server.llm.client import Usage
+    from datamason.llm.client import Usage
 
     # M6 混合建库：确定性骨架（客户/订单/回访记录，两条关系）与逐表字段
     m6_skeleton = {
@@ -146,7 +146,7 @@ def _install_stub_llm(app) -> None:
         def close(self):
             pass
 
-    import server.settings.service as settings_service
+    import datamason.settings.service as settings_service
 
     settings_service.get_default_llm_client = lambda _app: _StubLlm()
     print(
@@ -174,7 +174,7 @@ CREATE TABLE IF NOT EXISTS products (
 
 def _seed_external(app) -> None:
     """登记「E2E外部产品库」连接（不存在才建，幂等）。用于 M2-9 直连模式浏览器验收。"""
-    from server.settings import service as settings_service
+    from datamason.settings import service as settings_service
 
     with app.app_context():
         conns = settings_service.list_connections(app)
@@ -200,9 +200,9 @@ def _seed_external(app) -> None:
 
 
 def seed(app) -> None:
-    from server.auth.service import hash_password
-    from server.models import User
-    from server.settings import service as settings_service
+    from datamason.auth.service import hash_password
+    from datamason.models import User
+    from datamason.settings import service as settings_service
 
     with app.app_context():
         Session = app.extensions["datamason_session_factory"]
@@ -235,8 +235,8 @@ def seed(app) -> None:
                 print("[seed] model already exists, skip", flush=True)
 
         # M2-4：元数据库为空则预置一个确定性演示部署（绕过 LLM，供 CRUD UI 真浏览器验收）
-        from server.deploy import service as deploy_service
-        from server.models import Deployment
+        from datamason.deploy import service as deploy_service
+        from datamason.models import Deployment
 
         with Session() as s:
             has_demo = s.query(Deployment).filter(
@@ -254,12 +254,12 @@ def seed(app) -> None:
 
 
 def main() -> int:
-    from server.app import create_app
+    from datamason.app import create_app
 
     app = create_app()
-    dist = ROOT / "web" / "dist"
+    dist = ROOT / "dashboard" / "dist"
     if not dist.exists():
-        print("[serve] web/dist 不存在，请先 npm run build", flush=True)
+        print("[serve] dashboard/dist 不存在，请先 npm run build", flush=True)
     seed(app)
     if os.environ.get("DATAMASON_E2E_LLM_STUB") == "1":
         _install_stub_llm(app)

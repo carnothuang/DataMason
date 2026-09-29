@@ -4,15 +4,15 @@ from __future__ import annotations
 import pytest
 from pydantic import ValidationError
 
-from server.dataaccess.manager import execute_ddl, list_tables, make_engine, read_columns
-from server.ddl.ddl_builder import (
+from datamason.dataaccess.manager import execute_ddl, list_tables, make_engine, read_columns
+from datamason.ddl.ddl_builder import (
     OWNERSHIP_COLUMNS,
     DdlBuildError,
     build_schema_ddl,
     build_table_ddl,
     inject_ownership_columns,
 )
-from server.ddl.table_spec import ColumnSpec, SchemaSpec, TableSpecModel
+from datamason.ddl.table_spec import ColumnSpec, SchemaSpec, TableSpecModel
 
 
 def _guestbook_spec() -> SchemaSpec:

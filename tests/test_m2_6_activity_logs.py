@@ -13,8 +13,8 @@ from datetime import datetime
 
 import pytest
 
-from server.audit.service import AuditSession, reconcile_pending
-from server.models import ActivityLog
+from datamason.audit.service import AuditSession, reconcile_pending
+from datamason.models import ActivityLog
 
 GUESTBOOK_SPEC = {
     "biz_notes": "访客留言",
@@ -73,8 +73,8 @@ class FakeLlm:
 
 @pytest.fixture()
 def admin(app, client):
-    from server.auth.service import hash_password
-    from server.models import User
+    from datamason.auth.service import hash_password
+    from datamason.models import User
 
     Session = app.extensions["datamason_session_factory"]
     with Session() as s:
@@ -90,7 +90,7 @@ def admin(app, client):
 @pytest.fixture(autouse=True)
 def patch_llm(monkeypatch):
     monkeypatch.setattr(
-        "server.settings.service.get_default_llm_client",
+        "datamason.settings.service.get_default_llm_client",
         lambda _app: FakeLlm(LINKED_SPEC),
     )
     yield
@@ -194,8 +194,8 @@ def test_logs_desc_order_and_append_only(app, client, admin):
 # ---------------- 权限裁剪 ----------------
 
 def _make_second_user(app, client) -> int:
-    from server.auth.service import hash_password
-    from server.models import User
+    from datamason.auth.service import hash_password
+    from datamason.models import User
 
     assert client.post("/api/v1/auth/users", json={
         "username": "xiaoli", "display_name": "小李", "password": "li123",
@@ -434,9 +434,9 @@ def test_reconcile_update_matches_or_discards(app, client, admin):
 
 def test_create_app_wires_reconcile_background(monkeypatch, tmp_path):
     """E1：create_app 必须挂载启动对账后台线程（DR-03）。"""
-    import server.audit.service as audit_service
-    from server.app import create_app
-    from server.config import Config
+    import datamason.audit.service as audit_service
+    from datamason.app import create_app
+    from datamason.config import Config
 
     called: dict = {}
     monkeypatch.setattr(audit_service, "reconcile_pending_background",

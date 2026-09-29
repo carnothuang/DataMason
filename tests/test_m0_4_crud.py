@@ -4,10 +4,10 @@ from __future__ import annotations
 import pytest
 from flask import Flask
 
-from server.crud.engine import CrudRegistry, create_crud_blueprint
-from server.dataaccess.manager import execute_ddl, make_engine
-from server.ddl.ddl_builder import build_table_ddl
-from server.ddl.table_spec import ColumnSpec, TableSpecModel
+from datamason.crud.engine import CrudRegistry, create_crud_blueprint
+from datamason.dataaccess.manager import execute_ddl, make_engine
+from datamason.ddl.ddl_builder import build_table_ddl
+from datamason.ddl.table_spec import ColumnSpec, TableSpecModel
 
 
 @pytest.fixture()

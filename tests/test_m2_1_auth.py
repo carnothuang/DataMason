@@ -9,8 +9,8 @@ from __future__ import annotations
 
 import pytest
 
-from server.auth.service import hash_password
-from server.models import Deployment, User
+from datamason.auth.service import hash_password
+from datamason.models import Deployment, User
 
 GUESTBOOK_SPEC = {
     "biz_notes": "访客留言",
@@ -51,7 +51,7 @@ def admin(app):
 @pytest.fixture()
 def patch_llm(monkeypatch):
     monkeypatch.setattr(
-        "server.settings.service.get_default_llm_client",
+        "datamason.settings.service.get_default_llm_client",
         lambda _app: FakeLlm(),
     )
     yield
@@ -261,7 +261,7 @@ def test_setup_with_llm_config(app, client):
     })
     assert resp.status_code == 201, resp.get_data(as_text=True)
     assert resp.get_json()["llm_configured"] is True
-    from server.settings import service as settings_service
+    from datamason.settings import service as settings_service
 
     assert settings_service.has_configured_model(app) is True
     assert client.get("/api/v1/auth/setup-status").get_json()["llm_configured"] is True

@@ -9,15 +9,15 @@
 
 | 事实（0.10.0） | 位置 | 对 0.11.0 的含义 |
 |---|---|---|
-| 元数据表全部**惰性建表** + `_backfill_missing_columns` 简单列迁移 | `server/models/__init__.py:298-345` | 新增表/列不需要 alembic；改动走同一手法，保证老库升级 |
-| 运行时表白名单**来自 `table_specs`** | `server/crud/runtime.py:38-44` | 增表=写 `table_specs` 行即暴露；删表=删行即隐藏（但仍须清页面/菜单，防悬垂） |
-| CRUD 引擎权限旋钮只有 `current_user_id` + `owner_only` | `server/crud/engine.py:45-62`、`_owner_condition:204-211` | 操作权限与数据范围在此扩展 |
-| 操作员表范围 = 菜单→页面→表 | `server/members/service.py:104-135` | 新表/新页面必须成对，否则操作员不可见 |
-| 直连外部库只读红线 | `server/deploy/editor.py:111-117`、`deploy/service.py:294-299` | 结构演化只在创建模式放开 |
-| 两阶段日志 + 启动对账 | `server/audit/service.py`、DR-03 | 结构/附件/导入的写动作都接同一套 |
-| 全站未设 `MAX_CONTENT_LENGTH`，无 multipart 处理 | `server/app.py`、`server/config.py` | 文件能力需显式补齐并设上限 |
-| `crud_configs.ui_config_json` 恒为 `{}`、运行时从不读 | `server/deploy/service.py:382-387` | 用作字段级权限的落点（V0.1 可选） |
-| 配置包导出只含元数据+committed 日志，不含业务数据/附件 | `server/deploy/export.py` | 附件与业务数据另走文件/表格导出 |
+| 元数据表全部**惰性建表** + `_backfill_missing_columns` 简单列迁移 | `src/datamason/models/__init__.py:298-345` | 新增表/列不需要 alembic；改动走同一手法，保证老库升级 |
+| 运行时表白名单**来自 `table_specs`** | `src/datamason/crud/runtime.py:38-44` | 增表=写 `table_specs` 行即暴露；删表=删行即隐藏（但仍须清页面/菜单，防悬垂） |
+| CRUD 引擎权限旋钮只有 `current_user_id` + `owner_only` | `src/datamason/crud/engine.py:45-62`、`_owner_condition:204-211` | 操作权限与数据范围在此扩展 |
+| 操作员表范围 = 菜单→页面→表 | `src/datamason/members/service.py:104-135` | 新表/新页面必须成对，否则操作员不可见 |
+| 直连外部库只读红线 | `src/datamason/deploy/editor.py:111-117`、`deploy/service.py:294-299` | 结构演化只在创建模式放开 |
+| 两阶段日志 + 启动对账 | `src/datamason/audit/service.py`、DR-03 | 结构/附件/导入的写动作都接同一套 |
+| 全站未设 `MAX_CONTENT_LENGTH`，无 multipart 处理 | `src/datamason/app.py`、`src/datamason/config.py` | 文件能力需显式补齐并设上限 |
+| `crud_configs.ui_config_json` 恒为 `{}`、运行时从不读 | `src/datamason/deploy/service.py:382-387` | 用作字段级权限的落点（V0.1 可选） |
+| 配置包导出只含元数据+committed 日志，不含业务数据/附件 | `src/datamason/deploy/export.py` | 附件与业务数据另走文件/表格导出 |
 
 **三条不可破的约束**：① 绝不 ALTER 外部库；② 生成即提案（不确认不落库）；③ 业务写必留痕（两阶段 + 对账），批量的留痕语义见 DR-29。
 
@@ -64,12 +64,12 @@ deployment_menu_grants            # 现有：复合 PK(menu_id, user_id)
 
 ### 2.3 `ColumnType` 增 `FILE`（DR-28）
 
-- `server/ddl/table_spec.py:14` 的 Literal 增加 `"FILE"`；`ColumnSpec.type` 支持。
-- `server/ddl/ddl_builder.py` `_map_type`：`FILE → VARCHAR(255)`（三方言一致，存 token / token 数组串）；`_column_ddl` 无需特殊处理。
-- `server/deploy/link.py:282-283` 的外部二进制映射维持降级为 `TEXT`（外部库不引入 FILE 语义；FILE 仅创建模式新表使用）。
-- `server/deploy/editor.py` `_logical_type`：DB 侧仍是 VARCHAR，回读为 VARCHAR，**FILE 语义由 `columns_json` 中的逻辑类型保留**（`get_blueprint` 读的是 `columns_json`，所以能保住）。
-- `server/crud/engine.py._coerce_value`：`FILE` 按字符串处理（存 token），不参与数值/日期转换。
-- `server/workspace/routes.py.app_meta` 需要把 `is_attachment` 或 `type=FILE` 透传给前端（当前 app_meta 已用 `table_specs.columns_json` 覆盖类型，天然可带出）。
+- `src/datamason/ddl/table_spec.py:14` 的 Literal 增加 `"FILE"`；`ColumnSpec.type` 支持。
+- `src/datamason/ddl/ddl_builder.py` `_map_type`：`FILE → VARCHAR(255)`（三方言一致，存 token / token 数组串）；`_column_ddl` 无需特殊处理。
+- `src/datamason/deploy/link.py:282-283` 的外部二进制映射维持降级为 `TEXT`（外部库不引入 FILE 语义；FILE 仅创建模式新表使用）。
+- `src/datamason/deploy/editor.py` `_logical_type`：DB 侧仍是 VARCHAR，回读为 VARCHAR，**FILE 语义由 `columns_json` 中的逻辑类型保留**（`get_blueprint` 读的是 `columns_json`，所以能保住）。
+- `src/datamason/crud/engine.py._coerce_value`：`FILE` 按字符串处理（存 token），不参与数值/日期转换。
+- `src/datamason/workspace/routes.py.app_meta` 需要把 `is_attachment` 或 `type=FILE` 透传给前端（当前 app_meta 已用 `table_specs.columns_json` 覆盖类型，天然可带出）。
 
 ### 2.4 配置项新增
 
@@ -111,7 +111,7 @@ deployment_menu_grants            # 现有：复合 PK(menu_id, user_id)
 
 **关键点**
 - 外键排序：单表新增时引用方是**本表**，被引用表已存在，无须拓扑排序；但若一句话式产出了多表（LLM 自由发挥），**必须限制为单表**或对新增子集做拓扑排序（v0 明确只允许单表，减少风险）。
-- 与首次部署 `confirm`（`server/deploy/service.py:340-388`）保持**同一套产物结构**，避免两条路径分叉。
+- 与首次部署 `confirm`（`src/datamason/deploy/service.py:340-388`）保持**同一套产物结构**，避免两条路径分叉。
 - 停止态允许；销毁态 404/409。
 
 ### 3.2 删表：影响面计算 → 守卫 → 级联
@@ -157,7 +157,7 @@ deployment_menu_grants            # 现有：复合 PK(menu_id, user_id)
 | POST | `/api/v1/deployments/{id}/tables/{name}/drop/propose` | 删表影响面 | — | `{table, row_count, referenced_by[], pages[], menus[], flows[], reports[], seeds, blocked, reason}` |
 | POST | `/api/v1/deployments/{id}/tables/{name}/drop` | 删表执行 | `{confirm: <表名>}` | `{dropped, cascade:{pages,menus,grants,configs,seeds}}` |
 
-- 全部 `_require_creator`（`server/deploy/routes.py:436-444`）+ `_assert_editable`。
+- 全部 `_require_creator`（`src/datamason/deploy/routes.py:436-444`）+ `_assert_editable`。
 - 提案与执行使用**同一构建函数**，pytest 断言"提案语句 == 执行语句"（沿用 M2-8 的测试手法 `tests/test_m2_8_blueprint.py`）。
 
 ---
@@ -174,7 +174,7 @@ DATA_ROOT/
       └─ <token>.<ext>
 ```
 - 附件目录按 `deployments/deployment_<deployment_id>.files/`（实现口径，对直连模式同样适用）；
-  业务库文件名仍由 `server/deploy/service.py:252-262` 生成的唯一 slug 决定。
+  业务库文件名仍由 `src/datamason/deploy/service.py:252-262` 生成的唯一 slug 决定。
 - 隔离经**每部署目录** + **每请求部署校验**双重保证：文件接口先从 `attachments` 校验 token 属于该 `deployment_id`。
 
 ### 4.2 接口契约
@@ -187,7 +187,7 @@ DATA_ROOT/
 | DELETE | `/api/v1/app/{id}/api/files/{token}` | 删除（同时从所属行字段移除引用） | 成员 + 行写权限 |
 | GET | `/api/v1/app/{id}/api/files/quota` | 部署级用量（可选） | 创建人/管理员 |
 
-- **路径前缀不在 API key 白名单内**（`server/app.py:152-157` 只放行 `/app/{id}/api/tables/` 与 `/api/meta`），故 key 通道默认无法访问文件接口——符合 DR-33。
+- **路径前缀不在 API key 白名单内**（`src/datamason/app.py:152-157` 只放行 `/app/{id}/api/tables/` 与 `/api/meta`），故 key 通道默认无法访问文件接口——符合 DR-33。
 - **鉴权顺序**：全局 guard（登录）→ `assert_member` → 若操作员，按 `(deployment_id, table_name, row_pk)` 回查该行 `created_by` 是否等于自己（数据范围）→ 通过。
 
 ### 4.3 安全清单（DR-33）
@@ -195,7 +195,7 @@ DATA_ROOT/
 1. token = `secrets.token_urlsafe`（≥32 字节），文件名即 token，**不落原始文件名到磁盘**（`filename` 只存元数据表，下载时用于 `Content-Disposition`）。
 2. 扩展名白名单 + MIME 探测；未知/危险类型拒绝（可执行、脚本、HTML 默认禁止或强制 attachment）。
 3. 单文件 ≤ 10MB、单请求 ≤ `MAX_CONTENT_LENGTH`；超限 413。
-4. 路径穿越：`storage_rel` 一律由服务端拼接并 `resolve()`，校验仍在 `DATA_ROOT` 内（复用 `destroy_deployment` 的守卫写法 `server/deploy/service.py:619,627-634`）。
+4. 路径穿越：`storage_rel` 一律由服务端拼接并 `resolve()`，校验仍在 `DATA_ROOT` 内（复用 `destroy_deployment` 的守卫写法 `src/datamason/deploy/service.py:619,627-634`）。
 5. 预览响应加 `X-Content-Type-Options: nosniff`，禁止把用户文件当同源 HTML 执行。
 
 ### 4.4 生命周期闭环
@@ -242,7 +242,7 @@ DATA_ROOT/
 
 ### 5.4 导出增强
 
-- `rows.xlsx` 复用 `export_rows`（`server/crud/engine.py`）的筛选逻辑，改为 openpyxl 写出；列选择参数 `cols=a,b,c`（未知列 400）。
+- `rows.xlsx` 复用 `export_rows`（`src/datamason/crud/engine.py`）的筛选逻辑，改为 openpyxl 写出；列选择参数 `cols=a,b,c`（未知列 400）。
 - 上限：配置项 `DM_EXPORT_MAX_ROWS`（默认 20000）；超出时响应头 `X-DM-Truncated: true`，前端可提示"已导出前 N 行"。
 - 权限与数据范围在取数前统一校验（操作员导出=自己行）。
 
@@ -250,7 +250,7 @@ DATA_ROOT/
 
 ## 六、权限模型实现闭环（M5-C）
 
-### 6.1 统一权限解析器（新增 `server/members/` 内纯函数）
+### 6.1 统一权限解析器（新增 `src/datamason/members/` 内纯函数）
 
 ```
 resolve_access(sess, deployment, user_id, table_name, page_id=None)
@@ -264,7 +264,7 @@ resolve_access(sess, deployment, user_id, table_name, page_id=None)
 
 | 动作 | 强制位置 |
 |---|---|
-| view（列表/详情/refs） | `server/workspace/routes.py` CRUD 读路由 + `CrudRegistry` 白名单 |
+| view（列表/详情/refs） | `src/datamason/workspace/routes.py` CRUD 读路由 + `CrudRegistry` 白名单 |
 | create | `app_create_row`（`workspace/routes.py:290`）→ 校验 `create` |
 | update | `app_update_row` → 校验 `update`；已有 `_owner_condition` 叠加数据范围 |
 | delete | `app_delete_row` → 校验 `delete` |
@@ -294,14 +294,14 @@ resolve_access(sess, deployment, user_id, table_name, page_id=None)
 
 | 文件 | 改造 |
 |---|---|
-| `web/src/pages/deploy/BlueprintPage.tsx` | 「+ 新建表」「删除表」入口；表级提案卡；影响面展示 |
-| `web/src/pages/deploy/FieldEditor.tsx` | 支持 `FILE` 类型选项；作为"新建表"的字段编辑复用 |
-| `web/src/pages/workspace/CrudListPage.tsx` | 按 `actions` 裁剪按钮；FILE 列 FileChip；导入/导出入口；数据范围提示沿用 |
-| `web/src/pages/workspace/CrudForm.tsx` | FILE 控件；字段级只读/隐藏 |
-| `web/src/pages/workspace/MembersPage.tsx` | 功能×动作 + 数据范围 |
-| `web/src/components/FileChip.tsx`（新） | 附件展示/预览/下载/删除 |
-| `web/src/pages/workspace/ImportWizard.tsx`（新） | 导入四步向导 |
-| `web/src/api.ts` | 新增 FilesApi / ImportApi / 结构演化 API / 权限字段类型 |
+| `dashboard/src/pages/deploy/BlueprintPage.tsx` | 「+ 新建表」「删除表」入口；表级提案卡；影响面展示 |
+| `dashboard/src/pages/deploy/FieldEditor.tsx` | 支持 `FILE` 类型选项；作为"新建表"的字段编辑复用 |
+| `dashboard/src/pages/workspace/CrudListPage.tsx` | 按 `actions` 裁剪按钮；FILE 列 FileChip；导入/导出入口；数据范围提示沿用 |
+| `dashboard/src/pages/workspace/CrudForm.tsx` | FILE 控件；字段级只读/隐藏 |
+| `dashboard/src/pages/workspace/MembersPage.tsx` | 功能×动作 + 数据范围 |
+| `dashboard/src/components/FileChip.tsx`（新） | 附件展示/预览/下载/删除 |
+| `dashboard/src/pages/workspace/ImportWizard.tsx`（新） | 导入四步向导 |
+| `dashboard/src/api.ts` | 新增 FilesApi / ImportApi / 结构演化 API / 权限字段类型 |
 
 ---
 
@@ -337,9 +337,9 @@ resolve_access(sess, deployment, user_id, table_name, page_id=None)
 | 项 | 变更 | 说明 |
 |---|---|---|
 | `requirements.txt` | `+ openpyxl>=3.1` | xlsx 导入导出；纯 Python，无重依赖 |
-| `server/config.py` | `max_content_length` / `upload_allowed_ext` / `upload_allowed_mime` / `import_max_rows` | 显式上限 |
-| `server/app.py` | 设 `MAX_CONTENT_LENGTH`；注册 `files`/`imports` 蓝图 | 文件接口不纳入 API key 白名单 |
-| `web/package.json` | 无新增（antd `Upload`/`Image` 已有） | 不引 axios 之外的库 |
+| `src/datamason/config.py` | `max_content_length` / `upload_allowed_ext` / `upload_allowed_mime` / `import_max_rows` | 显式上限 |
+| `src/datamason/app.py` | 设 `MAX_CONTENT_LENGTH`；注册 `files`/`imports` 蓝图 | 文件接口不纳入 API key 白名单 |
+| `dashboard/package.json` | 无新增（antd `Upload`/`Image` 已有） | 不引 axios 之外的库 |
 
 ---
 

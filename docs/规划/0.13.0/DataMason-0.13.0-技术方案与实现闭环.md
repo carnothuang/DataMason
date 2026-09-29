@@ -3,7 +3,7 @@
 > **需求来源**：`docs/规划/0.13.0/DataMason-0.13.0-需求规格.md`（等价主件 `.codeartsdoer/specs/form_controls_ui/spec.md`）。
 > **基线**：0.12.0（M6 混合建库已交付）；本设计对应里程碑 **M7（0.13.0）**。
 > **视角**：技术方案（How）。需求（What）见需求规格；任务拆分见同目录《开发计划》。
-> **纪律约束**：LLM 只产 JSON 中间规格，DDL / 建库 / 页面由 Python 确定性映射；不新增前端运行时依赖；不引入 alembic；不动业务库结构（本版本**零 DDL**）；交付线为离线 `pytest` 全绿 + `npm --prefix web run build` 通过。
+> **纪律约束**：LLM 只产 JSON 中间规格，DDL / 建库 / 页面由 Python 确定性映射；不新增前端运行时依赖；不引入 alembic；不动业务库结构（本版本**零 DDL**）；交付线为离线 `pytest` 全绿 + `npm --prefix dashboard run build` 通过。
 
 ---
 
@@ -19,30 +19,30 @@
 
 | 需求功能 | 存量功能 | 代码位置 | 匹配度 |
 |---------|---------|---------|--------|
-| 字段数据类型白名单（供控件相容性判定） | 三方言逻辑类型白名单 `ColumnType`（INTEGER/BIGINT/VARCHAR/TEXT/BOOLEAN/DATETIME/DECIMAL/FILE） | `server/ddl/table_spec.py:16-18` | 100% |
-| 默认控件映射（数字→数字框、长文本→多行、布尔→是否、外键→关联下拉、附件→附件控件） | `CrudForm.renderWidget` 按 `baseType(col.type)` 分支渲染；`col.fk` 优先关联下拉 | `web/src/pages/workspace/CrudForm.tsx:169-199` | 100% |
-| 关联选择控件（远程搜索 + 初始值回填） | `FkSelect`：`CrudApi.refs` 分页搜索，初始值不在候选中时前置合并 | `web/src/pages/workspace/CrudForm.tsx:26-96` | 100% |
-| 附件上传 / 预览 / 移除 | `save_upload` / `remove_attachment` / `get_attachment` + `FileField` 控件 | `server/files/service.py:76-171`、`web/src/pages/workspace/CrudForm.tsx:243-300` | 100% |
-| 附件安全（扩展名 + MIME 白名单、大小上限、路径穿越防护、不信任客户端 Content-Type） | `server_mime` / `_allowed_exts` / `_allowed_mimes` / `_within_data_root` | `server/files/service.py:45-74, 88-104` | 100% |
-| 附件引用值格式（`[{token,name}]` JSON 串）与解析 | `parseFileValue` 解析 JSON 串为附件项数组 | `web/src/components/FileChip.tsx` | 100% |
-| 工作台表单元数据下发（业务名 / 归属列标记 / 长度 / 类型语义还原） | `app_meta` 以 `table_specs.columns_json` 富化 `crud_engine.get_meta` 结果 | `server/workspace/routes.py:204-244` | 100% |
-| 公开表单元数据下发（字段白名单，排除主键与归属列） | `public.get_page` 过滤 `is_ownership` / `is_pk` | `server/public/service.py:49-78` | 100% |
-| CRUD 写路径（列白名单 + 类型还原 + 归属列注入） | `create_row` / `update_row` / `_coerce_value` | `server/crud/engine.py:127-152, 322-399` | 100% |
-| 时间值的服务端解析（ISO 日期时间 / 日期串） | `_coerce_value` 用 `datetime.fromisoformat` 解析 DATETIME/DATE/TIMESTAMP | `server/crud/engine.py:132-147` | 100% |
-| 必填校验（公开表单，服务端复核） | `public.submit` 对 NOT NULL 业务列做业务名提示校验 | `server/public/service.py:96-106` | 100% |
-| 唯一性校验（前端预校验） | `CrudForm.checkUnique` 按列值查重 | `web/src/pages/workspace/CrudForm.tsx:124-136` | 100% |
-| 主键与归属列保护 | 归属列注入 `inject_ownership_columns`；写路径禁改归属列与主键 | `server/ddl/ddl_builder.py`、`server/crud/engine.py:327-340` | 100% |
-| 页面规格确定性派生（每表 `crud_list`，留言/反馈类表追加 `public_form`） | `_derive_pages` | `server/deploy/service.py:185-206` | 100% |
-| 两阶段操作日志 + 系统动作日志 | `AuditSession.begin/commit/abort`、`log_system`、`reconcile_pending` | `server/audit/service.py:61-152, 399-460` | 100% |
-| 配置包导出（部署元信息 + 表/页面/菜单/流程 + crud_configs + 全量 committed 日志） | `build_package` | `server/deploy/export.py:41-186` | 100% |
-| 元数据库惰性建表 + 缺列回填（无 alembic 的 schema 演化） | `create_all_lazy` + `_backfill_missing_columns` | `server/models/__init__.py:335-397` | 100% |
-| 前端 API 单文件集中（类型 + 分组同文件声明） | `http` axios 实例 + `CrudApi` / `FilesApi` / `EngineerApi` 等分组 | `web/src/api.ts` | 100% |
-| LLM 网关与 JSON 中间规格（含容错解析、重试、统一埋点） | `OpenAiCompatibleClient.chat_json`、`_loads_llm_json`、`MAX_RETRY=2`、`ai_service.record` | `server/llm/client.py:41`、`server/llm/structure.py`、`server/ai/service.py` | 100% |
-| 三层角色 + 按人授权（供配置权限判定复用） | `get_role` / `assert_member` / `require_role` / `table_access_map` | `server/members/service.py:43-90` | 100% |
-| 工程室「界面与菜单」页面卡（页面清单 + 缩略预览 + 拖拽入树） | `EngineerMenusPage` + `EngineerApi.interfaces` | `web/src/pages/workspace/EngineerMenusPage.tsx:195-275, 758-879`、`server/deploy/service.py:831-875` | 75% |
-| 页面卡「调整」（当前仅改页面标题） | `update_page_title` + `EngineerApi.updatePageTitle` | `server/deploy/service.py:1015-1037`、`web/src/api.ts:767-771` | 50% |
-| 表单渲染入口（工作台新增/编辑抽屉） | `CrudForm`：Drawer + Form，按 `editable` 过滤主键与归属列 | `web/src/pages/workspace/CrudForm.tsx:99-241` | 75% |
-| 公开表单渲染入口 | `PublicPage` + `renderControl` | `web/src/pages/PublicPage.tsx:18-178` | 75% |
+| 字段数据类型白名单（供控件相容性判定） | 三方言逻辑类型白名单 `ColumnType`（INTEGER/BIGINT/VARCHAR/TEXT/BOOLEAN/DATETIME/DECIMAL/FILE） | `src/datamason/ddl/table_spec.py:16-18` | 100% |
+| 默认控件映射（数字→数字框、长文本→多行、布尔→是否、外键→关联下拉、附件→附件控件） | `CrudForm.renderWidget` 按 `baseType(col.type)` 分支渲染；`col.fk` 优先关联下拉 | `dashboard/src/pages/workspace/CrudForm.tsx:169-199` | 100% |
+| 关联选择控件（远程搜索 + 初始值回填） | `FkSelect`：`CrudApi.refs` 分页搜索，初始值不在候选中时前置合并 | `dashboard/src/pages/workspace/CrudForm.tsx:26-96` | 100% |
+| 附件上传 / 预览 / 移除 | `save_upload` / `remove_attachment` / `get_attachment` + `FileField` 控件 | `src/datamason/files/service.py:76-171`、`dashboard/src/pages/workspace/CrudForm.tsx:243-300` | 100% |
+| 附件安全（扩展名 + MIME 白名单、大小上限、路径穿越防护、不信任客户端 Content-Type） | `server_mime` / `_allowed_exts` / `_allowed_mimes` / `_within_data_root` | `src/datamason/files/service.py:45-74, 88-104` | 100% |
+| 附件引用值格式（`[{token,name}]` JSON 串）与解析 | `parseFileValue` 解析 JSON 串为附件项数组 | `dashboard/src/components/FileChip.tsx` | 100% |
+| 工作台表单元数据下发（业务名 / 归属列标记 / 长度 / 类型语义还原） | `app_meta` 以 `table_specs.columns_json` 富化 `crud_engine.get_meta` 结果 | `src/datamason/workspace/routes.py:204-244` | 100% |
+| 公开表单元数据下发（字段白名单，排除主键与归属列） | `public.get_page` 过滤 `is_ownership` / `is_pk` | `src/datamason/public/service.py:49-78` | 100% |
+| CRUD 写路径（列白名单 + 类型还原 + 归属列注入） | `create_row` / `update_row` / `_coerce_value` | `src/datamason/crud/engine.py:127-152, 322-399` | 100% |
+| 时间值的服务端解析（ISO 日期时间 / 日期串） | `_coerce_value` 用 `datetime.fromisoformat` 解析 DATETIME/DATE/TIMESTAMP | `src/datamason/crud/engine.py:132-147` | 100% |
+| 必填校验（公开表单，服务端复核） | `public.submit` 对 NOT NULL 业务列做业务名提示校验 | `src/datamason/public/service.py:96-106` | 100% |
+| 唯一性校验（前端预校验） | `CrudForm.checkUnique` 按列值查重 | `dashboard/src/pages/workspace/CrudForm.tsx:124-136` | 100% |
+| 主键与归属列保护 | 归属列注入 `inject_ownership_columns`；写路径禁改归属列与主键 | `src/datamason/ddl/ddl_builder.py`、`src/datamason/crud/engine.py:327-340` | 100% |
+| 页面规格确定性派生（每表 `crud_list`，留言/反馈类表追加 `public_form`） | `_derive_pages` | `src/datamason/deploy/service.py:185-206` | 100% |
+| 两阶段操作日志 + 系统动作日志 | `AuditSession.begin/commit/abort`、`log_system`、`reconcile_pending` | `src/datamason/audit/service.py:61-152, 399-460` | 100% |
+| 配置包导出（部署元信息 + 表/页面/菜单/流程 + crud_configs + 全量 committed 日志） | `build_package` | `src/datamason/deploy/export.py:41-186` | 100% |
+| 元数据库惰性建表 + 缺列回填（无 alembic 的 schema 演化） | `create_all_lazy` + `_backfill_missing_columns` | `src/datamason/models/__init__.py:335-397` | 100% |
+| 前端 API 单文件集中（类型 + 分组同文件声明） | `http` axios 实例 + `CrudApi` / `FilesApi` / `EngineerApi` 等分组 | `dashboard/src/api.ts` | 100% |
+| LLM 网关与 JSON 中间规格（含容错解析、重试、统一埋点） | `OpenAiCompatibleClient.chat_json`、`_loads_llm_json`、`MAX_RETRY=2`、`ai_service.record` | `src/datamason/llm/client.py:41`、`src/datamason/llm/structure.py`、`src/datamason/ai/service.py` | 100% |
+| 三层角色 + 按人授权（供配置权限判定复用） | `get_role` / `assert_member` / `require_role` / `table_access_map` | `src/datamason/members/service.py:43-90` | 100% |
+| 工程室「界面与菜单」页面卡（页面清单 + 缩略预览 + 拖拽入树） | `EngineerMenusPage` + `EngineerApi.interfaces` | `dashboard/src/pages/workspace/EngineerMenusPage.tsx:195-275, 758-879`、`src/datamason/deploy/service.py:831-875` | 75% |
+| 页面卡「调整」（当前仅改页面标题） | `update_page_title` + `EngineerApi.updatePageTitle` | `src/datamason/deploy/service.py:1015-1037`、`dashboard/src/api.ts:767-771` | 50% |
+| 表单渲染入口（工作台新增/编辑抽屉） | `CrudForm`：Drawer + Form，按 `editable` 过滤主键与归属列 | `dashboard/src/pages/workspace/CrudForm.tsx:99-241` | 75% |
+| 公开表单渲染入口 | `PublicPage` + `renderControl` | `dashboard/src/pages/PublicPage.tsx:18-178` | 75% |
 
 > 说明：`CrudForm` / `PublicPage` 的渲染入口虽然存在，但其控件选择逻辑是**硬编码类型分支**，无法承载"配置驱动"的渲染语义，故匹配度记 75%；工程室页面卡的「调整」当前只能改标题，故记 50%。
 
@@ -66,9 +66,9 @@
 
 以下为存量代码中**完全没有对应实现**的部分，按模块分组。每项给出输入、输出与核心逻辑，并标注依赖关系。
 
-#### A. 领域规格层（新增 `server/forms/spec.py`）
+#### A. 领域规格层（新增 `src/datamason/forms/spec.py`）
 
-纯领域、无 Flask 依赖，承载强校验（pydantic 2），对齐 `server/ddl/table_spec.py` 的既有风格。
+纯领域、无 Flask 依赖，承载强校验（pydantic 2），对齐 `src/datamason/ddl/table_spec.py` 的既有风格。
 
 1. **控件类型枚举**：`CONTROL_TYPES = ("text", "textarea", "number", "boolean", "radio", "checkbox", "date", "datetime", "ref", "file")`，共 10 种，与需求 §5.2.1 第 1 条一一对应。
    - 输入：无。输出：控件类型常量元组。
@@ -80,7 +80,7 @@
 4. **相容性校验函数**：`assert_control_compatible(data_type, control_type, *, is_fk)`。
    - 依赖：无。
 
-#### B. 领域服务层（新增 `server/forms/service.py`）
+#### B. 领域服务层（新增 `src/datamason/forms/service.py`）
 
 自由函数（非类），以 `app` 为首参，从 `app.extensions` 取会话，对齐既有服务风格。
 
@@ -90,17 +90,17 @@
 2. **`save_form_config(app, deployment_id, table_name, payload, *, page_kind, actor_user_id)`**：原子保存界面配置。
    - 输入：配置载荷、操作人。输出：保存结果摘要。
    - 核心逻辑：权限已由路由层校验 → 校验字段存在性（对照 `table_specs.columns_json`）→ 排除主键与归属列 → 相容性校验 → 候选项唯一/非空/数量/长度校验 → **单事务**内删旧写新三表 → 写 `form_config` 审计 → 返回。
-   - 依赖：`server/forms/spec.py`、`server/audit/service.py`、`server/models`。
+   - 依赖：`src/datamason/forms/spec.py`、`src/datamason/audit/service.py`、`src/datamason/models`。
 3. **`reset_field_config(app, deployment_id, table_name, field_name, *, actor_user_id)`**：恢复某字段默认。
    - 核心逻辑：删除该字段的配置行与候选项行，写审计。
 4. **`build_validator(app, deployment_id, table_name, *, page_kind)`**：构造写路径校验回调。
    - 输出：`Callable[[dict], None]`，抛 `ValueError`（业务可读消息）。
    - 核心逻辑：闭包内一次读取该表配置，对提交载荷逐字段校验：单选值 ∈ 候选项、多选为数组且每项 ∈ 候选项且序列化长度 ≤ 字段长度、时间值可解析且粒度合法。
 5. **`generate_option_items(app, *, field_label, description)`**（可选能力）：NL → 候选项候选清单。
-   - 核心逻辑：调 `server/llm/structure.generate_option_items` → 确定性去重/裁剪 → 埋点 → **仅返回清单，不写配置**（需求 §5.2.1 第 4 条）。
-   - 依赖：`server/llm/`、`server/ai/service.py`。
+   - 核心逻辑：调 `src/datamason/llm/structure.generate_option_items` → 确定性去重/裁剪 → 埋点 → **仅返回清单，不写配置**（需求 §5.2.1 第 4 条）。
+   - 依赖：`src/datamason/llm/`、`src/datamason/ai/service.py`。
 
-#### C. HTTP 路由层（新增 `server/forms/routes.py`）
+#### C. HTTP 路由层（新增 `src/datamason/forms/routes.py`）
 
 薄路由：解析 → 取 `session["user_id"]` → 权限校验 → 调服务（传 `current_app` 为首参）→ `jsonify`；模块自定义 `FormConfigError` + `@bp.errorhandler` 映射 HTTP。
 
@@ -111,13 +111,13 @@
 5. `POST /api/v1/deployments/<id>/forms/<table>/fields/<field>/options/generate`：NL 生成候选项（配置者，可选能力）。
 6. 公开表单配置随既有 `GET /api/v1/public/<id>/pages/<page_id>` 一并下发（**不新增匿名接口**，满足 §4.3.2 最小暴露）。
 
-#### D. LLM 生成层（扩展 `server/llm/structure.py`）
+#### D. LLM 生成层（扩展 `src/datamason/llm/structure.py`）
 
 1. **`generate_option_items(client, *, field_label, description, max_items=200)`**：产出候选项 JSON 中间规格。
    - 输出：`(list[{value, label}], meta)`；失败回喂重试上限沿用 `MAX_RETRY=2`。
    - 纪律：**只产 JSON 中间规格**，不落库、不产配置。
 
-#### E. 前端渲染层（新增 `web/src/components/FormControlRenderer.tsx`）
+#### E. 前端渲染层（新增 `dashboard/src/components/FormControlRenderer.tsx`）
 
 1. **`FormControlRenderer`**：按字段配置渲染单个控件，工作台与公开表单**共用**。
    - 输入：字段元数据、字段配置、候选项、当前值、只读/禁用态、变更回调。
@@ -125,7 +125,7 @@
    - 核心逻辑：`control_type` 为空 → 走既有默认映射；单选/多选 → 候选项驱动；`date`/`datetime` → `DatePicker`（`showTime` 由粒度决定）；`file` → 复用既有 `FileField`。
    - 复用：从 `CrudForm` 抽出 `FkSelect` 与 `FileField` 到该组件模块（**行为不变**），`CrudForm` 改为引用。
 
-#### F. 前端配置层（新增 `web/src/pages/workspace/FormDesigner.tsx`）
+#### F. 前端配置层（新增 `dashboard/src/pages/workspace/FormDesigner.tsx`）
 
 1. **`FormDesigner`**：表单编辑器（Modal 或 Drawer，挂在工程室页面卡「调整」）。
    - 输入：部署 id、表名、页面形态、当前配置。
@@ -133,12 +133,12 @@
    - 核心逻辑：字段列表（可拖拽排序）→ 分组管理 → 列数选择 → 逐字段控件类型下拉（**仅列出相容项**）→ 候选项表格（增删改排序，实时校验唯一/非空/上限 200）→ 显隐/只读开关 → 提示文案 → **实时预览区**（复用 `FormControlRenderer`，所见即所得）→ 保存。
    - 草稿：仅在浏览器内存维护，**保存才落库**（满足 §5.4.1 第 7 条"草稿不泄漏"）。
 
-#### G. 前端 API 层（扩展 `web/src/api.ts`）
+#### G. 前端 API 层（扩展 `dashboard/src/api.ts`）
 
 1. **`FormsApi`** 分组 + 类型（`FormFieldConfig` / `FormOptionItem` / `FormLayout` / `FormConfigPayload` / `FormConfigResponse`）。
 2. `PublicPageMeta` 扩展 `layout` 与 `options` 字段（公开页专用子集）。
 
-#### H. 应用装配层（扩展 `server/app.py`）
+#### H. 应用装配层（扩展 `src/datamason/app.py`）
 
 1. 注册 `forms.bp`，URL 前缀 `/api/v1`（与 `deploy.bp` 同前缀，路由内自带完整路径）。
 2. 鉴权守卫白名单**不变**（配置接口需登录，公开表单沿用 `/api/v1/public/*` 匿名放行）。
@@ -149,45 +149,45 @@
 
 ### 1.2.1 `CrudForm` 渲染与提交契约
 
-- **接口契约**：入参 `{deploymentId, table, meta: MetaColumn[], pkName, initial, open, onClose, onSaved}`（`web/src/pages/workspace/CrudForm.tsx:10-19`）。`meta` 由父组件 `CrudListPage` 从 `CrudApi.meta` 取得并透传（`web/src/pages/workspace/CrudListPage.tsx:83-90, 382-385`）。
+- **接口契约**：入参 `{deploymentId, table, meta: MetaColumn[], pkName, initial, open, onClose, onSaved}`（`dashboard/src/pages/workspace/CrudForm.tsx:10-19`）。`meta` 由父组件 `CrudListPage` 从 `CrudApi.meta` 取得并透传（`dashboard/src/pages/workspace/CrudListPage.tsx:83-90, 382-385`）。
 - **业务规则**：可编辑字段 = `meta` 中非归属列且非主键（`CrudForm.tsx:113-116`）；提交载荷过滤空值（`undefined`/`null`/空串不提交，`CrudForm.tsx:138-146`）；校验规则由 `nullable`（必填）、`VARCHAR + length`（最大长度）、`unique`（远程查重）三者合成（`CrudForm.tsx:218-226`）。
 - **扩展点**：`renderWidget(col)` 是**唯一**的控件决策点，可被"配置驱动 + 默认兜底"整体替换；`Form.Item` 的 `rules` 组装点是校验扩展位（多选序列化长度校验应挂此处）。
 - **约束**：`editable` 已排除主键与归属列，与需求 §5.3.9 一致，**无需改动**该过滤逻辑；表单为 `layout="vertical"` 单列，列数/分组需在外层引入栅格容器。
 
 ### 1.2.2 CRUD 写路径契约
 
-- **接口契约**：`create_row(registry, name, audit=None) -> {id}`、`update_row(registry, name, pk, audit=None) -> {updated}`；载荷从 `request.get_json()` 读取（`server/crud/engine.py:322-399`）。
-- **业务规则**：列白名单——不在反射 schema 内的键**静默忽略**；归属列与主键**禁止客户端写入**；`_coerce_value` 按列类型还原（DATETIME 支持 ISO 串与 HTTP 日期串、INT 转 int、BOOL 宽容识别）（`server/crud/engine.py:127-152`）。
+- **接口契约**：`create_row(registry, name, audit=None) -> {id}`、`update_row(registry, name, pk, audit=None) -> {updated}`；载荷从 `request.get_json()` 读取（`src/datamason/crud/engine.py:322-399`）。
+- **业务规则**：列白名单——不在反射 schema 内的键**静默忽略**；归属列与主键**禁止客户端写入**；`_coerce_value` 按列类型还原（DATETIME 支持 ISO 串与 HTTP 日期串、INT 转 int、BOOL 宽容识别）（`src/datamason/crud/engine.py:127-152`）。
 - **扩展点**：`CrudRegistry.__init__` 是装配点，可注入可选校验回调；`values` 构造完成后、写库前是**唯一的统一校验位**（三条写路径共用此函数，故校验只需加一次）。
-- **约束**：`server/crud/` 为纯领域层，**不得 import 蓝图或 request 之外的东西**；校验依赖元数据库配置，必须靠**回调注入**而非在 engine 内直接查库。异常语义：校验失败应抛 `ValueError`（路由层映射 400），不得抛 `HTTPException`（避免领域层依赖 werkzeug 异常语义）。
+- **约束**：`src/datamason/crud/` 为纯领域层，**不得 import 蓝图或 request 之外的东西**；校验依赖元数据库配置，必须靠**回调注入**而非在 engine 内直接查库。异常语义：校验失败应抛 `ValueError`（路由层映射 400），不得抛 `HTTPException`（避免领域层依赖 werkzeug 异常语义）。
 
 ### 1.2.3 表单元数据下发契约
 
-- **接口契约**：`GET /api/v1/app/<id>/api/meta` 返回 `{表名: {columns: MetaColumn[], actions?: string[], data_scope?: string}}`（`server/workspace/routes.py:204-244`）。
+- **接口契约**：`GET /api/v1/app/<id>/api/meta` 返回 `{表名: {columns: MetaColumn[], actions?: string[], data_scope?: string}}`（`src/datamason/workspace/routes.py:204-244`）。
 - **业务规则**：类型语义以 `table_specs.columns_json` 为准（SQLite 反射会把 BOOLEAN 丢成 INTEGER，故用规格覆盖）；`biz_name` 缺省回退字段名；操作员按授权表收窄并附动作集合。
 - **扩展点**：`app_meta` 的响应体被 `CrudListPage`、`EngineerMenusPage`（页面卡缩略）、`ImportWizard` 等多处消费，**不宜扩字段**；表单配置走**独立接口**更安全。
 - **约束**：操作员仅可见被授权表——配置读取接口必须复用 `member_service.assert_member` 做成员校验，避免越权读配置（需求 §5.4.3 异常 3）。
 
 ### 1.2.4 附件服务契约
 
-- **接口契约**：`save_upload(app, deployment_id, file_storage, *, table_name, row_pk, field_name, uploaded_by) -> dict`（`server/files/service.py:76-116`）；`FilesApi.upload` 以 `FormData` 提交并可携带 `table/row_pk/field` 元信息（`web/src/api.ts:531-545`）。
+- **接口契约**：`save_upload(app, deployment_id, file_storage, *, table_name, row_pk, field_name, uploaded_by) -> dict`（`src/datamason/files/service.py:76-116`）；`FilesApi.upload` 以 `FormData` 提交并可携带 `table/row_pk/field` 元信息（`dashboard/src/api.ts:531-545`）。
 - **业务规则**：先按扩展名绑定 MIME 并过白名单，**再落盘**（避免留孤儿文件）；单文件上限默认 10 MB，超限在读取后拒绝；token 随机命名，路径必须落在 `DATA_ROOT` 内。
 - **扩展点**：`FileField` 组件的 `beforeUpload` 可做**前置**大小/扩展名校验（需求 §4.1.4 要求"前置提示，不发起上传"）。
 - **约束**：`FILE` 列只存 `[{token,name}]` JSON 串（多附件）或 token（单附件），**二进制不进业务库**；移除附件调用 `FilesApi.remove` 会**删除附件记录与磁盘文件**，与需求 §4.2.5「移除仅解除引用、不误删仍被引用的附件」存在差异——本版本需在**前端**改为"仅从字段值移除引用"（见 §2.1.3 决策 D-4）。
 
 ### 1.2.5 公开表单提交契约
 
-- **接口契约**：`GET /api/v1/public/<id>/pages/<page_id>` 返回 `{deployment_id, biz_name, page_id, title, kind, table, fields: PublicField[]}`；`POST .../submit` 提交载荷（`server/public/service.py:64-114`、`web/src/api.ts:893-907`）。
+- **接口契约**：`GET /api/v1/public/<id>/pages/<page_id>` 返回 `{deployment_id, biz_name, page_id, title, kind, table, fields: PublicField[]}`；`POST .../submit` 提交载荷（`src/datamason/public/service.py:64-114`、`dashboard/src/api.ts:893-907`）。
 - **业务规则**：仅 `access=public` 且 `kind=public_form` 开放；部署须 `running`；归属列记 `VISITOR_ACTOR_ID=0`（日志显示"系统"）；必填校验按 NOT NULL 业务列给出业务名提示。
 - **扩展点**：`_field_columns(ts)` 是字段下发的唯一出口，可在此按"公开布局"过滤/排序并附加控件配置与候选项。
 - **约束**：**最小暴露**——只下发该页字段，禁止任何其他表信息（需求 §4.3.2）；匿名路径**不可**暴露配置写入能力。
 
 ### 1.2.6 页面规格与工程室界面卡契约
 
-- **接口契约**：`_derive_pages` 每表派生一张 `crud_list`，名字含留言/反馈类关键词时追加一张 `public_form`（`server/deploy/service.py:185-206`）；`get_interfaces` 返回菜单树 + 页面卡 + 授权菜单 + 入口路径（`server/deploy/service.py:831-875`）。
-- **业务规则**：页面 `kind ∈ {crud_list, public_form, dashboard, flow}`；`page_specs.layout_json` **已被 dashboard 占用**（`server/qa/service.py:459-478` 写入图表规格），故**不可**复用于表单布局（见 §2.1.3 决策 D-2）。
+- **接口契约**：`_derive_pages` 每表派生一张 `crud_list`，名字含留言/反馈类关键词时追加一张 `public_form`（`src/datamason/deploy/service.py:185-206`）；`get_interfaces` 返回菜单树 + 页面卡 + 授权菜单 + 入口路径（`src/datamason/deploy/service.py:831-875`）。
+- **业务规则**：页面 `kind ∈ {crud_list, public_form, dashboard, flow}`；`page_specs.layout_json` **已被 dashboard 占用**（`src/datamason/qa/service.py:459-478` 写入图表规格），故**不可**复用于表单布局（见 §2.1.3 决策 D-2）。
 - **扩展点**：`PageCard` 组件的「调整」按钮当前只调 `updatePageTitle`（`EngineerMenusPage.tsx:415-434`），可扩展为打开 `FormDesigner`。
-- **约束**：工程室动作 `_require_creator` 仅创建人（`server/deploy/routes.py:575-583`）；新增配置权限判定须**独立**实现，不修改该函数。
+- **约束**：工程室动作 `_require_creator` 仅创建人（`src/datamason/deploy/routes.py:575-583`）；新增配置权限判定须**独立**实现，不修改该函数。
 
 ---
 
@@ -250,7 +250,7 @@ FormSvc ..> Biz : 写前校验（经 value_validator 回调，进程内）
 skinparam componentStyle rectangle
 skinparam shadowing false
 
-package "web/src（前端）" {
+package "dashboard/src（前端）" {
   [FormDesigner.tsx\n配置编辑器：排序/分组/列数/控件/候选项/预览] as Designer
   [FormControlRenderer.tsx\n按配置渲染单控件（共用）] as Renderer
   [CrudForm.tsx\n工作台新增/编辑（改为配置驱动）] as CrudForm
@@ -258,7 +258,7 @@ package "web/src（前端）" {
   [api.ts\nFormsApi + 类型] as Api
 }
 
-package "server/forms（新增子包）" {
+package "src/datamason/forms（新增子包）" {
   [routes.py\nbp + 权限判定 + 错误映射] as Routes
   [service.py\n读/存/重置/校验回调/候选项生成] as Svc
   [spec.py\n控件类型 + 相容矩阵 + pydantic 规格] as Spec
@@ -301,11 +301,11 @@ Deploy ..> Models
 
 | 模块 | 职责 | 不拥有 |
 |------|------|--------|
-| `server/forms/spec.py` | 控件类型常量、相容矩阵、配置载荷 pydantic 规格与校验函数 | Flask、DB、LLM |
-| `server/forms/service.py` | 配置读/存/重置、字段蓝图求交、降级、写前校验回调、候选项生成编排 | HTTP 解析、角色判定 |
-| `server/forms/routes.py` | 参数解析、成员/权限校验、错误码映射 | 业务规则、SQL |
-| `web/src/components/FormControlRenderer.tsx` | 单控件渲染（含候选项、时间粒度、附件） | 配置读写、页面状态 |
-| `web/src/pages/workspace/FormDesigner.tsx` | 配置编辑交互 + 实时预览（草稿仅内存） | 直接 HTTP（统一走 `api.ts`） |
+| `src/datamason/forms/spec.py` | 控件类型常量、相容矩阵、配置载荷 pydantic 规格与校验函数 | Flask、DB、LLM |
+| `src/datamason/forms/service.py` | 配置读/存/重置、字段蓝图求交、降级、写前校验回调、候选项生成编排 | HTTP 解析、角色判定 |
+| `src/datamason/forms/routes.py` | 参数解析、成员/权限校验、错误码映射 | 业务规则、SQL |
+| `dashboard/src/components/FormControlRenderer.tsx` | 单控件渲染（含候选项、时间粒度、附件） | 配置读写、页面状态 |
+| `dashboard/src/pages/workspace/FormDesigner.tsx` | 配置编辑交互 + 实时预览（草稿仅内存） | 直接 HTTP（统一走 `api.ts`） |
 
 **配置项与取值策略**：控件类型白名单与相容矩阵**硬编码于 `spec.py`**（确定性、可审计、不随环境漂移）；候选项数量上限 200、提示文案 ≤ 200 字符、分组数 ≤ 20、分组名 ≤ 50 字符、每行列数 ∈ {1,2,3} 均为规格常量（对齐需求 §6）；附件大小上限沿用既有 `DM_UPLOAD_MAX_FILE_BYTES`（默认 10 MB）。
 
@@ -315,10 +315,10 @@ Deploy ..> Models
 
 | 编号 | 决策 | 选择理由 | 被否方案 |
 |------|------|---------|---------|
-| D-1 | 新增独立子包 `server/forms/`（`spec.py` + `service.py` + `routes.py`） | 配置读写与校验是**独立领域能力**，被工作台、公开表单、API key、导出、工程室五处复用；独立子包符合 §5 模块边界且避免在 `deploy` 内堆叠 | ① 塞进 `server/deploy/`（职责混淆）；② 塞进 `server/crud/`（crud 为纯领域且需保持无元数据库依赖） |
-| D-2 | 新增 `form_layouts` 表存布局，**不复用** `page_specs.layout_json` | `layout_json` 已被 dashboard 占用（`server/qa/service.py:459-478`），复用它会造成"同列不同 kind 语义混杂"，且 dashboard 代码按内容匹配表名（`server/qa/service.py:308`）存在误判风险 | 复用 `page_specs.layout_json`（语义冲突）、复用 `crud_configs.ui_config_json`（crud_configs 为表级非页面形态级，无法区分工作台/公开表单） |
-| D-3 | 三表主键用 `(deployment_id, table_name, field_name)` **字符串三元组**，不外键到 `table_specs.id` | 需求 §5.4.1 第 2 条要求"配置与字段蓝图解耦"；结构演化可能重建 `table_specs` 行（`server/deploy/structure.py:233`），用字符串引用可**天然抗演化**，字段被删时残留配置"安全忽略" | 外键到 `table_specs.id`（结构演化后 id 漂移导致配置错位） |
-| D-4 | 附件"移除"改为**仅移除字段值引用**，不调用 `FilesApi.remove` | 需求 §4.2.5 要求"不得误删仍被其他记录引用的附件"；既有 `remove_attachment` 会删记录与磁盘文件（`server/files/service.py:153-171`），存在误删风险。本版本改为前端仅改字段值，遗留附件由既有 `mark_orphans_pending` / `cleanup_orphans` 回收链路处理 | 沿用 `FilesApi.remove`（违反 §4.2.5） |
+| D-1 | 新增独立子包 `src/datamason/forms/`（`spec.py` + `service.py` + `routes.py`） | 配置读写与校验是**独立领域能力**，被工作台、公开表单、API key、导出、工程室五处复用；独立子包符合 §5 模块边界且避免在 `deploy` 内堆叠 | ① 塞进 `src/datamason/deploy/`（职责混淆）；② 塞进 `src/datamason/crud/`（crud 为纯领域且需保持无元数据库依赖） |
+| D-2 | 新增 `form_layouts` 表存布局，**不复用** `page_specs.layout_json` | `layout_json` 已被 dashboard 占用（`src/datamason/qa/service.py:459-478`），复用它会造成"同列不同 kind 语义混杂"，且 dashboard 代码按内容匹配表名（`src/datamason/qa/service.py:308`）存在误判风险 | 复用 `page_specs.layout_json`（语义冲突）、复用 `crud_configs.ui_config_json`（crud_configs 为表级非页面形态级，无法区分工作台/公开表单） |
+| D-3 | 三表主键用 `(deployment_id, table_name, field_name)` **字符串三元组**，不外键到 `table_specs.id` | 需求 §5.4.1 第 2 条要求"配置与字段蓝图解耦"；结构演化可能重建 `table_specs` 行（`src/datamason/deploy/structure.py:233`），用字符串引用可**天然抗演化**，字段被删时残留配置"安全忽略" | 外键到 `table_specs.id`（结构演化后 id 漂移导致配置错位） |
+| D-4 | 附件"移除"改为**仅移除字段值引用**，不调用 `FilesApi.remove` | 需求 §4.2.5 要求"不得误删仍被其他记录引用的附件"；既有 `remove_attachment` 会删记录与磁盘文件（`src/datamason/files/service.py:153-171`），存在误删风险。本版本改为前端仅改字段值，遗留附件由既有 `mark_orphans_pending` / `cleanup_orphans` 回收链路处理 | 沿用 `FilesApi.remove`（违反 §4.2.5） |
 | D-5 | 写前校验用 `CrudRegistry.value_validator` **回调注入** | 三条写路径（工作台 / 公开表单 / API key）共用 `create_row`/`update_row`，回调注入保证"服务端统一校验"（需求 §4.3.3）且 crud 保持纯领域（不 import 元数据库） | 在各路由层分别校验（API key 通道易漏、重复三处） |
 | D-6 | 运行态配置走**独立只读接口** `/app/<id>/api/forms/<table>`，不扩 `app_meta` | `app_meta` 响应被列表页、页面卡缩略、导入向导多处消费，扩字段有回归风险；独立接口体积可控且**配置保存后即时生效**（每次打开表单重新拉取） | 并入 `app_meta`（响应膨胀 + 缓存失效复杂） |
 | D-7 | 配置权限 = 部署 owner/creator **或** 平台管理员 | 对齐需求 §4.3.1"仅创建人与平台管理员"；`_require_creator` 保持不变，避免影响其他工程室动作（DR-14） | 放宽既有 `_require_creator`（影响面过大） |
@@ -326,7 +326,7 @@ Deploy ..> Models
 | D-9 | 配置保存采用"**单事务内删旧写新**" | 需求 §4.2.1 要求原子性，禁止部分生效；三表在同一元数据库会话内提交，失败整体回滚 | 增量 diff 更新（分支多、易漏、原子性难保证） |
 | D-10 | 配置变更审计新增 `action="form_config"` | `activity_logs.action` 为 `String(16)`，"form_config" 11 字符可容纳；独立动作便于日志页筛选（需求 §4.4.2 可观测） | 复用 `structure`（与结构变更混淆，无法区分"改结构"与"改呈现"） |
 | D-11 | `EXPORT_VERSION` 保持 1，新增三节为**可选节** | 导出格式向后兼容（旧消费者忽略未知节），避免版本升级引发的兼容判断 | 升为 2（需消费者同步升级，无收益） |
-| D-12 | 候选项 NL 生成走既有 LLM 网关 + `ai_service.record` 埋点，`kind="options"` | 对齐"LLM 只产 JSON 中间规格"纪律与统一埋点要求（`server/ai/service.py`）；`kind` 列无枚举约束，新增值安全 | 新起一套 LLM 调用链（重复造轮子） |
+| D-12 | 候选项 NL 生成走既有 LLM 网关 + `ai_service.record` 埋点，`kind="options"` | 对齐"LLM 只产 JSON 中间规格"纪律与统一埋点要求（`src/datamason/ai/service.py`）；`kind` 列无枚举约束，新增值安全 | 新起一套 LLM 调用链（重复造轮子） |
 
 #### 流程一：表单渲染（含降级）
 
@@ -412,7 +412,7 @@ stop
 @enduml
 ```
 
-**扩展点设计**：`CrudRegistry.value_validator` 默认为 `None`（存量行为**完全不变**）；由 `server/crud/runtime.py` 在 `_registry` / `registry_for_service` 装配时注入，`server/public/service.py` 直接构造处同步注入。校验回调签名统一为 `Callable[[str, dict], None]`（表名 + 已构造 values），抛 `ValueError` 由各路由的既有错误处理映射为 400。
+**扩展点设计**：`CrudRegistry.value_validator` 默认为 `None`（存量行为**完全不变**）；由 `src/datamason/crud/runtime.py` 在 `_registry` / `registry_for_service` 装配时注入，`src/datamason/public/service.py` 直接构造处同步注入。校验回调签名统一为 `Callable[[str, dict], None]`（表名 + 已构造 values），抛 `ValueError` 由各路由的既有错误处理映射为 400。
 
 #### 状态机：界面配置生命周期（表级）
 
@@ -458,7 +458,7 @@ note right of 部分失效 : 残留配置安全忽略\n表单正常渲染
 **接口签名**
 
 ```typescript
-// web/src/api.ts —— FormsApi
+// dashboard/src/api.ts —— FormsApi
 getConfig(deploymentId: number, table: string): Promise<FormConfigResponse>
 
 interface FormConfigResponse {
@@ -684,7 +684,7 @@ const { items } = await FormsApi.generateOptions(deploymentId, "orders", "status
 2. **性能与容量目标**：单表配置读取需在 20 字段 × 200 候选项规模下毫秒级返回（满足表单首屏 ≤ 1.5 秒，需求 §4.1.1）；候选项单字段上限 200（需求 §6.2.5）；配置保存为单事务、响应 ≤ 1 秒（需求 §4.1.2）。
 3. **与存量数据的兼容策略**：
    - **零配置即零变化**：升级前部署无任何配置行 → 渲染路径与升级前**完全一致**（需求 §4.5.1）。
-   - **无 DDL**：本版本对业务库**不产生任何结构变更**（需求 §4.5.4）；元数据库仅**新增三张表**，由 `create_all_lazy(checkfirst=True)` 自动建表（`server/models/__init__.py:335-354`），**无需列回填**（新表无存量数据）。
+   - **无 DDL**：本版本对业务库**不产生任何结构变更**（需求 §4.5.4）；元数据库仅**新增三张表**，由 `create_all_lazy(checkfirst=True)` 自动建表（`src/datamason/models/__init__.py:335-354`），**无需列回填**（新表无存量数据）。
    - **残留配置安全忽略**：字段蓝图删除字段后，配置行按"读时求交"被忽略（需求 §4.5.3），不产生渲染错误。
    - **唯一性由数据库约束兜底**：三表均设唯一约束，防止并发写入产生重复配置（需求 §6.1.10 / §6.2.2）。
 
@@ -783,7 +783,7 @@ FormLayout .. FormFieldConfig : 同一表同一页面形态下的布局与字段
 
 **对象创建与销毁策略**：
 - **创建/更新**：由 `save_form_config` 在单事务内"删旧写新"，整体替换（D-9）。
-- **销毁**：`reset_field_config` 删除单字段相关行；部署销毁随 `deployments` 级联清理（元数据库既有销毁链路，`server/deploy/service.py:733`）。
+- **销毁**：`reset_field_config` 删除单字段相关行；部署销毁随 `deployments` 级联清理（元数据库既有销毁链路，`src/datamason/deploy/service.py:733`）。
 - **惰性补齐**：读取时对未配置字段**不写库**，仅在响应中按默认映射补齐（保证"零配置即零变化"）。
 
 **持久化策略（不含表结构）**：
@@ -814,13 +814,13 @@ FormLayout .. FormFieldConfig : 同一表同一页面形态下的布局与字段
 
 | 影响面 | 变更性质 | 风险 | 缓解 |
 |--------|---------|------|------|
-| `server/crud/engine.py` | 新增可选参数 `value_validator`（默认 `None`） | 存量调用点行为改变 | 默认值保证零行为变化；三处装配点显式注入 |
-| `server/crud/runtime.py` / `server/public/service.py` | 装配时注入校验回调 | 注入失败导致校验缺失 | 单测覆盖三条写路径的非法载荷拒绝 |
-| `server/models/__init__.py` | 新增三张表 | 老库升级建表 | `create_all(checkfirst=True)` 幂等；新表无存量数据 |
-| `server/deploy/export.py` | 新增三节 + counts | 导出体积增长 | 仅导出有配置的表；序列化失败即报错中止 |
-| `web/src/pages/workspace/CrudForm.tsx` | 渲染改为配置驱动 | 存量表单行为回归 | `control_type=null` 走原分支；回归测试覆盖默认映射 |
-| `web/src/pages/PublicPage.tsx` | 渲染改为配置驱动 | 匿名表单行为回归 | 同上；公开配置缺省时与升级前一致 |
-| `web/src/pages/workspace/EngineerMenusPage.tsx` | 页面卡「调整」扩展 | 影响既有菜单拖拽链路 | 仅扩展「调整」按钮行为，不动拖拽与保存菜单逻辑 |
+| `src/datamason/crud/engine.py` | 新增可选参数 `value_validator`（默认 `None`） | 存量调用点行为改变 | 默认值保证零行为变化；三处装配点显式注入 |
+| `src/datamason/crud/runtime.py` / `src/datamason/public/service.py` | 装配时注入校验回调 | 注入失败导致校验缺失 | 单测覆盖三条写路径的非法载荷拒绝 |
+| `src/datamason/models/__init__.py` | 新增三张表 | 老库升级建表 | `create_all(checkfirst=True)` 幂等；新表无存量数据 |
+| `src/datamason/deploy/export.py` | 新增三节 + counts | 导出体积增长 | 仅导出有配置的表；序列化失败即报错中止 |
+| `dashboard/src/pages/workspace/CrudForm.tsx` | 渲染改为配置驱动 | 存量表单行为回归 | `control_type=null` 走原分支；回归测试覆盖默认映射 |
+| `dashboard/src/pages/PublicPage.tsx` | 渲染改为配置驱动 | 匿名表单行为回归 | 同上；公开配置缺省时与升级前一致 |
+| `dashboard/src/pages/workspace/EngineerMenusPage.tsx` | 页面卡「调整」扩展 | 影响既有菜单拖拽链路 | 仅扩展「调整」按钮行为，不动拖拽与保存菜单逻辑 |
 | 前端零新增依赖 | 复用 antd 既有组件（`Radio.Group` / `Checkbox.Group` / `DatePicker`） | — | 满足 §8"无 DR 不引新依赖" |
 
 ## 四、待确认项

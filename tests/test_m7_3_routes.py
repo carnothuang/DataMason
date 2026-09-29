@@ -7,8 +7,8 @@ from __future__ import annotations
 
 import pytest
 
-from server.auth.service import hash_password
-from server.models import DeploymentMember, User
+from datamason.auth.service import hash_password
+from datamason.models import DeploymentMember, User
 
 SPEC = {
     "biz_notes": "客户与订单",
@@ -42,7 +42,7 @@ class FakeLlm:
 @pytest.fixture()
 def patch_llm(monkeypatch):
     monkeypatch.setattr(
-        "server.settings.service.get_default_llm_client", lambda _app: FakeLlm())
+        "datamason.settings.service.get_default_llm_client", lambda _app: FakeLlm())
     yield
 
 

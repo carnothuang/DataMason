@@ -11,8 +11,8 @@ from pathlib import Path
 import pytest
 from sqlalchemy import create_engine, inspect, text
 
-from server.auth.service import hash_password
-from server.models import (
+from datamason.auth.service import hash_password
+from datamason.models import (
     Connection,
     Deployment,
     DeploymentMenu,
@@ -69,10 +69,10 @@ def admin(app, client):
 
 @pytest.fixture()
 def patch_llm(app, monkeypatch):
-    import server.deploy.service as deploy_service
+    import datamason.deploy.service as deploy_service
 
     monkeypatch.setattr(
-        "server.settings.service.get_default_llm_client",
+        "datamason.settings.service.get_default_llm_client",
         lambda _app: FakeLlm(GUESTBOOK_SPEC),
     )
     # deploy 模块内若已 import 引用不影响（它在函数内 import），保险也 patch

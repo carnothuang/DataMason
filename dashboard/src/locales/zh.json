@@ -1,0 +1,52 @@
+{
+  "common": {
+    "loading": "加载中..."
+  },
+  "header": {
+    "openNav": "打开导航"
+  },
+  "sidebar": {
+    "collapse": "收起侧栏"
+  },
+  "nav": {
+    "deployments": "部署清单",
+    "management": "管理",
+    "settings": "设置"
+  },
+  "account": {
+    "language": "语言",
+    "appearance": "外观",
+    "currentVersion": "当前版本：{{version}}",
+    "themeLight": "浅色模式",
+    "themeDark": "深色模式",
+    "themeSystem": "跟随系统",
+    "switchTheme": "切换主题",
+    "logout": "退出登录",
+    "admin": "管理员"
+  },
+  "shell": {
+    "logoutSuccess": "已退出"
+  },
+  "login": {
+    "title": "DataMason · 登录",
+    "heading": "登录",
+    "username": "用户名或邮箱",
+    "usernameRequired": "请输入用户名",
+    "password": "密码",
+    "passwordRequired": "请输入密码",
+    "slideHint": "拖动滑块到最右侧完成验证",
+    "slideVerified": "验证通过",
+    "submit": "登录",
+    "welcome": "欢迎，{{name}}",
+    "firstRunSetup": "首次启动：创建管理员账号",
+    "bootstrapFromEnv": "或从环境变量初始化管理员",
+    "bootstrapExists": "已存在管理员，无需初始化",
+    "bootstrapCreated": "已创建管理员：{{names}}（请使用环境变量中的密码登录）",
+    "bootstrapDone": "已处理"
+  },
+  "entry": {
+    "notFoundTitle": "入口不存在",
+    "notFoundSubtitle": "该入口不存在或已迁移（自定义入口路径调整后，原路径不再对外暴露）。",
+    "backToConsole": "返回控制台"
+  }
+}

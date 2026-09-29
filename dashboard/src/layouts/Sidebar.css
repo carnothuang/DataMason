@@ -1,0 +1,451 @@
+/* 侧栏与导航（移植自 WorkMason Sidebar.module.less） */
+.dm-sidebar {
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+  align-self: stretch;
+  min-height: 0;
+  overflow: hidden;
+  background: var(--fn-sidebar-bg);
+  transition: width 0.25s cubic-bezier(0.4, 0, 0.2, 1),
+    min-width 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.dm-sidebar__brand {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.dm-sidebar__scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.dm-sidebar__footer {
+  flex-shrink: 0;
+  border-top: 1px solid var(--fn-border-primary);
+}
+
+/* ---- 分组 ---- */
+.dm-nav-group {
+  margin-bottom: 6px;
+}
+
+.dm-nav-group:last-child {
+  margin-bottom: 0;
+}
+
+.dm-nav-group__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  width: 100%;
+  padding: 8px 10px;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  text-align: left;
+  user-select: none;
+  border-radius: var(--fn-radius-md);
+  transition: background var(--fn-transition-fast);
+}
+
+.dm-nav-group__header:hover {
+  background: var(--fn-bg-hover);
+}
+
+.dm-nav-group__label {
+  flex: 1;
+  min-width: 0;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--fn-sidebar-group-text);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  line-height: 1.2;
+}
+
+.dm-nav-group__chevron {
+  flex-shrink: 0;
+  font-size: 10px;
+  color: var(--fn-sidebar-group-text);
+  opacity: 0.28;
+  transition: transform 0.2s ease, opacity 0.15s ease;
+}
+
+.dm-nav-group__chevron--folded {
+  transform: rotate(-90deg);
+}
+
+.dm-nav-group__items {
+  overflow: hidden;
+}
+
+/* ---- 导航项 ---- */
+.dm-nav-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  height: 40px;
+  padding: 0 12px;
+  margin-bottom: 2px;
+  border: none;
+  border-radius: var(--fn-radius-md);
+  background: transparent;
+  color: var(--fn-text-secondary);
+  font-size: 14px;
+  cursor: pointer;
+  text-align: left;
+  transition: background var(--fn-transition-fast), color var(--fn-transition-fast);
+}
+
+.dm-nav-item:hover {
+  background: var(--fn-sidebar-item-hover);
+}
+
+.dm-nav-item--active {
+  background: var(--fn-sidebar-item-active-bg);
+  color: var(--fn-sidebar-item-active-text);
+  font-weight: 500;
+}
+
+.dm-nav-item__icon {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  color: var(--fn-text-tertiary);
+}
+
+.dm-nav-item--active .dm-nav-item__icon {
+  color: var(--fn-sidebar-item-active-text);
+}
+
+.dm-nav-item__label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* ---- 折叠态纯图标导航 ---- */
+.dm-icon-nav {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 8px 0;
+}
+
+.dm-icon-nav__btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 40px;
+  border: none;
+  background: transparent;
+  color: var(--fn-text-tertiary);
+  cursor: pointer;
+  margin-bottom: 2px;
+  transition: all var(--fn-transition-fast);
+}
+
+.dm-icon-nav__btn:hover {
+  background: var(--fn-sidebar-item-hover);
+  color: var(--fn-text-primary);
+}
+
+.dm-icon-nav__btn--active {
+  background: var(--fn-sidebar-item-active-bg);
+  color: var(--fn-sidebar-item-active-text);
+}
+
+/* ---- 用户页脚 ---- */
+.dm-sidebar__user {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+}
+
+.dm-sidebar__user--collapsed {
+  flex-direction: column;
+  justify-content: center;
+  gap: 6px;
+  padding: 10px 0;
+}
+
+.dm-sidebar__user-meta {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  flex: 1;
+}
+
+.dm-sidebar__user-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--fn-text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dm-sidebar__user-role {
+  font-size: 11px;
+  color: var(--fn-text-tertiary);
+}
+
+.dm-sidebar__icon-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border: none;
+  border-radius: var(--fn-radius-md);
+  background: transparent;
+  color: var(--fn-text-secondary);
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background var(--fn-transition-fast);
+}
+
+.dm-sidebar__icon-btn:hover {
+  background: var(--fn-sidebar-item-hover);
+}
+
+/* ---- 移动端顶部栏 ---- */
+.dm-header {
+  height: var(--fn-header-height);
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 0 12px;
+  background: var(--fn-header-bg);
+  backdrop-filter: blur(var(--fn-header-blur));
+  -webkit-backdrop-filter: blur(var(--fn-header-blur));
+  border-bottom: 1px solid var(--fn-border-primary);
+  transition: background var(--fn-transition);
+  z-index: 20;
+}
+
+/* ---- 账户页脚（版本胶囊 + 头像下拉） ---- */
+.dm-sidebar__account {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+  padding: 10px 12px;
+}
+
+.dm-sidebar__account--collapsed {
+  align-items: center;
+  gap: 10px;
+  padding: 10px 0;
+}
+
+.dm-version-badge {
+  display: inline-flex;
+  align-items: center;
+  align-self: flex-start;
+  padding: 3px 8px;
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1;
+  letter-spacing: 0.02em;
+  color: var(--fn-text-secondary);
+  background: var(--fn-bg-tertiary);
+  border: 1px solid var(--fn-border-primary);
+  border-radius: 999px;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.dm-account-trigger {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  border: none;
+  background: transparent;
+  padding: 6px 8px;
+  border-radius: var(--fn-radius-md);
+  cursor: pointer;
+  text-align: left;
+  color: var(--fn-text-primary);
+  transition: background var(--fn-transition-fast);
+}
+
+.dm-account-trigger:hover {
+  background: var(--fn-sidebar-item-hover);
+}
+
+.dm-account-trigger__name {
+  flex: 1;
+  min-width: 0;
+  font-size: 13px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dm-account-trigger__chevron {
+  flex-shrink: 0;
+  font-size: 11px;
+  color: var(--fn-text-tertiary);
+}
+
+.dm-account-trigger-compact {
+  cursor: pointer;
+  display: inline-flex;
+}
+
+/* ---- 下拉菜单 ---- */
+.dm-account-popover .ant-popover-inner {
+  padding: 0;
+  border-radius: 12px;
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.12);
+  overflow: hidden;
+}
+
+.dm-account-menu {
+  width: 260px;
+  padding: 14px 0 8px;
+  background: var(--fn-bg-elevated);
+}
+
+.dm-account-menu__header {
+  padding: 0 16px 10px;
+}
+
+.dm-account-menu__header-top {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.dm-account-menu__name {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--fn-text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dm-account-menu__role {
+  margin: 0;
+  flex-shrink: 0;
+  font-size: 12px;
+  line-height: 1.4;
+  border-radius: 6px;
+}
+
+.dm-account-menu__handle {
+  display: block;
+  margin-top: 2px;
+  font-size: 12px;
+  color: var(--fn-text-tertiary);
+}
+
+.dm-account-menu__divider {
+  margin: 6px 0 !important;
+}
+
+.dm-account-menu__row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 16px;
+  min-height: 40px;
+}
+
+.dm-account-menu__row-label {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 14px;
+  color: var(--fn-text-primary);
+  min-width: 0;
+}
+
+.dm-account-menu__seg {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 3px;
+  border-radius: 999px;
+  background: var(--fn-bg-tertiary);
+}
+
+.dm-account-menu__seg-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: none;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--fn-text-secondary);
+  cursor: pointer;
+  font-size: 13px;
+  transition: all var(--fn-transition-fast);
+}
+
+.dm-account-menu__seg-btn:hover {
+  color: var(--fn-text-primary);
+}
+
+.dm-account-menu__seg-btn--active {
+  background: var(--fn-bg-elevated);
+  color: var(--fn-text-primary);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+.dm-account-menu__item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 10px 16px;
+  border: none;
+  background: transparent;
+  color: var(--fn-text-primary);
+  font-size: 14px;
+  text-align: left;
+  cursor: pointer;
+  transition: background var(--fn-transition-fast);
+}
+
+.dm-account-menu__item svg {
+  flex-shrink: 0;
+  color: var(--fn-text-secondary);
+}
+
+.dm-account-menu__item--danger:hover {
+  color: #cf1322;
+  background: rgba(255, 77, 79, 0.06);
+}
+
+.dm-account-menu__item--danger:hover svg {
+  color: #cf1322;
+}
