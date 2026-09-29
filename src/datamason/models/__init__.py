@@ -25,6 +25,7 @@ from sqlalchemy import (
     String,
     Text,
     UniqueConstraint,
+    text,
 )
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
@@ -47,8 +48,14 @@ class User(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     username: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
     display_name: Mapped[str] = mapped_column(String(64), default="")
+    email: Mapped[str] = mapped_column(String(128), default="")
     password_hash: Mapped[str] = mapped_column(String(256), nullable=False)
     is_platform_admin: Mapped[bool] = mapped_column(Boolean, default=False)
+    is_active: Mapped[bool] = mapped_column(
+        Boolean, default=True, server_default=text("1")
+    )
+    failed_login_count: Mapped[int] = mapped_column(Integer, default=0)
+    locked_until: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
 
 
@@ -467,7 +474,11 @@ def _backfill_missing_columns(engine) -> None:
 
 
 def _sql_default_for(col) -> str:
-    """补列用 SQL 默认值：无默认、可空列可直接 NULL；否则按类型给安全默认。"""
+    """补列用 SQL 默认值：列显式声明 server_default 时优先采用；
+    无默认、可空列可直接 NULL；否则按类型给安全默认。"""
+    if col.server_default is not None:
+        arg = col.server_default.arg
+        return f" DEFAULT {arg.text if hasattr(arg, 'text') else arg}"
     if col.nullable and col.default is None:
         return ""
     from sqlalchemy import Boolean, Integer, String, Text

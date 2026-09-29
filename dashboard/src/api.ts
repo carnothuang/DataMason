@@ -1270,7 +1270,22 @@ export interface CurrentUser {
   id: number;
   username: string;
   display_name: string;
+  email: string;
+  login_type: string;
   is_platform_admin: boolean;
+  is_active: boolean;
+  failed_login_count: number;
+  locked_until: string | null;
+  created_at: string | null;
+}
+
+export interface UserPayload {
+  username?: string;
+  password?: string;
+  display_name?: string;
+  email?: string;
+  is_platform_admin?: boolean;
+  is_active?: boolean;
 }
 
 export interface AuthApi {
@@ -1290,16 +1305,10 @@ export interface AuthApi {
     llm?: { name?: string; base_url?: string; api_key?: string; model_name?: string };
   }) => Promise<{ id: number; username: string; llm_configured: boolean }>;
   listUsers: () => Promise<CurrentUser[]>;
-  createUser: (payload: {
-    username: string;
-    password: string;
-    display_name?: string;
-    is_platform_admin?: boolean;
-  }) => Promise<CurrentUser>;
-  updateUser: (
-    id: number,
-    payload: { display_name?: string; password?: string; is_platform_admin?: boolean },
-  ) => Promise<CurrentUser>;
+  createUser: (payload: UserPayload) => Promise<CurrentUser>;
+  updateUser: (id: number, payload: UserPayload) => Promise<CurrentUser>;
+  unlockUser: (id: number) => Promise<{ unlocked: boolean }>;
+  deleteUser: (id: number) => Promise<{ deleted: boolean }>;
 }
 
 export type ColumnOp =
@@ -1715,4 +1724,8 @@ export const AuthApi: AuthApi = {
     http.post<CurrentUser>("/auth/users", payload).then((r) => r.data),
   updateUser: (id, payload) =>
     http.put<CurrentUser>(`/auth/users/${id}`, payload).then((r) => r.data),
+  unlockUser: (id) =>
+    http.post<{ unlocked: boolean }>(`/auth/users/${id}/unlock`).then((r) => r.data),
+  deleteUser: (id) =>
+    http.delete<{ deleted: boolean }>(`/auth/users/${id}`).then((r) => r.data),
 };

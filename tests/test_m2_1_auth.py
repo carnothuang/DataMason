@@ -7,6 +7,8 @@
 """
 from __future__ import annotations
 
+from datetime import datetime, timedelta, timezone
+
 import pytest
 
 from datamason.auth.service import hash_password
@@ -265,3 +267,87 @@ def test_setup_with_llm_config(app, client):
 
     assert settings_service.has_configured_model(app) is True
     assert client.get("/api/v1/auth/setup-status").get_json()["llm_configured"] is True
+
+
+# ---------------- 登录失败锁定 / 停用 / 删除保护 ----------------
+
+
+def test_login_locks_after_five_failures_and_admin_unlock(app, client, admin):
+    # 前 4 次：401 且未锁定，提示剩余次数
+    for left in (4, 3, 2, 1):
+        resp = _login(client, password="bad")
+        assert resp.status_code == 401
+        assert f"剩余尝试次数 {left} 次" in resp.get_json()["error"]
+
+    # 第 5 次：锁定 15 分钟
+    fifth = _login(client, password="bad")
+    assert fifth.status_code == 401
+    assert "已锁定" in fifth.get_json()["error"]
+
+    # 锁定期内即使密码正确也拒绝
+    locked = _login(client)
+    assert locked.status_code == 401
+    assert "账号已锁定" in locked.get_json()["error"]
+
+    # 管理员视角：列表中该用户 locked_until 有值
+    # （admin 自身当前未登录会话，直接用服务解锁验证接口链路）
+    assert client.post("/api/v1/auth/login",
+                       json={"username": "laomao", "password": "pw"}).status_code == 401
+
+    # 直接调服务解锁后即可正常登录
+    from datamason.auth.service import unlock_user
+
+    unlock_user(app, admin)
+    assert _login(client).status_code == 200
+
+    # 解锁接口（HTTP）
+    target = client.post("/api/v1/auth/users", json={
+        "username": "lucky", "password": "luck123",
+    })
+    tid = target.get_json()["id"]
+    with app.extensions["datamason_session_factory"]() as s:
+        u = s.get(User, tid)
+        u.failed_login_count = 5
+        u.locked_until = datetime.now(timezone.utc) + timedelta(minutes=10)
+        s.commit()
+    assert client.post(f"/api/v1/auth/users/{tid}/unlock").status_code == 200
+    assert client.post("/api/v1/auth/logout").status_code == 200
+    assert _login(client, "lucky", "luck123").status_code == 200
+
+
+def test_inactive_user_cannot_login(app, client, admin):
+    assert _login(client).status_code == 200
+    created = client.post("/api/v1/auth/users", json={
+        "username": "sleepy", "password": "sleep1", "is_active": False,
+    })
+    tid = created.get_json()["id"]
+
+    # 停用账号登录被拒
+    assert client.post("/api/v1/auth/logout").status_code == 200
+    resp = _login(client, "sleepy", "sleep1")
+    assert resp.status_code == 401 and "停用" in resp.get_json()["error"]
+
+    # 重新启用后可登录
+    assert _login(client).status_code == 200
+    assert client.put(f"/api/v1/auth/users/{tid}",
+                      json={"is_active": True}).status_code == 200
+    assert client.post("/api/v1/auth/logout").status_code == 200
+    assert _login(client, "sleepy", "sleep1").status_code == 200
+
+
+def test_delete_user_guards(app, client, admin):
+    assert _login(client).status_code == 200
+    other = client.post("/api/v1/auth/users", json={
+        "username": "temp", "password": "temp123",
+    })
+    tid = other.get_json()["id"]
+
+    # 不能删除当前登录账号
+    assert client.delete(f"/api/v1/auth/users/{admin}").status_code == 400
+    # 最后一个管理员不能删
+    assert client.delete(f"/api/v1/auth/users/{admin}").status_code == 400
+    # 普通用户可删
+    assert client.delete(f"/api/v1/auth/users/{tid}").status_code == 200
+    # 不存在 → 404
+    assert client.delete("/api/v1/auth/users/999").status_code == 404
+

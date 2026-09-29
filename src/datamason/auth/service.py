@@ -10,6 +10,7 @@ from __future__ import annotations
 import hashlib
 import hmac
 import os
+from datetime import timezone
 
 
 def hash_password(password: str) -> str:
@@ -29,6 +30,94 @@ def verify_password(password: str, stored: str) -> bool:
         return hmac.compare_digest(digest.hex(), hash_hex)
     except (ValueError, TypeError):
         return False
+
+
+# 连续失败多少次后锁定，锁定时长（秒）
+MAX_FAILED_LOGINS = 5
+LOGIN_LOCK_SECONDS = 15 * 60
+
+
+class LoginError(ValueError):
+    """登录被拒绝（凭据错误 / 停用 / 锁定）。"""
+
+
+def _now_utc():
+    from datetime import datetime
+
+    return datetime.now(timezone.utc)
+
+
+def _is_locked(user, at) -> bool:
+    if not user.locked_until:
+        return False
+    locked_until = user.locked_until
+    if locked_until.tzinfo is None:
+        from datetime import timezone as _tz
+
+        locked_until = locked_until.replace(tzinfo=_tz.utc)
+    return locked_until > at
+
+
+def authenticate(app, username: str, password: str):
+    """校验登录：处理停用、失败计数、自动锁定。成功返回 User 对象并清零计数；
+    失败抛 LoginError。"""
+    Session = app.extensions["datamason_session_factory"]
+    from datamason.models import User
+
+    with Session() as s:
+        user = s.query(User).filter_by(username=(username or "").strip()).first()
+        if user is None:
+            raise LoginError("用户名或密码错误")
+
+        at = _now_utc()
+        if not user.is_active:
+            raise LoginError("账号已停用，请联系管理员")
+        if _is_locked(user, at):
+            from datetime import timezone as _tz
+
+            locked_until = user.locked_until
+            if locked_until.tzinfo is None:
+                locked_until = locked_until.replace(tzinfo=_tz.utc)
+            minutes = max(1, int((locked_until - at).total_seconds() // 60))
+            raise LoginError(f"账号已锁定，请 {minutes} 分钟后再试")
+
+        # 锁定期满：给一次新机会
+        if user.locked_until is not None:
+            user.locked_until = None
+            user.failed_login_count = 0
+
+        if not verify_password(password, user.password_hash):
+            user.failed_login_count = (user.failed_login_count or 0) + 1
+            if user.failed_login_count >= MAX_FAILED_LOGINS:
+                from datetime import timedelta
+
+                user.locked_until = at + timedelta(seconds=LOGIN_LOCK_SECONDS)
+                user.failed_login_count = 0
+                s.commit()
+                raise LoginError("连续失败次数过多，账号已锁定 15 分钟")
+            s.commit()
+            left = MAX_FAILED_LOGINS - user.failed_login_count
+            raise LoginError(f"用户名或密码错误，剩余尝试次数 {left} 次")
+
+        user.failed_login_count = 0
+        user.locked_until = None
+        s.commit()
+        return user
+
+
+def unlock_user(app, user_id: int) -> dict:
+    """管理员手动解锁：清空失败计数与锁定时间。"""
+    Session = app.extensions["datamason_session_factory"]
+    from datamason.models import User
+
+    with Session() as s:
+        user = s.get(User, user_id)
+        if user is None:
+            raise LoginError("用户不存在")
+        user.failed_login_count = 0
+        user.locked_until = None
+        s.commit()
+        return {"unlocked": True}
 
 
 def bootstrap_admin(app) -> dict:

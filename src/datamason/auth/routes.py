@@ -1,17 +1,28 @@
-"""认证/会话/账号管理路由（M2-1：登录 + 轻量会话 + 平台账号管理）。
+"""认证/会话/用户管理路由（M2-1：登录 + 轻量会话 + 平台账号管理）。
 
 - 会话：Flask signed cookie（SECRET_KEY 签名），自建轻量，不引 FAB。
 - 白名单（无需登录）：setup-status / bootstrap / login / logout / me / health；
   其余 /api/* 由 app.py 的 before_request 统一拦截 401。
-- 账号管理（/auth/users*）：登录且平台管理员（app.py 拦截层保证）。
+- 用户管理（/auth/users*）：登录且平台管理员（app.py 拦截层保证）。
 """
 from __future__ import annotations
 
 from flask import Blueprint, current_app, jsonify, request, session
 
-from datamason.auth.service import bootstrap_admin, hash_password, verify_password
+from datamason.auth.service import (
+    LoginError,
+    authenticate,
+    bootstrap_admin,
+    hash_password,
+    unlock_user,
+)
 
 bp = Blueprint("auth", __name__)
+
+
+def _dt(value):
+    """DateTime → ISO 字符串（None 透传）。"""
+    return value.isoformat() if value is not None else None
 
 
 def _payload(user) -> dict:
@@ -19,7 +30,13 @@ def _payload(user) -> dict:
         "id": user.id,
         "username": user.username,
         "display_name": user.display_name or user.username,
+        "email": user.email or "",
+        "login_type": "password",
         "is_platform_admin": bool(user.is_platform_admin),
+        "is_active": bool(user.is_active),
+        "failed_login_count": int(user.failed_login_count or 0),
+        "locked_until": _dt(user.locked_until),
+        "created_at": _dt(user.created_at),
     }
 
 
@@ -91,18 +108,14 @@ def login():
     username = (data.get("username") or "").strip()
     password = data.get("password") or ""
     if not username or not password:
-        return jsonify({"error": "请输入用户名和密码"}), 400
-
-    Session = current_app.extensions["datamason_session_factory"]
-    from datamason.models import User
-
-    with Session() as s:
-        user = s.query(User).filter_by(username=username).first()
-        if user is None or not verify_password(password, user.password_hash):
-            return jsonify({"error": "用户名或密码错误"}), 401
-        session.clear()
-        session["user_id"] = user.id
-        return jsonify(_payload(user))
+        return jsonify({"error": "用户名和密码必填"}), 400
+    try:
+        user = authenticate(current_app, username, password)
+    except LoginError as exc:
+        return jsonify({"error": str(exc)}), 401
+    session.clear()
+    session["user_id"] = user.id
+    return jsonify(_payload(user))
 
 
 @bp.post("/logout")
@@ -123,7 +136,7 @@ def me():
     return jsonify(_payload(user))
 
 
-# ---------------- 账号管理（平台管理员，M2-1） ----------------
+# ---------------- 用户管理（平台管理员，M2-1） ----------------
 
 
 @bp.get("/users")
@@ -153,8 +166,10 @@ def create_user():
         user = User(
             username=username,
             display_name=(data.get("display_name") or "").strip() or username,
+            email=(data.get("email") or "").strip(),
             password_hash=hash_password(password),
             is_platform_admin=bool(data.get("is_platform_admin", False)),
+            is_active=bool(data.get("is_active", True)),
         )
         s.add(user)
         s.commit()
@@ -174,9 +189,41 @@ def update_user(user_id: int):
 
         if "display_name" in data:
             user.display_name = (data.get("display_name") or "").strip() or user.username
+        if "email" in data:
+            user.email = (data.get("email") or "").strip()
         if data.get("password"):
             user.password_hash = hash_password(data["password"])
         if "is_platform_admin" in data:
             user.is_platform_admin = bool(data["is_platform_admin"])
+        if "is_active" in data:
+            user.is_active = bool(data["is_active"])
         s.commit()
         return jsonify(_payload(user))
+
+
+@bp.post("/users/<int:user_id>/unlock")
+def unlock(user_id: int):
+    try:
+        return jsonify(unlock_user(current_app, user_id))
+    except LoginError as exc:
+        return jsonify({"error": str(exc)}), 404
+
+
+@bp.delete("/users/<int:user_id>")
+def delete_user(user_id: int):
+    Session = current_app.extensions["datamason_session_factory"]
+    from datamason.models import User
+
+    with Session() as s:
+        user = s.get(User, user_id)
+        if user is None:
+            return jsonify({"error": "用户不存在"}), 404
+        if user.is_platform_admin and s.query(User).filter_by(
+            is_platform_admin=True
+        ).count() <= 1:
+            return jsonify({"error": "至少保留一个平台管理员"}), 400
+        if session.get("user_id") == user_id:
+            return jsonify({"error": "不能删除当前登录账号"}), 400
+        s.delete(user)
+        s.commit()
+        return jsonify({"deleted": True})

@@ -1,0 +1,531 @@
+.dm-users-page .dm-users-grid-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 4px 0 0;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.dm-users-page .dm-users-grid-toolbar-right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.dm-users-page .dm-users-view-mode-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.dm-users-page .dm-users-card-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  row-gap: 16px;
+  column-gap: 12px;
+  padding: 4px 0 32px;
+}
+
+.dm-users-page .dm-users-grid-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 60px;
+}
+
+.dm-users-page .dm-users-drawer .ant-drawer-header {
+  border-bottom: 1px solid var(--fn-border-primary);
+}
+
+.dm-users-page .dm-users-drawer .ant-drawer-footer {
+  border-top: 1px solid var(--fn-border-primary);
+  padding: 12px 16px;
+}
+
+.dm-users-drawer-footer {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 8px;
+}
+
+.dm-users-page .dm-users-form .ant-form-item {
+  margin-bottom: 16px;
+}
+
+.dm-users-page .dm-users-form .ant-form-item-label > label {
+  color: var(--fn-text-secondary);
+  font-weight: 500;
+}
+
+.dm-users-section {
+  margin-bottom: 8px;
+}
+
+.dm-users-section + .dm-users-section {
+  margin-top: 8px;
+  padding-top: 16px;
+  border-top: 1px solid var(--fn-border-primary);
+}
+
+.dm-users-section-title {
+  margin-bottom: 12px;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--fn-text-tertiary);
+  text-transform: uppercase;
+}
+
+.dm-users-page .dm-users-page-top {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-bottom: 16px;
+}
+
+.dm-users-search {
+  width: min(320px, 100%);
+}
+
+.dm-users-role-legend {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: baseline;
+  column-gap: 12px;
+  row-gap: 4px;
+  padding: 9px 12px 9px 11px;
+  border: 1px solid var(--fn-border-secondary);
+  border-left: 3px solid
+    color-mix(in srgb, var(--fn-color-brand) 55%, var(--fn-border-primary));
+  border-radius: var(--fn-radius-md);
+  background: var(--fn-bg-secondary);
+  box-sizing: border-box;
+}
+
+.dm-users-role-legend-label {
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.6;
+  color: var(--fn-text-secondary);
+  white-space: nowrap;
+}
+
+.dm-users-role-legend-text {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 1.6;
+  color: var(--fn-text-tertiary);
+}
+
+.dm-users-card {
+  position: relative;
+  background: var(--fn-bg-primary);
+  border: 1px solid var(--fn-card-border-normal);
+  border-radius: var(--fn-radius-lg);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  min-width: 0;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+  transition:
+    box-shadow 0.2s ease,
+    transform 0.2s ease,
+    border-color 0.2s ease;
+}
+
+.dm-users-card:hover {
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.08);
+  transform: translateY(-2px);
+}
+
+.dm-users-card-locked {
+  border-color: rgba(255, 77, 79, 0.3);
+}
+
+.dm-users-card-disabled {
+  opacity: 0.82;
+}
+
+.dm-users-card-disabled .dm-users-card-avatar {
+  filter: grayscale(0.35);
+}
+
+.dm-users-card-accent {
+  height: 2px;
+  flex-shrink: 0;
+}
+
+.dm-users-card-accent-admin {
+  background: var(--fn-color-brand);
+}
+
+.dm-users-card-accent-user {
+  background: var(--fn-border-primary);
+}
+
+.dm-users-card-accent-locked {
+  background: #ff4d4f;
+}
+
+.dm-users-card-accent-disabled {
+  background: var(--fn-text-tertiary);
+}
+
+.dm-users-card-inner {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  padding: 16px 16px 12px;
+  gap: 12px;
+}
+
+.dm-users-card-header {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.dm-users-card-avatar {
+  width: 48px;
+  height: 48px;
+  border-radius: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  font-size: 16px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  line-height: 1;
+}
+
+.dm-users-card-title-block {
+  flex: 1;
+  min-width: 0;
+  padding-top: 2px;
+}
+
+.dm-users-card-name-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.dm-users-card-name {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--fn-text-primary);
+  line-height: 1.3;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+
+.dm-users-card-you-tag {
+  flex-shrink: 0;
+  margin: 0 !important;
+  font-size: 10px !important;
+  line-height: 16px !important;
+  padding: 0 5px !important;
+  border-radius: 4px !important;
+  border: none !important;
+  color: var(--fn-color-brand) !important;
+  background: var(--fn-color-brand-bg) !important;
+}
+
+.dm-users-card-handle {
+  margin-top: 3px;
+  font-size: 12px;
+  color: var(--fn-text-tertiary);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.dm-users-card-time {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--fn-text-tertiary);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.dm-users-card-meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.dm-users-card-info {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.dm-users-card-auth {
+  font-size: 11px;
+  color: var(--fn-text-tertiary);
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: var(--fn-bg-tertiary);
+}
+
+.dm-users-perm-badge,
+.dm-users-perm-badge-muted {
+  display: inline-flex;
+  align-items: center;
+  height: 22px;
+  padding: 0 8px;
+  border-radius: 999px;
+  font-size: 12px;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.dm-users-perm-badge {
+  color: var(--fn-text-secondary);
+  background: var(--fn-bg-tertiary);
+}
+
+.dm-users-perm-badge-all {
+  color: var(--fn-color-brand);
+  background: var(--fn-color-brand-bg);
+}
+
+.dm-users-perm-badge-muted {
+  color: var(--fn-text-tertiary);
+}
+
+.dm-users-card-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 9px;
+  border-radius: 20px;
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1.6;
+  white-space: nowrap;
+}
+
+.dm-users-card-status-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.dm-users-card-switch {
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+
+.dm-users-card-lock-alert {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: var(--fn-radius-md);
+  background: rgba(255, 77, 79, 0.07);
+  border: 1px solid rgba(255, 77, 79, 0.18);
+  font-size: 12px;
+  color: #cf1322;
+}
+
+.dm-users-card-lock-text {
+  flex: 1;
+  min-width: 0;
+  line-height: 1.4;
+}
+
+.dm-users-card-lock-unlock {
+  flex-shrink: 0;
+  padding: 0 !important;
+  font-size: 12px !important;
+  height: auto !important;
+}
+
+.dm-users-card-failed-hint {
+  font-size: 11px;
+  color: var(--fn-text-tertiary);
+  padding: 0 2px;
+}
+
+.dm-users-card-footer {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding-top: 2px;
+  border-top: 1px solid var(--fn-border-tertiary);
+  margin-top: auto;
+}
+
+.dm-users-icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: var(--fn-radius-sm);
+  border: 1px solid var(--fn-border-primary);
+  background: transparent;
+  cursor: pointer;
+  color: var(--fn-text-secondary);
+  transition:
+    background 0.15s,
+    color 0.15s,
+    border-color 0.15s;
+}
+
+.dm-users-icon-btn:hover:not(:disabled) {
+  background: var(--fn-fill-secondary);
+  color: var(--fn-text-primary);
+}
+
+.dm-users-icon-btn:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.dm-users-icon-btn-danger:hover:not(:disabled) {
+  color: #ff4d4f;
+  border-color: rgba(255, 77, 79, 0.45);
+  background: rgba(255, 77, 79, 0.06);
+}
+
+.dm-users-card-footer-spacer {
+  flex: 1;
+}
+
+.dm-users-card-id-badge {
+  font-size: 10px;
+  font-weight: 600;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  color: var(--fn-text-tertiary);
+  letter-spacing: 0.02em;
+  padding: 4px 8px;
+  border-radius: var(--fn-radius-sm);
+  background: var(--fn-bg-tertiary);
+}
+
+.dm-users-page .dm-users-table .ant-table {
+  background: transparent;
+}
+
+.dm-users-page .dm-users-table .ant-table-container {
+  border: 1px solid var(--fn-border-primary);
+  border-radius: var(--fn-radius-lg);
+}
+
+.dm-users-page .dm-users-table .ant-table-thead > tr > th {
+  background: var(--fn-bg-secondary);
+  color: var(--fn-text-tertiary);
+  font-size: 12px;
+  font-weight: 600;
+  padding: 10px 12px;
+}
+
+.dm-users-page .dm-users-table .ant-table-tbody > tr > td {
+  padding: 10px 12px;
+  vertical-align: middle;
+}
+
+.dm-users-table-row-disabled {
+  opacity: 0.72;
+}
+
+.dm-users-table-row-locked > td {
+  background: rgba(255, 77, 79, 0.03);
+}
+
+.dm-users-cell {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.dm-users-cell-avatar {
+  width: 32px;
+  height: 32px;
+  border-radius: 9px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.dm-users-cell-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  gap: 1px;
+}
+
+.dm-users-cell-name {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--fn-text-primary);
+  line-height: 1.3;
+}
+
+.dm-users-cell-you {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--fn-color-brand);
+  background: var(--fn-color-brand-bg);
+  border-radius: 4px;
+  padding: 0 5px;
+  line-height: 16px;
+}
+
+.dm-users-cell-handle {
+  font-size: 12px;
+  color: var(--fn-text-tertiary);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+.dm-users-cell-muted {
+  font-size: 12px;
+  color: var(--fn-text-tertiary);
+}
+
+.dm-users-role-tone-admin {
+  color: var(--fn-color-brand);
+  background: var(--fn-color-brand-bg);
+}
+
+.dm-users-role-tone-user {
+  color: var(--fn-text-secondary);
+  background: var(--fn-bg-tertiary);
+}
+
+@media (max-width: 640px) {
+  .dm-users-page .dm-users-card-grid {
+    grid-template-columns: 1fr;
+    gap: 12px;
+    padding: 0 0 24px;
+  }
+}
+
+@media (max-width: 560px) {
+  .dm-users-role-legend {
+    grid-template-columns: 1fr;
+  }
+}
