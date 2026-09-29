@@ -11,7 +11,12 @@
   "nav": {
     "deployments": "部署清单",
     "management": "管理",
-    "settings": "设置"
+    "settings": "设置",
+    "settingsModels": "模型管理",
+    "settingsConnections": "数据连接",
+    "settingsRedis": "Redis 加速",
+    "settingsUsers": "账号管理",
+    "settingsAi": "AI 生成"
   },
   "account": {
     "language": "语言",

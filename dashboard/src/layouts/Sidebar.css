@@ -90,6 +90,74 @@
   overflow: hidden;
 }
 
+/* ---- 子菜单（叶子项的父项） ---- */
+.dm-nav-submenu {
+  margin-bottom: 2px;
+}
+
+.dm-nav-submenu__header .dm-nav-item__label {
+  flex: 1;
+}
+
+.dm-nav-submenu__chevron {
+  flex-shrink: 0;
+  font-size: 10px;
+  color: var(--fn-text-tertiary);
+  transition: transform 0.2s ease;
+}
+
+.dm-nav-submenu__chevron--folded {
+  transform: rotate(-90deg);
+}
+
+.dm-nav-submenu__items {
+  padding-left: 18px;
+}
+
+.dm-nav-submenu__items .dm-nav-item {
+  height: 36px;
+  font-size: 13px;
+}
+
+.dm-icon-nav__pop {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 140px;
+}
+
+.dm-icon-nav__pop-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 8px 10px;
+  border: none;
+  border-radius: var(--fn-radius-md);
+  background: transparent;
+  color: var(--fn-text-secondary);
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+  transition: background var(--fn-transition-fast), color var(--fn-transition-fast);
+}
+
+.dm-icon-nav__pop-item:hover {
+  background: var(--fn-bg-hover);
+}
+
+.dm-icon-nav__pop-item--active {
+  background: var(--fn-sidebar-item-active-bg);
+  color: var(--fn-sidebar-item-active-text);
+}
+
+.dm-icon-nav__pop-caret {
+  position: absolute;
+  right: 4px;
+  bottom: 4px;
+  font-size: 7px;
+}
+
 /* ---- 导航项 ---- */
 .dm-nav-item {
   display: flex;
@@ -149,6 +217,7 @@
 }
 
 .dm-icon-nav__btn {
+  position: relative;
   display: flex;
   align-items: center;
   justify-content: center;

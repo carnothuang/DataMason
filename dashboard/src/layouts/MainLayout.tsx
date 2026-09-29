@@ -58,7 +58,9 @@ export default function MainLayout({ user }: { user: CurrentUser }) {
     if (isMobile) setCollapsed(true);
   }, [location.pathname, isMobile]);
 
-  const selectedKey = location.pathname.startsWith("/settings") ? "settings" : "deployments";
+  const selectedKey = location.pathname.startsWith("/settings")
+    ? location.pathname.slice(1)
+    : "deployments";
   const sections = buildConsoleNav(user, t);
 
   const onNavigate = (item: NavItem) => {

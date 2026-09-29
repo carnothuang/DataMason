@@ -11,7 +11,12 @@
   "nav": {
     "deployments": "Deployments",
     "management": "Management",
-    "settings": "Settings"
+    "settings": "Settings",
+    "settingsModels": "Models",
+    "settingsConnections": "Data Connections",
+    "settingsRedis": "Redis",
+    "settingsUsers": "Accounts",
+    "settingsAi": "AI Generations"
   },
   "account": {
     "language": "Language",

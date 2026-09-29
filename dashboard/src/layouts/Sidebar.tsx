@@ -12,6 +12,8 @@ export interface NavItem {
   key: string;
   label: string;
   icon?: ReactNode;
+  /** 有 children 渲染为可展开子菜单（叶子项才可导航）。 */
+  children?: NavItem[];
 }
 
 export interface NavSection {
@@ -57,14 +59,48 @@ function NavItems({
   items,
   selectedKey,
   onNavigate,
+  openSubmenus,
+  toggleSubmenu,
 }: {
   items: NavItem[];
   selectedKey: string;
   onNavigate: (item: NavItem) => void;
+  openSubmenus: Set<string>;
+  toggleSubmenu: (key: string) => void;
 }) {
   return (
     <>
       {items.map((item) => {
+        if (item.children && item.children.length) {
+          const opened = openSubmenus.has(item.key);
+          return (
+            <div key={item.key} className="dm-nav-submenu">
+              <button
+                type="button"
+                className="dm-nav-item dm-nav-submenu__header"
+                onClick={() => toggleSubmenu(item.key)}
+                aria-expanded={opened}
+              >
+                {item.icon && <span className="dm-nav-item__icon">{item.icon}</span>}
+                <span className="dm-nav-item__label">{item.label}</span>
+                <DownOutlined
+                  className={`dm-nav-submenu__chevron${opened ? "" : " dm-nav-submenu__chevron--folded"}`}
+                />
+              </button>
+              {opened && (
+                <div className="dm-nav-submenu__items">
+                  <NavItems
+                    items={item.children}
+                    selectedKey={selectedKey}
+                    onNavigate={onNavigate}
+                    openSubmenus={openSubmenus}
+                    toggleSubmenu={toggleSubmenu}
+                  />
+                </div>
+              )}
+            </div>
+          );
+        }
         const active = selectedKey === item.key;
         return (
           <button
@@ -100,6 +136,44 @@ export default function Sidebar({
   const { t } = useTranslation();
   const isRailCollapsed = collapsed && !isMobile;
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(() => loadCollapsedGroups());
+  const [openSubmenus, setOpenSubmenus] = useState<Set<string>>(new Set());
+
+  const findSubmenuParent = useCallback(
+    (key: string, items: NavItem[]): string | null => {
+      for (const it of items) {
+        if (it.children?.some((c) => c.key === key)) return it.key;
+        if (it.children) {
+          const hit = findSubmenuParent(key, it.children);
+          if (hit) return hit;
+        }
+      }
+      return null;
+    },
+    [],
+  );
+
+  // 选中某个子项时，自动展开其所属子菜单
+  useEffect(() => {
+    const parent = sections
+      .map((s) => findSubmenuParent(selectedKey, s.items))
+      .find((p): p is string => !!p);
+    if (!parent) return;
+    setOpenSubmenus((prev) => {
+      if (prev.has(parent)) return prev;
+      const next = new Set(prev);
+      next.add(parent);
+      return next;
+    });
+  }, [sections, selectedKey, findSubmenuParent]);
+
+  const toggleSubmenu = useCallback((key: string) => {
+    setOpenSubmenus((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  }, []);
 
   const activeGroupKey = useMemo(
     () =>
@@ -144,7 +218,13 @@ export default function Sidebar({
         if (!section.groupKey) {
           return (
             <div key={sectionKey} className="dm-nav-group">
-              <NavItems items={section.items} selectedKey={selectedKey} onNavigate={onNavigate} />
+              <NavItems
+                items={section.items}
+                selectedKey={selectedKey}
+                onNavigate={onNavigate}
+                openSubmenus={openSubmenus}
+                toggleSubmenu={toggleSubmenu}
+              />
             </div>
           );
         }
@@ -166,7 +246,13 @@ export default function Sidebar({
             </button>
             {!groupCollapsed && (
               <div className="dm-nav-group__items">
-                <NavItems items={section.items} selectedKey={selectedKey} onNavigate={onNavigate} />
+                <NavItems
+                  items={section.items}
+                  selectedKey={selectedKey}
+                  onNavigate={onNavigate}
+                  openSubmenus={openSubmenus}
+                  toggleSubmenu={toggleSubmenu}
+                />
               </div>
             )}
           </div>

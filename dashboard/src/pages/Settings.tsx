@@ -1,4 +1,4 @@
-import { Tabs } from "antd";
+import { Navigate, Route, Routes } from "react-router-dom";
 import PageShell from "../layouts/PageShell";
 import ModelsTab from "./settings/ModelsTab";
 import ConnectionsTab from "./settings/ConnectionsTab";
@@ -9,17 +9,15 @@ import AiGenerationsTab from "./settings/AiGenerationsTab";
 export default function Settings() {
   return (
     <PageShell title="设置">
-      <Tabs
-        defaultActiveKey="models"
-        style={{ marginTop: -8 }}
-        items={[
-          { key: "models", label: "模型管理", children: <ModelsTab /> },
-          { key: "connections", label: "数据连接", children: <ConnectionsTab /> },
-          { key: "redis", label: "Redis 加速", children: <RedisTab /> },
-          { key: "users", label: "账号管理", children: <UsersTab /> },
-          { key: "ai", label: "AI 生成", children: <AiGenerationsTab /> },
-        ]}
-      />
+      <Routes>
+        <Route index element={<Navigate to="models" replace />} />
+        <Route path="models" element={<ModelsTab />} />
+        <Route path="connections" element={<ConnectionsTab />} />
+        <Route path="redis" element={<RedisTab />} />
+        <Route path="users" element={<UsersTab />} />
+        <Route path="ai" element={<AiGenerationsTab />} />
+        <Route path="*" element={<Navigate to="models" replace />} />
+      </Routes>
     </PageShell>
   );
 }
