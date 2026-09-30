@@ -21,7 +21,6 @@ import {
   ClockCircleOutlined,
   DeleteOutlined,
   EditOutlined,
-  KeyOutlined,
   LockOutlined,
   MailOutlined,
   PlusOutlined,
@@ -38,8 +37,27 @@ import "./UsersTab.css";
 const { Text } = Typography;
 
 const VIEW_KEY = "datamason:users:view";
-const TABLE_WIDTH_KEY = "datamason:users:table-widths";
+const TABLE_WIDTH_KEY = "datamason:users:table-widths:v2";
 type ViewMode = "card" | "table";
+
+const KeyIcon = () => (
+  <svg
+    viewBox="0 0 24 24"
+    width="1em"
+    height="1em"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth={2}
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    aria-hidden="true"
+  >
+    <circle cx="7.5" cy="7.5" r="3.5" />
+    <path d="M10 10l9 9" />
+    <path d="M15.5 15.5l2-2" />
+    <path d="M18.5 18.5l1.5-1.5" />
+  </svg>
+);
 
 interface CreateValues {
   username: string;
@@ -476,7 +494,7 @@ export default function UsersTab() {
     {
       title: t("users.colActions"),
       key: "actions",
-      width: 120,
+      width: 140,
       fixed: isMobile ? undefined : ("right" as const),
       render: (_: unknown, u: CurrentUser) => (
         <Space size={4}>
@@ -500,7 +518,7 @@ export default function UsersTab() {
               }}
               aria-label={t("users.resetPassword")}
             >
-              <KeyOutlined />
+              <KeyIcon />
             </button>
           </Tooltip>
           <Popconfirm
@@ -669,7 +687,7 @@ export default function UsersTab() {
                 }}
                 aria-label={t("users.resetPassword")}
               >
-                <KeyOutlined />
+                <KeyIcon />
               </button>
             </Tooltip>
             <Popconfirm

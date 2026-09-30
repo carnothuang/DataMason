@@ -12,6 +12,7 @@ import AvatarDropdown from "../components/AvatarDropdown";
 import VersionBadge from "../components/VersionBadge";
 import { AuthApi, type CurrentUser } from "../api";
 import Deployments from "../pages/Deployments";
+import QuickDeploy from "../pages/QuickDeploy";
 import Settings from "../pages/Settings";
 
 const SIDEBAR_COLLAPSED_KEY = "datamason:sidebar:collapsed";
@@ -60,7 +61,9 @@ export default function MainLayout({ user }: { user: CurrentUser }) {
 
   const selectedKey = location.pathname.startsWith("/settings")
     ? location.pathname.slice(1)
-    : "deployments";
+    : location.pathname.startsWith("/quick-deploy")
+      ? "quick-deploy"
+      : "deployments";
   const sections = buildConsoleNav(user, t);
 
   const onNavigate = (item: NavItem) => {
@@ -155,6 +158,7 @@ export default function MainLayout({ user }: { user: CurrentUser }) {
           <div className="page-content">
             <Routes>
               <Route path="/" element={<Navigate to="/deployments" replace />} />
+              <Route path="/quick-deploy" element={<QuickDeploy />} />
               <Route path="/deployments" element={<Deployments />} />
               <Route path="/settings/*" element={<Settings />} />
               <Route path="*" element={<Navigate to="/deployments" replace />} />

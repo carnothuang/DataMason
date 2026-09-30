@@ -41,7 +41,7 @@ import LayoutDesigner from "./LayoutDesigner";
 const { Text } = Typography;
 
 const ENTRY_RE = /^\/[A-Za-z0-9][A-Za-z0-9_\-]*(?:\/[A-Za-z0-9_\-]+)*$/;
-const ENTRY_RESERVED = ["/app", "/login", "/deployments", "/settings", "/assets", "/api"];
+const ENTRY_RESERVED = ["/app", "/login", "/deployments", "/quick-deploy", "/settings", "/assets", "/api"];
 const MAX_ENTRY_LEN = 64;
 const KIND_LABEL: Record<string, string> = {
   crud_list: "数据清单",

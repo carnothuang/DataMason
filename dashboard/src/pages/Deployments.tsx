@@ -1,80 +1,82 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   App,
   Button,
-  Card,
-  Collapse,
-  Dropdown,
   Empty,
+  Input,
   Segmented,
-  Space,
   Spin,
-  Table,
-  Tag,
-  Typography,
+  Tooltip,
 } from "antd";
-import { PlayCircleOutlined, PlusOutlined, ProjectOutlined, ReloadOutlined, ShareAltOutlined, TableOutlined, ThunderboltOutlined, DownloadOutlined, DeleteOutlined, DownOutlined } from "@ant-design/icons";
+import {
+  AppstoreOutlined,
+  CopyOutlined,
+  DeleteOutlined,
+  DownloadOutlined,
+  EyeOutlined,
+  PlayCircleOutlined,
+  ProjectOutlined,
+  ReloadOutlined,
+  SearchOutlined,
+  ShareAltOutlined,
+  TableOutlined,
+  ThunderboltOutlined,
+  UnorderedListOutlined,
+} from "@ant-design/icons";
 import { useNavigate } from "react-router-dom";
+import { useTranslation } from "react-i18next";
+import dayjs from "dayjs";
 import { DeployApi, Deployment, downloadJson } from "../api";
-import DeployWizard from "./deploy/DeployWizard";
+import { ResizableTable } from "../components/ResizableTable";
+import PageShell from "../layouts/PageShell";
 import DataViewer from "./deploy/DataViewer";
 import BlueprintPage from "./deploy/BlueprintPage";
 import ShareModal from "./ShareModal";
 import DestroyModal from "./DestroyModal";
-import PageShell from "../layouts/PageShell";
-
-const { Text, Paragraph } = Typography;
+import "./settings/shared.css";
 
 const VIEW_KEY = "datamason:deployments:view";
+const TABLE_WIDTH_KEY = "datamason:deployments:table-widths";
 type ViewMode = "card" | "table";
 
-function getSavedView(): ViewMode {
-  try {
-    const saved = localStorage.getItem(VIEW_KEY);
-    if (saved === "card" || saved === "table") return saved;
-  } catch {
-    /* localStorage 不可用时使用默认值 */
-  }
-  return "card";
-}
-
-const STATUS_COLOR: Record<string, string> = {
-  running: "green",
-  deploying: "blue",
-  stopped: "default",
-  draft: "default",
-  destroyed: "red",
-};
-const STATUS_LABEL: Record<string, string> = {
-  running: "运行中",
-  deploying: "部署中",
-  stopped: "已停止",
-  draft: "草稿",
-  destroyed: "已销毁",
+const STATUS_DOT: Record<string, string> = {
+  running: "#52c41a",
+  deploying: "#1677ff",
+  stopped: "#bfbfbf",
+  draft: "#bfbfbf",
+  destroyed: "#ff4d4f",
 };
 
 export default function Deployments() {
+  const { t } = useTranslation();
   const { message, modal } = App.useApp();
   const navigate = useNavigate();
   const [rows, setRows] = useState<Deployment[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [wizardOpen, setWizardOpen] = useState(false);
-  const [wizardBuilder, setWizardBuilder] = useState<"auto" | "hybrid" | "manual">("auto");
+  const [loading, setLoading] = useState(true);
+  const [keyword, setKeyword] = useState("");
   const [openId, setOpenId] = useState<number | null>(null);
   const [blueprintId, setBlueprintId] = useState<number | null>(null);
   const [shareDep, setShareDep] = useState<Deployment | null>(null);
   const [destroyDep, setDestroyDep] = useState<Deployment | null>(null);
   const [exportingId, setExportingId] = useState<number | null>(null);
-  const [view, setView] = useState<ViewMode>(() => getSavedView());
-
-  const persistView = (next: ViewMode) => {
-    setView(next);
+  const [view, setView] = useState<ViewMode>(() => {
     try {
-      localStorage.setItem(VIEW_KEY, next);
+      const saved = localStorage.getItem(VIEW_KEY);
+      if (saved === "card" || saved === "table") return saved;
     } catch {
-      /* 忽略持久化失败 */
+      /* localStorage 不可用时使用默认值 */
     }
-  };
+    return "table";
+  });
+  const [isMobile, setIsMobile] = useState(
+    () => typeof window !== "undefined" && window.innerWidth <= 768,
+  );
+
+  useEffect(() => {
+    const onResize = () => setIsMobile(window.innerWidth <= 768);
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -88,31 +90,41 @@ export default function Deployments() {
   }, [message]);
 
   useEffect(() => {
-    load();
+    void load();
   }, [load]);
 
-  // 入口下拉：全自动（简单业务）/ 混合引导（复杂需求）/ 纯手动专业模式，进入部署向导的对应模式
-  const openWizard = (builder: "auto" | "hybrid" | "manual") => {
-    setWizardBuilder(builder);
-    setWizardOpen(true);
+  const persistView = (next: ViewMode) => {
+    setView(next);
+    try {
+      localStorage.setItem(VIEW_KEY, next);
+    } catch {
+      /* 忽略持久化失败 */
+    }
   };
 
-  // M3-1：清单分组 —— 运行中/进行中铺开，已停止默认折叠（DR：运行中铺开 / 已停止折叠）
-  const runningRows = rows.filter((r) => ["running", "deploying", "draft"].includes(r.status) || !["running", "stopped"].includes(r.status));
-  const stoppedRows = rows.filter((r) => r.status === "stopped");
+  const filtered = useMemo(() => {
+    const kw = keyword.trim().toLowerCase();
+    if (!kw) return rows;
+    return rows.filter(
+      (d) =>
+        d.biz_name.toLowerCase().includes(kw) ||
+        d.purpose.toLowerCase().includes(kw) ||
+        d.entry_path.toLowerCase().includes(kw),
+    );
+  }, [rows, keyword]);
 
   const onStop = (d: Deployment) => {
     modal.confirm({
-      title: `停止「${d.biz_name}」？`,
-      content: "停止后数据保留、工作台入口不可操作；可随时再启动恢复。",
-      okText: "停止",
+      title: t("deployments.stopTitle", { name: d.biz_name }),
+      content: t("deployments.stopContent"),
+      okText: t("deployments.stopOk"),
       okButtonProps: { danger: true },
-      cancelText: "取消",
+      cancelText: t("deployments.cancel"),
       onOk: async () => {
         try {
           await DeployApi.stop(d.id);
-          message.success("已停止");
-          load();
+          message.success(t("deployments.stopDone"));
+          void load();
         } catch (e) {
           message.error((e as Error).message);
         }
@@ -123,20 +135,27 @@ export default function Deployments() {
   const onStart = async (d: Deployment) => {
     try {
       await DeployApi.start(d.id);
-      message.success("已再启动");
-      load();
+      message.success(t("deployments.startDone"));
+      void load();
     } catch (e) {
       message.error((e as Error).message);
     }
   };
 
-  // M3-6：导出配置包（含全量操作日志），可离线打开；停止态也可导出
+  const onCopyEntry = (d: Deployment) => {
+    const url = `${window.location.origin}${d.entry_path}`;
+    void navigator.clipboard
+      .writeText(url)
+      .then(() => message.success(t("deployments.copyEntryDone")))
+      .catch(() => message.error(t("deployments.copyEntryFail")));
+  };
+
   const onExport = async (d: Deployment) => {
     setExportingId(d.id);
     try {
       const pkg = await DeployApi.exportPackage(d.id);
       downloadJson(`datamason-deploy-${d.id}.json`, pkg);
-      message.success("已导出配置包");
+      message.success(t("deployments.exportDone"));
     } catch (e) {
       message.error((e as Error).message);
     } finally {
@@ -144,19 +163,18 @@ export default function Deployments() {
     }
   };
 
-  // DR-08：一键清空演示数据（只删种子行，不动用户真实数据）
   const onClearSeed = (d: Deployment) => {
     modal.confirm({
-      title: `清空「${d.biz_name}」的演示数据？`,
-      content: "只删除部署时自动生成的演示行，之后录入的数据不受影响。此操作不可撤销。",
-      okText: "清空演示数据",
+      title: t("deployments.clearSeedTitle", { name: d.biz_name }),
+      content: t("deployments.clearSeedContent"),
+      okText: t("deployments.clearSeedOk"),
       okButtonProps: { danger: true },
-      cancelText: "取消",
+      cancelText: t("deployments.cancel"),
       onOk: async () => {
         try {
           const r = await DeployApi.clearSeed(d.id);
-          message.success(`已清空演示数据（${r.deleted} 行）`);
-          load();
+          message.success(t("deployments.clearSeedDone", { count: r.deleted }));
+          void load();
         } catch (e) {
           message.error((e as Error).message);
         }
@@ -188,230 +206,359 @@ export default function Deployments() {
     );
   }
 
-  const renderActions = (d: Deployment) => (
-    <Space wrap onClick={(e) => e.stopPropagation()}>
+  const actionButtons = (d: Deployment) => (
+    <>
       {d.status === "running" && d.entry_path && (
-        <Button
-          type="primary"
-          size="small"
-          ghost
-          icon={<ThunderboltOutlined />}
-          onClick={() => navigate(d.entry_path)}
-        >
-          打开工作台
-        </Button>
+        <Tooltip title={t("deployments.openWorkspace")}>
+          <button
+            type="button"
+            className="dm-set-icon-btn"
+            onClick={() => navigate(d.entry_path)}
+            aria-label={t("deployments.openWorkspace")}
+          >
+            <ThunderboltOutlined />
+          </button>
+        </Tooltip>
       )}
-      <Button size="small" icon={<TableOutlined />} onClick={() => setOpenId(d.id)}>
-        打开数据
-      </Button>
-      <Button size="small" icon={<ProjectOutlined />} onClick={() => setBlueprintId(d.id)}>
-        数据蓝图
-      </Button>
+      <Tooltip title={t("deployments.openData")}>
+        <button
+          type="button"
+          className="dm-set-icon-btn"
+          onClick={() => setOpenId(d.id)}
+          aria-label={t("deployments.openData")}
+        >
+          <EyeOutlined />
+        </button>
+      </Tooltip>
+      <Tooltip title={t("deployments.blueprint")}>
+        <button
+          type="button"
+          className="dm-set-icon-btn"
+          onClick={() => setBlueprintId(d.id)}
+          aria-label={t("deployments.blueprint")}
+        >
+          <ProjectOutlined />
+        </button>
+      </Tooltip>
+      {d.entry_path && (
+        <Tooltip title={t("deployments.copyEntry")}>
+          <button
+            type="button"
+            className="dm-set-icon-btn"
+            onClick={() => onCopyEntry(d)}
+            aria-label={t("deployments.copyEntry")}
+          >
+            <CopyOutlined />
+          </button>
+        </Tooltip>
+      )}
       {d.role === "creator" && (
-        <Button size="small" icon={<ShareAltOutlined />} onClick={() => setShareDep(d)}>
-          分享
-        </Button>
+        <Tooltip title={t("deployments.share")}>
+          <button
+            type="button"
+            className="dm-set-icon-btn"
+            onClick={() => setShareDep(d)}
+            aria-label={t("deployments.share")}
+          >
+            <ShareAltOutlined />
+          </button>
+        </Tooltip>
       )}
       {(d.role === "creator" || d.role === "admin") && (
-        <Button
-          size="small"
-          icon={<DownloadOutlined />}
-          loading={exportingId === d.id}
-          onClick={() => onExport(d)}
-        >
-          导出
-        </Button>
+        <Tooltip title={t("deployments.export")}>
+          <button
+            type="button"
+            className="dm-set-icon-btn"
+            disabled={exportingId === d.id}
+            onClick={() => void onExport(d)}
+            aria-label={t("deployments.export")}
+          >
+            {exportingId === d.id ? <Spin size="small" /> : <DownloadOutlined />}
+          </button>
+        </Tooltip>
       )}
       {d.seed_data && (d.role === "creator" || d.role === "admin") && (
-        <Button size="small" onClick={() => onClearSeed(d)}>
-          清空演示
-        </Button>
+        <Tooltip title={t("deployments.clearSeed")}>
+          <button
+            type="button"
+            className="dm-set-icon-btn"
+            onClick={() => onClearSeed(d)}
+            aria-label={t("deployments.clearSeed")}
+          >
+            <TableOutlined />
+          </button>
+        </Tooltip>
       )}
       {d.status === "running" && d.role === "creator" && (
-        <Button size="small" danger onClick={() => onStop(d)}>
-          停止
-        </Button>
+        <Tooltip title={t("deployments.stop")}>
+          <button
+            type="button"
+            className="dm-set-icon-btn dm-set-icon-btn-danger"
+            onClick={() => onStop(d)}
+            aria-label={t("deployments.stop")}
+          >
+            <PlayCircleOutlined />
+          </button>
+        </Tooltip>
       )}
       {d.status === "stopped" && d.role === "creator" && (
-        <Button size="small" icon={<PlayCircleOutlined />} onClick={() => onStart(d)}>
-          再启动
-        </Button>
+        <Tooltip title={t("deployments.restart")}>
+          <button
+            type="button"
+            className="dm-set-icon-btn"
+            onClick={() => void onStart(d)}
+            aria-label={t("deployments.restart")}
+          >
+            <PlayCircleOutlined />
+          </button>
+        </Tooltip>
       )}
       {d.role === "creator" && (
-        <Button size="small" danger icon={<DeleteOutlined />} onClick={() => setDestroyDep(d)}>
-          销毁
-        </Button>
+        <Tooltip title={t("deployments.destroy")}>
+          <button
+            type="button"
+            className="dm-set-icon-btn dm-set-icon-btn-danger"
+            onClick={() => setDestroyDep(d)}
+            aria-label={t("deployments.destroy")}
+          >
+            <DeleteOutlined />
+          </button>
+        </Tooltip>
       )}
-    </Space>
+    </>
   );
 
-  const renderCard = (d: Deployment) => (
-    <Card
-      key={d.id}
-      size="small"
-      hoverable
-      onClick={() => setOpenId(d.id)}
-      styles={{ body: { padding: 16 } }}
-      style={
-        d.status === "stopped"
-          ? { opacity: 0.92, background: "var(--fn-bg-secondary)" }
-          : undefined
-      }
-    >
-      <Space style={{ width: "100%", justifyContent: "space-between" }} align="start">
-        <div>
-          <Space>
-            <Text strong style={{ fontSize: 15 }}>
+  const columns = [
+    {
+      title: t("deployments.colName"),
+      key: "biz_name",
+      width: 240,
+      fixed: isMobile ? undefined : ("left" as const),
+      render: (_: unknown, d: Deployment) => (
+        <div className="dm-set-cell">
+          <span className="dm-set-cell-avatar">
+            <ThunderboltOutlined />
+          </span>
+          <span className="dm-set-cell-text">
+            <span className="dm-set-cell-name">
               {d.biz_name}
-            </Text>
-            <Tag color={STATUS_COLOR[d.status] || "default"}>
-              {STATUS_LABEL[d.status] || d.status}
-            </Tag>
-            {d.data_mode === "link" && <Tag color="geekblue">直连</Tag>}
-            {d.entry_path && (
-              <Text
-                code
-                copyable={{ text: `${window.location.origin}${d.entry_path}` }}
-                style={{ fontSize: 12 }}
-              >
-                {`${window.location.origin}${d.entry_path}`}
-              </Text>
-            )}
-          </Space>
-          <Paragraph
-            type="secondary"
-            ellipsis={{ rows: 1 }}
-            style={{ margin: "6px 0 0", maxWidth: 560 }}
-          >
-            {d.purpose}
-          </Paragraph>
+              {d.data_mode === "link" && (
+                <span className="dm-set-cell-tag">{t("deployments.linkTag")}</span>
+              )}
+            </span>
+            <span className="dm-set-cell-handle">
+              {d.entry_path || t("deployments.noEntry")}
+            </span>
+          </span>
         </div>
-        {renderActions(d)}
-      </Space>
-    </Card>
+      ),
+    },
+    {
+      title: t("deployments.colStatus"),
+      key: "status",
+      width: 120,
+      render: (_: unknown, d: Deployment) => (
+        <span className="dm-set-pill">
+          <span
+            className="dm-set-status-dot"
+            style={{ background: STATUS_DOT[d.status] || "#bfbfbf" }}
+          />
+          {t(`deployments.status_${d.status}`, d.status)}
+        </span>
+      ),
+    },
+    {
+      title: t("deployments.colPurpose"),
+      key: "purpose",
+      dataIndex: "purpose",
+      ellipsis: true,
+      render: (v: string) => (
+        <span className="dm-set-cell-muted">{v || "—"}</span>
+      ),
+    },
+    {
+      title: t("deployments.colCreatedAt"),
+      key: "created_at",
+      dataIndex: "created_at",
+      width: 160,
+      render: (v: string) => (
+        <span className="dm-set-cell-muted">
+          {v ? dayjs(v).format("YYYY/MM/DD HH:mm") : "—"}
+        </span>
+      ),
+    },
+    {
+      title: t("deployments.colActions"),
+      key: "actions",
+      width: 260,
+      fixed: isMobile ? undefined : ("right" as const),
+      render: (_: unknown, d: Deployment) => actionButtons(d),
+    },
+  ];
+
+  const renderCard = (d: Deployment) => (
+    <div
+      key={d.id}
+      className={`dm-set-card${
+        d.status === "stopped" || d.status === "destroyed"
+          ? " dm-set-card-muted"
+          : ""
+      }`}
+    >
+      <div
+        className={`dm-set-card-accent ${
+          d.status === "destroyed"
+            ? "dm-set-card-accent-danger"
+            : d.status === "running"
+              ? "dm-set-card-accent-brand"
+              : "dm-set-card-accent-neutral"
+        }`}
+      />
+      <div className="dm-set-card-inner">
+        <div className="dm-set-card-header">
+          <div className="dm-set-card-avatar" aria-hidden="true">
+            <ThunderboltOutlined />
+          </div>
+          <div className="dm-set-card-title-block">
+            <div className="dm-set-card-name-row">
+              <span className="dm-set-card-name">{d.biz_name}</span>
+              {d.data_mode === "link" && (
+                <span className="dm-set-card-tag">{t("deployments.linkTag")}</span>
+              )}
+            </div>
+            <div className="dm-set-card-handle">
+              {d.entry_path || t("deployments.noEntry")}
+            </div>
+          </div>
+        </div>
+
+        <div className="dm-set-card-meta">
+          <span className="dm-set-pill">
+            <span
+              className="dm-set-status-dot"
+              style={{ background: STATUS_DOT[d.status] || "#bfbfbf" }}
+            />
+            {t(`deployments.status_${d.status}`, d.status)}
+          </span>
+          {d.seed_data && (
+            <span className="dm-set-pill">{t("deployments.seedTag")}</span>
+          )}
+        </div>
+
+        <div className="dm-set-card-info">
+          <span className="dm-set-card-time">
+            <ProjectOutlined />
+            <span
+              style={{
+                whiteSpace: "nowrap",
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+              }}
+            >
+              {d.purpose || "—"}
+            </span>
+          </span>
+          <span className="dm-set-card-time">
+            {d.created_at ? dayjs(d.created_at).format("YYYY/MM/DD HH:mm") : "—"}
+          </span>
+        </div>
+
+        <div className="dm-set-card-footer">
+          {actionButtons(d)}
+          <span className="dm-set-card-footer-spacer" />
+          <span className="dm-set-id-badge">#{d.id}</span>
+        </div>
+      </div>
+    </div>
   );
 
   return (
-    <PageShell
-      title="我部署过的系统"
-      actions={
-        <Space>
-          <Segmented
-            value={view}
-            onChange={(v) => persistView(v as ViewMode)}
-            options={[
-              { label: "卡片", value: "card" },
-              { label: "表格", value: "table" },
-            ]}
-          />
-          <Button icon={<ReloadOutlined />} onClick={load}>
-            刷新
-          </Button>
-          <Dropdown
-            menu={{
-              items: [
-                { key: "auto", label: "全自动（简单业务）" },
-                { key: "hybrid", label: "混合引导（复杂需求）" },
-                { key: "manual", label: "纯手动 · 专业模式" },
-              ],
-              onClick: ({ key }) => openWizard(key as "auto" | "hybrid" | "manual"),
-            }}
-          >
-            <Button type="primary" icon={<PlusOutlined />}>
-              部署一套系统 <DownOutlined style={{ fontSize: 12 }} />
-            </Button>
-          </Dropdown>
-        </Space>
-      }
-    >
-      {view === "table" ? (
-        <Table
-          rowKey="id"
-          loading={loading}
-          dataSource={rows}
-          pagination={false}
-          columns={[
-            {
-              title: "名称",
-              dataIndex: "biz_name",
-              render: (v: string, d: Deployment) => (
-                <Space>
-                  <Text strong>{v}</Text>
-                  {d.data_mode === "link" && <Tag color="geekblue">直连</Tag>}
-                </Space>
-              ),
-            },
-            {
-              title: "状态",
-              dataIndex: "status",
-              width: 100,
-              render: (s: string) => (
-                <Tag color={STATUS_COLOR[s] || "default"}>{STATUS_LABEL[s] || s}</Tag>
-              ),
-            },
-            { title: "用途", dataIndex: "purpose", ellipsis: true },
-            {
-              title: "操作",
-              width: 380,
-              render: (_: unknown, d: Deployment) => renderActions(d),
-            },
-          ]}
-        />
-      ) : (
-      <Spin spinning={loading}>
-        {rows.length === 0 && !loading ? (
-          <Empty
-            image={<img src="/datamason-mascot-empty.png" alt="吉祥物" style={{ width: 140, height: 140, objectFit: "contain" }} />}
-            imageStyle={{ height: 150 }}
-            description={
-              <Space direction="vertical" size={2}>
-                <Text type="secondary">还没有部署任何系统</Text>
-                <Text type="secondary" style={{ fontSize: 12 }}>
-                  先在「设置 → 模型管理」配置并测试一个 LLM，然后点右上角「部署一套系统」
-                </Text>
-              </Space>
-            }
-          />
-        ) : (
-          <Space direction="vertical" style={{ width: "100%" }} size={16}>
-            <div>
-              {runningRows.length > 0 && (
-                <Text type="secondary" style={{ display: "block", marginBottom: 8 }}>
-                  运行中（{runningRows.length}）
-                </Text>
-              )}
-              <Space direction="vertical" style={{ width: "100%" }} size={12}>
-                {runningRows.map(renderCard)}
-              </Space>
+    <>
+      <PageShell
+        title={t("deployments.title")}
+        subtitle={t("deployments.subtitle")}
+      >
+        <div className="dm-set-page">
+          <div className="dm-set-page-top">
+            <div className="dm-set-legend" role="note">
+              <span className="dm-set-legend-label">
+                {t("deployments.legendTitle")}
+              </span>
+              <p className="dm-set-legend-text">{t("deployments.legend")}</p>
             </div>
-            {stoppedRows.length > 0 && (
-              <Collapse
-                ghost
-                style={{ borderTop: "1px solid var(--fn-border-primary)" }}
-                items={[
+          <div className="dm-set-grid-toolbar">
+            <Input
+              allowClear
+              prefix={<SearchOutlined />}
+              value={keyword}
+              onChange={(e) => setKeyword(e.target.value)}
+              placeholder={t("deployments.searchPlaceholder")}
+              className="dm-set-search"
+            />
+            <div className="dm-set-grid-toolbar-right">
+              <Segmented
+                size="small"
+                value={view}
+                onChange={(v) => persistView(v as ViewMode)}
+                options={[
                   {
-                    key: "stopped",
-                    label: `已停止（${stoppedRows.length}）— 数据已保留，可再启动`,
-                    children: (
-                      <Space direction="vertical" style={{ width: "100%" }} size={12}>
-                        {stoppedRows.map(renderCard)}
-                      </Space>
+                    value: "card",
+                    label: (
+                      <span className="dm-set-view-mode-label">
+                        <AppstoreOutlined />
+                        {t("deployments.viewCard")}
+                      </span>
+                    ),
+                  },
+                  {
+                    value: "table",
+                    label: (
+                      <span className="dm-set-view-mode-label">
+                        <UnorderedListOutlined />
+                        {t("deployments.viewTable")}
+                      </span>
                     ),
                   },
                 ]}
               />
-            )}
-          </Space>
-        )}
-      </Spin>
-      )}
+              <Button icon={<ReloadOutlined />} onClick={() => void load()}>
+                {t("deployments.refresh")}
+              </Button>
+            </div>
+          </div>
+        </div>
 
-      <DeployWizard
-        open={wizardOpen}
-        initialBuilder={wizardBuilder}
-        onClose={() => setWizardOpen(false)}
-        onDeployed={load}
-      />
+        {view === "card" ? (
+          loading && rows.length === 0 ? (
+            <div className="dm-set-grid-loading">
+              <Spin />
+            </div>
+          ) : filtered.length === 0 ? (
+            <Empty
+              description={
+                rows.length === 0
+                  ? t("deployments.noDeployments")
+                  : t("deployments.noMatch")
+              }
+            />
+          ) : (
+            <div className="dm-set-card-grid">{filtered.map(renderCard)}</div>
+          )
+        ) : (
+          <ResizableTable
+            storageKey={TABLE_WIDTH_KEY}
+            rowKey="id"
+            size="middle"
+            className="dm-set-table"
+            loading={loading}
+            dataSource={filtered}
+            pagination={false}
+            scroll={{ x: 1080 }}
+            columns={columns}
+          />
+        )}
+        </div>
+      </PageShell>
 
       <ShareModal
         deploymentId={shareDep?.id ?? null}
@@ -426,6 +573,6 @@ export default function Deployments() {
         onClose={() => setDestroyDep(null)}
         onDestroyed={load}
       />
-    </PageShell>
+    </>
   );
 }

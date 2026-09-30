@@ -2,6 +2,7 @@ import {
   AppstoreOutlined,
   DatabaseOutlined,
   HistoryOutlined,
+  RocketOutlined,
   RobotOutlined,
   TeamOutlined,
   ThunderboltOutlined,
@@ -14,7 +15,10 @@ import type { CurrentUser } from "../api";
 export function buildConsoleNav(user: CurrentUser, t: TFunction): NavSection[] {
   const sections: NavSection[] = [
     {
-      items: [{ key: "deployments", label: t("nav.deployments"), icon: <AppstoreOutlined /> }],
+      items: [
+        { key: "quick-deploy", label: t("nav.quickDeploy"), icon: <RocketOutlined /> },
+        { key: "deployments", label: t("nav.deployments"), icon: <AppstoreOutlined /> },
+      ],
     },
   ];
   if (user.is_platform_admin) {

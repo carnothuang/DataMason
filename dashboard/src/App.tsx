@@ -99,6 +99,7 @@ export default function App() {
   const knownRoot =
     location.pathname === "/" ||
     location.pathname.startsWith("/deployments") ||
+    location.pathname.startsWith("/quick-deploy") ||
     location.pathname.startsWith("/settings");
   if (!knownRoot) {
     return <CustomEntry path={location.pathname} />;
